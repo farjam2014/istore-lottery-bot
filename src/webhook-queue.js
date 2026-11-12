@@ -58,6 +58,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
           );
           if (result.affectedRows !== 1) leaseLost = true;
         } catch (error) {
+          leaseLost = true;
           logger.error("Webhook lease heartbeat error:", error.message);
         }
       }, heartbeatMs);
