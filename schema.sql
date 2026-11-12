@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS telegram_notification_outbox (
  payload JSON NOT NULL,
  status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+ next_attempt_at TIMESTAMP NULL DEFAULT NULL,
  processing_started_at TIMESTAMP NULL DEFAULT NULL,
  processing_token CHAR(36) NULL DEFAULT NULL,
  last_error VARCHAR(500) NULL,
