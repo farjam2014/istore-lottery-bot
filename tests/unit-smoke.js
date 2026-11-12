@@ -1,0 +1,13 @@
+'use strict';
+const assert = require('node:assert/strict');
+const d = require('../src/domain');
+assert.equal(d.normalizePhone('۰۹۱۲ ۳۴۵-۶۷۸۹'), '۰۹۱۲۳۴۵۶۷۸۹'.replace(/[۰-۹]/g, x => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(x))));
+assert.equal(d.validPhone('+4915112345678'), true);
+assert.equal(d.validPhone('12-xx'), false);
+assert.equal(d.normalizeInstagram('  @Example.Name  '), 'example.name');
+assert.equal(d.validInstagram('@user_01'), true);
+assert.equal(d.validInstagram('user name'), false);
+assert.equal(d.validFullName('علی محمدی'), true);
+assert.equal(d.validFullName('ab'), false);
+for (let i=0;i<1000;i++) assert.match(d.makeRaffleCode(), /^LOT-[A-HJ-NP-Z2-9]{8}$/);
+console.log('UNIT_SMOKE_OK');
