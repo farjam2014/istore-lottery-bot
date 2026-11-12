@@ -19,11 +19,24 @@ read -r -p "دامنه: " DOMAIN
 read -r -p "ایمیل SSL: " EMAIL
 read -r -p "Telegram Bot Token: " BOT_TOKEN
 read -r -p "Telegram numeric Admin ID: " ADMIN_ID
+read -r -s -p "رمز دیتابیس MySQL (حداقل ۲۰ کاراکتر؛ فقط حروف انگلیسی، عدد و ._!@#%+=-): " DB_PASSWORD
+echo
+read -r -s -p "تکرار رمز دیتابیس: " DB_PASSWORD_CONFIRM
+echo
+read -r -s -p "رمز پنل سایت (حداقل ۱۶ کاراکتر؛ فقط حروف انگلیسی، عدد و ._!@#%+=-): " ADMIN_PASSWORD
+echo
+read -r -s -p "تکرار رمز پنل سایت: " ADMIN_PASSWORD_CONFIRM
+echo
 read -r -p "شماره تماس فروشگاه با کد کشور (اختیاری): " CONTACT_PHONE
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "دامنه نامعتبر است."
 [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "ایمیل نامعتبر است."
 [[ "$BOT_TOKEN" =~ ^[0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]] || die "توکن نامعتبر است."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || die "Admin ID نامعتبر است."
+[[ "$DB_PASSWORD" =~ ^[A-Za-z0-9._!@#%+=-]{20,96}$ ]] || die "رمز دیتابیس باید ۲۰ تا ۹۶ کاراکتر و فقط شامل حروف انگلیسی، عدد و ._!@#%+=- باشد."
+[[ "$DB_PASSWORD" == "$DB_PASSWORD_CONFIRM" ]] || die "تکرار رمز دیتابیس یکسان نیست."
+[[ "$ADMIN_PASSWORD" =~ ^[A-Za-z0-9._!@#%+=-]{16,96}$ ]] || die "رمز پنل باید ۱۶ تا ۹۶ کاراکتر و فقط شامل حروف انگلیسی، عدد و ._!@#%+=- باشد."
+[[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]] || die "تکرار رمز پنل یکسان نیست."
+unset DB_PASSWORD_CONFIRM ADMIN_PASSWORD_CONFIRM
 if [[ -n "$CONTACT_PHONE" && ! "$CONTACT_PHONE" =~ ^\+?[0-9]{8,15}$ ]]; then die "شماره تماس نامعتبر است."; fi
 
 SERVER_IP="$(hostname -I | awk '{print $1}')"
@@ -59,7 +72,6 @@ rm -rf /root/istore-lottery-bot /root/istore-staging "$APP_DIR"
 rm -f "/etc/nginx/sites-enabled/$SERVICE" "/etc/nginx/sites-available/$SERVICE"
 
 log "بازسازی دیتابیس"
-DB_PASSWORD="$(openssl rand -hex 32)"
 mysql --protocol=socket -uroot <<SQL
 DROP DATABASE IF EXISTS istore_lottery;
 DROP DATABASE IF EXISTS istore_lottery_staging;
@@ -78,7 +90,6 @@ npm test
 mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
 
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
-ADMIN_PASSWORD="$(openssl rand -hex 24)"
 SESSION_SECRET="$(openssl rand -hex 48)"
 cat > "$APP_DIR/.env" <<ENV
 BOT_TOKEN=$BOT_TOKEN
