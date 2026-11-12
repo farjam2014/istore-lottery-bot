@@ -88,7 +88,11 @@ await conn.commit();
 return assignedCode;
 }catch(e){
 await conn.rollback();
-if(e.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+if(e.code==="ER_DUP_ENTRY"){
+const [sameUser]=await db.execute("SELECT raffle_code,status FROM lottery_entries WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
+if(sameUser[0]?.status==="active")return sameUser[0].raffle_code;
+throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+}
 throw e;
 }finally{conn.release()}
 }
