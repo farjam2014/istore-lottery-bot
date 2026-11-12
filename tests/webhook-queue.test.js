@@ -177,3 +177,14 @@ test("stop waits for an in-flight webhook handler", async () => {
   await Promise.all([processing, stopping]);
   assert.equal(stopped, true);
 });
+
+
+test("stop returns false instead of waiting forever after its deadline", async () => {
+  const { queue } = createHarness({
+    handler: async () => { await new Promise(resolve => setTimeout(resolve, 80)); }
+  });
+  const processing = queue.processOne();
+  const stopped = await queue.stop(10);
+  assert.equal(stopped, false);
+  await processing;
+});
