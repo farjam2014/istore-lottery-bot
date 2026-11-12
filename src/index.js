@@ -65,7 +65,7 @@ async function entry(uid){const [r]=await db.execute("SELECT * FROM lottery_entr
 async function session(uid){const [r]=await db.execute("SELECT * FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO lottery_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)])}
-async function saveEntry(uid,chat,name,phone,inst){
+async function saveEntry(uid,chat,name,phone,inst,businessConnection){
 const conn=await db.getConnection();
 try{
 await conn.beginTransaction();
@@ -88,6 +88,10 @@ const [result]=await conn.execute("INSERT INTO lottery_entries(telegram_user_id,
 entryId=result.insertId;
 await conn.execute("INSERT INTO lottery_code_history(entry_id,raffle_code,action,actor) VALUES(?,?,'assigned','system')",[entryId,assignedCode]);
 }
+const adminText=["🎉 شرکت‌کننده جدید قرعه‌کشی","","👤 نام: "+name,"📱 موبایل: "+phone,"📸 اینستاگرام: @"+inst,"🎟️ کد قرعه‌کشی: "+assignedCode].join("\n");
+const userText="✅ ثبت‌نام کامل شد!\n🎟️ کد قرعه‌کشی شما: "+assignedCode+"\nاین کد را نگه دارید.";
+await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":admin","admin_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:adminText}})]);
+await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":user","user_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:String(chat),business_connection_id:String(businessConnection||""),text:userText}})]);
 await conn.commit();
 return assignedCode;
 }catch(e){
@@ -149,14 +153,9 @@ return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
 try{
 const old=await entry(uid);
-const c=old&&old.status==="active"?old.raffle_code:await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram);
-try{
-const notice=["🎉 شرکت‌کننده جدید قرعه‌کشی","","👤 نام: "+s.full_name,"📱 موبایل: "+s.phone,"📸 اینستاگرام: @"+s.instagram,"🎟️ کد قرعه‌کشی: "+c].join("\n");
-await tg("sendMessage",{chat_id:process.env.ADMIN_ID,text:notice});
-}catch(e){console.error("Admin notification error:",e.message)}
-const sent=await tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:"✅ ثبت‌نام کامل شد!\n🎟️ کد قرعه‌کشی شما: "+c+"\nاین کد را نگه دارید."});
+const c=old&&old.status==="active"?old.raffle_code:await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
 await delSession(uid);
-return sent;
+return tg("answerCallbackQuery",{callback_query_id:q.id,text:"ثبت‌نام نهایی شد. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت."});
 }catch(e){
 console.error("Lottery confirmation error:",e.message);
 const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
@@ -458,6 +457,8 @@ await conn.execute("UPDATE lottery_settings SET setting_value='true' WHERE setti
 await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID||"admin"),"draw","lottery_draw",String(draw.insertId),JSON.stringify({eligible_count:rows.length,winner_entry_id:winner.id})]);
 await conn.commit();r.json({total:rows.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.raffle_code}})
 }catch(e){await conn.rollback();console.error("Draw error:",e.message);r.status(500).json({error:"اجرای قرعه‌کشی ناموفق بود."})}finally{conn.release()}});
+const {createNotificationOutbox}=require("./notification-outbox");
+const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(method,payload),logger:console});
 const {createWebhookQueue}=require("./webhook-queue");
 const webhookQueue=createWebhookQueue({
 db,
@@ -488,6 +489,7 @@ server.close(()=>process.exit(1));
 }
 });
 webhookQueue.start();
+notificationOutbox.start();
 let shuttingDown=false;
 async function shutdown(signal){
 if(shuttingDown)return;
@@ -498,6 +500,7 @@ console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished 
 process.exit(1);
 },35000);
 const drained=await webhookQueue.stop(30000);
+notificationOutbox.stop();
 if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
 server.close(()=>{db.end().finally(()=>{clearTimeout(forceExit);process.exit(drained?0:1)})});
 }
