@@ -105,3 +105,13 @@ test('legacy phone text step cannot bypass Telegram contact ownership verificati
   assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null\)/);
   assert.doesNotMatch(source, /if\(s\.step===\"phone\"\)\{const p=t\.replace/);
 });
+
+test('registration confirmation token is bound to user, chat and Business connection', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /function makeConfirmationPayload\(uid,chat,connection\)/);
+  assert.match(source, /claims\.uid===String\(uid\)&&claims\.chat===String\(chat\)&&claims\.connection===String\(connection\)/);
+  assert.match(source, /verifyConfirmationPayload\(q\.data\|\|"",uid,chat,q\.message\?\.business_connection_id\|\|""\)/);
+  assert.match(source, /String\(s\.business_connection_id\)!==String\(q\.message\?\.business_connection_id\|\|""\)/);
+  assert.match(source, /callback_data:makeConfirmationPayload\(uid,chat,conn\)/);
+});
