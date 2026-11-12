@@ -86,7 +86,7 @@ WEBHOOK_SECRET=$WEBHOOK_SECRET
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 SESSION_SECRET=$SESSION_SECRET
 PORT=3000
-DB_HOST=127.0.0.1
+DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
@@ -95,8 +95,9 @@ ADMIN_ID=$ADMIN_ID
 CONTACT_PHONE=$CONTACT_PHONE
 REGISTRATION_OPEN=false
 ENV
-chmod 600 "$APP_DIR/.env"
-chown -R root:root "$APP_DIR"
+chmod 640 "$APP_DIR/.env"
+if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
+chown -R root:istorebot "$APP_DIR"
 npm run migrate
 
 log "ساخت سرویس systemd"
@@ -107,7 +108,8 @@ After=network-online.target mysql.service
 Wants=network-online.target
 [Service]
 Type=simple
-User=root
+User=istorebot
+Group=istorebot
 WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
 ExecStart=/usr/bin/node $APP_DIR/src/index.js
