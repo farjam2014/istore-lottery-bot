@@ -65,6 +65,8 @@ async function saveEntry(uid,chat,name,phone,inst){
 const conn=await db.getConnection();
 try{
 await conn.beginTransaction();
+const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
+if(registrationState?.setting_value!=="true")throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
 const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
 const existing=existingRows[0];
 if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
@@ -151,7 +153,7 @@ await delSession(uid);
 return sent;
 }catch(e){
 console.error("Lottery confirmation error:",e.message);
-const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
+const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
