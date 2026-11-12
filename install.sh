@@ -17,7 +17,8 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ کد خطا: $rc"
 echo "نصب پاک: دیتابیس‌های istore_lottery و istore_lottery_staging و فایل‌های قبلی ربات حذف می‌شوند."
 read -r -p "دامنه: " DOMAIN
 read -r -p "ایمیل SSL: " EMAIL
-read -r -p "Telegram Bot Token: " BOT_TOKEN
+read -r -s -p "Telegram Bot Token: " BOT_TOKEN
+echo
 read -r -p "Telegram numeric Admin ID: " ADMIN_ID
 read -r -s -p "رمز دیتابیس MySQL (حداقل ۲۰ کاراکتر؛ فقط حروف انگلیسی، عدد و ._!@#%+=-): " DB_PASSWORD
 echo
