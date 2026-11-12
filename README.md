@@ -4,7 +4,7 @@ Telegram Business lottery bot with MySQL, durable webhook inbox, Telegram-first 
 
 ## Safe install / upgrade — Ubuntu 24.04
 
-> **Destructive:** this installer permanently drops MySQL databases `istore_lottery` and `istore_lottery_staging`, including participants, raffle codes, sessions, draw history, and audit data. It also removes the old application directories and service.
+> **Safe install/upgrade:** this installer does not drop application databases. If `istore_lottery` exists, it creates and verifies a compressed backup under `/var/backups/istore-lottery/` before schema changes. Existing application files are moved to a timestamped backup directory rather than deleted.
 
 Run on the VPS to install the current tested feature branch:
 
@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/featu
 sudo bash /root/istore-install.sh
 ```
 
-It interactively asks for domain, SSL email, BotFather token, numeric Telegram admin ID, MySQL password, website admin-panel password, and optional store contact phone. Passwords are entered invisibly and must be confirmed; the MySQL password requires at least 20 characters and the panel password at least 16 characters. Webhook/session secrets are generated automatically. It verifies DNS and validates the bot token before the destructive confirmation phrase `DELETE-ISTORE-ALL`.
+It interactively asks for domain, SSL email, BotFather token, numeric Telegram admin ID, MySQL password, website admin-panel password, and optional store contact phone. Passwords are entered invisibly and must be confirmed; the MySQL password requires at least 20 characters and the panel password at least 16 characters. Webhook/session secrets are generated automatically. It verifies DNS and validates the bot token and validates the bot token before changing application configuration.
 
 It installs Node.js 22, MySQL, Nginx, Certbot and Git; backs up an existing application database before schema changes; preserves the previous application directory; clones the configured feature branch; runs dependency install, tests, schema import and migrations; generates DB credentials, webhook/session secrets and an admin panel password; configures systemd, HTTPS, Telegram webhook and health check. Registration stays closed.
 
