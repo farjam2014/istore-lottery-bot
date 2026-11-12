@@ -134,6 +134,31 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     const body = rows.length ? rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\n'+x.created_at).join('\n\n') : 'هنوز رخدادی ثبت نشده است.';
     return tg('sendMessage',{chat_id:chat,text:'🧾 ۱۵ رخداد اخیر\n\n'+body,reply_markup:keyboard([[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]])});
   }
+  async function drawHistory(chat, page = 0) {
+    const p = Math.max(0, Math.min(10000, Number(page) || 0));
+    const [rows] = await db.execute(
+      'SELECT d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.created_at,COUNT(p.entry_id) AS eligible_count FROM lottery_draws d LEFT JOIN lottery_draw_participants p ON p.draw_id=d.id GROUP BY d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.created_at ORDER BY d.id DESC LIMIT 8 OFFSET ?',
+      [p * 8]
+    );
+    if (!rows.length && p === 0) return tg('sendMessage',{chat_id:chat,text:'هنوز قرعه‌کشی ثبت‌شده‌ای وجود ندارد.',reply_markup:keyboard([[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
+    const buttons = rows.map(x => [{text:'🏆 قرعه‌کشی #'+x.id+' · '+x.winner_code,callback_data:'adm:draw-detail:'+x.id}]);
+    const nav=[];
+    if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:draw-history:'+(p-1)});
+    if(rows.length===8)nav.push({text:'بعدی ➡️',callback_data:'adm:draw-history:'+(p+1)});
+    if(nav.length)buttons.push(nav);
+    buttons.push([{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
+    return tg('sendMessage',{chat_id:chat,text:'📚 تاریخچه قرعه‌کشی · صفحه '+(p+1)+'\nبرای جزئیات انتخاب کنید:',reply_markup:keyboard(buttons)});
+  }
+  async function drawDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
+    const [rows]=await db.execute(
+      'SELECT d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.draw_seed,d.created_at,e.full_name,e.instagram,COUNT(p.entry_id) AS eligible_count FROM lottery_draws d LEFT JOIN lottery_entries e ON e.id=d.winner_entry_id LEFT JOIN lottery_draw_participants p ON p.draw_id=d.id WHERE d.id=? GROUP BY d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.draw_seed,d.created_at,e.full_name,e.instagram LIMIT 1',
+      [id]
+    );
+    if(!rows.length)return tg('sendMessage',{chat_id:chat,text:'قرعه‌کشی پیدا نشد.'});
+    const d=rows[0];
+    return tg('sendMessage',{chat_id:chat,text:'🏆 جزئیات قرعه‌کشی #'+d.id+'\n\nبرنده: '+(d.full_name||'پرونده حذف‌شده')+'\nاینستاگرام: '+(d.instagram?'@'+d.instagram:'-')+'\nکد برنده: '+d.winner_code+'\nتعداد واجدان snapshot: '+d.eligible_count+'\nمدیر اجراکننده: '+d.drawn_by+'\nزمان: '+d.created_at+'\nSeed ثبت‌شده: '+d.draw_seed+'\n\nتوجه: seed فعلی به‌تنهایی اثبات مستقل و قابل راستی‌آزمایی انصاف قرعه‌کشی نیست.',reply_markup:keyboard([[{text:'↩️ تاریخچه',callback_data:'adm:draw-history:0'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
+  }
   async function drawPreview(chat) {
     if (await registrationOpen()) return tg('sendMessage',{chat_id:chat,text:'⛔ ابتدا ثبت‌نام را ببندید.'});
     const [[done]] = await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");
@@ -271,7 +296,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
       finally { conn.release(); }
       return campaign(chat);
     }
-    if (data==='adm:draw') return drawPreview(chat);
+    if (data==='adm:draw') return tg('sendMessage',{chat_id:chat,text:'🏆 بخش قرعه‌کشی',reply_markup:keyboard([[{text:'اجرای قرعه‌کشی',callback_data:'adm:draw-run'},{text:'تاریخچه قرعه‌کشی',callback_data:'adm:draw-history:0'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
+    if (data==='adm:draw-run') return drawPreview(chat);
+    if (data.startsWith('adm:draw-history:')) return drawHistory(chat,data.split(':')[2]);
+    if (data.startsWith('adm:draw-detail:')) return drawDetail(chat,data.slice('adm:draw-detail:'.length));
     if (data==='adm:confirm-draw') return performDraw(chat);
     return tg('sendMessage',{chat_id:chat,text:'عملیات ناشناخته است.'});
   }
