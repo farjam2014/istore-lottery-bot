@@ -375,7 +375,11 @@ app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,d
 app.get("/admin/login",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","login.html")));
 const loginAttempts=new Map();
 app.post("/admin/login",(q,r)=>{
-const ip=String(q.ip||q.socket.remoteAddress||"unknown"),now=Date.now(),a=loginAttempts.get(ip)||{count:0,until:0};
+const ip=String(q.ip||q.socket.remoteAddress||"unknown").slice(0,128),now=Date.now(),a=loginAttempts.get(ip)||{count:0,until:0};
+if(!loginAttempts.has(ip)&&loginAttempts.size>=10000){
+const oldest=loginAttempts.keys().next().value;
+if(oldest!==undefined)loginAttempts.delete(oldest);
+}
 if(a.until>now&&a.count>=8)return r.status(429).send("تعداد تلاش زیاد است. چند دقیقه دیگر دوباره امتحان کنید.");
 if(!equal(q.body.password||"",adminPass)){a.count++;a.until=a.count>=8?now+15*60*1000:now+5*60*1000;loginAttempts.set(ip,a);return r.status(401).send("رمز نادرست است؛ دوباره تلاش کنید.")}
 loginAttempts.delete(ip);const p=Buffer.from(JSON.stringify({exp:Date.now()+4*3600000})).toString("base64url");r.setHeader("Set-Cookie",`istore_admin=${p}.${signed(p)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=14400`);r.redirect("/admin")});
