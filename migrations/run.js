@@ -1,6 +1,7 @@
 'use strict';
 const mysql = require('mysql2/promise');
 require('dotenv').config();
+const { acquireMigrationLock } = require('../src/migration-lock');
 
 async function main() {
   const db = await mysql.createConnection({
@@ -11,7 +12,9 @@ async function main() {
     database: process.env.DB_NAME,
     charset: 'utf8mb4',
   });
+  let releaseMigrationLock;
   try {
+    releaseMigrationLock = await acquireMigrationLock(db, 'istore_lottery_migrations', 30);
     const [tables] = await db.query(
       "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
     );
@@ -79,6 +82,7 @@ async function main() {
 `);
     console.log('MIGRATIONS_OK');
   } finally {
+    if (releaseMigrationLock) await releaseMigrationLock();
     await db.end();
   }
 }
