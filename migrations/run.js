@@ -42,7 +42,7 @@ async function main() {
     await db.query('CREATE TABLE IF NOT EXISTS released_codes (raffle_code VARCHAR(20) PRIMARY KEY, source_entry_id BIGINT UNSIGNED NOT NULL, released_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_released_at(released_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     await db.query("CREATE TABLE IF NOT EXISTS lottery_code_history (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, entry_id BIGINT UNSIGNED NOT NULL, raffle_code VARCHAR(20) NOT NULL, action ENUM('assigned','released') NOT NULL, actor VARCHAR(80) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_code_history_entry(entry_id,created_at), KEY idx_code_history_code(raffle_code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     await db.query('CREATE TABLE IF NOT EXISTS lottery_draw_participants (draw_id BIGINT UNSIGNED NOT NULL, entry_id BIGINT UNSIGNED NOT NULL, raffle_code VARCHAR(20) NOT NULL, PRIMARY KEY(draw_id,entry_id), UNIQUE KEY uq_draw_code(draw_id,raffle_code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    await db.query("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','true'),('draw_completed','false')");
+    await db.query("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false')");
     await db.query("UPDATE lottery_settings SET setting_value='true' WHERE setting_key='draw_completed' AND EXISTS (SELECT 1 FROM lottery_draws)");
     await db.query("INSERT IGNORE INTO lottery_code_history(entry_id,raffle_code,action,actor) SELECT id,raffle_code,'assigned','migration' FROM lottery_entries WHERE status='active'");
     console.log('MIGRATIONS_OK');
