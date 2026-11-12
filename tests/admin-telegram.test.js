@@ -14,7 +14,7 @@ function harness() {
       calls.push({ sql, params });
       if (sql.includes('SELECT id,status,raffle_code FROM lottery_entries')) return [[{ id: 42, status: 'active', raffle_code: 'LOT-ABCDEFGH' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
-      if (sql.includes('SELECT id FROM lottery_entries WHERE status=\\'active\\'')) return [[]];
+      if (sql.includes("SELECT id FROM lottery_entries WHERE status='active'")) return [[]];
       return [{ affectedRows: 1, insertId: 77 }];
     },
     async query() { return [[]]; }
