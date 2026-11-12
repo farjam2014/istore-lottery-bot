@@ -2,6 +2,7 @@ require("dotenv").config();
 const express=require("express"), mysql=require("mysql2/promise"), crypto=require("crypto"), path=require("path");
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
+const {createAdminTelegram}=require("./admin-telegram");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -48,6 +49,7 @@ throw error;
 }finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text})}
+const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const csvCell=v=>{let x=String(v??"");if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"'};
@@ -163,6 +165,7 @@ const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا 
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
+const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
 if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private"){
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
 }
@@ -207,6 +210,8 @@ async function handlePrivateUpdate(update){
 const m=update.message;
 if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
 const uid=String(m.from.id),chat=String(m.chat.id);
+
+const adminHandled=await adminTelegram.handleMessage(m);if(adminHandled!==false)return adminHandled;
 
 if(m.text?.trim()==="پنل" || m.text?.trim().toLowerCase()==="/panel"){
 if(uid!==String(process.env.ADMIN_ID))return;
