@@ -104,4 +104,4 @@ CREATE TABLE IF NOT EXISTS lottery_code_history (
  KEY idx_code_history_code(raffle_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','true'),('draw_completed','false');
+INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false');
