@@ -10,7 +10,6 @@ on:
         options:
           - status
           - bot-restart
-          - bot-logs
           - nginx-status
 
 permissions:
@@ -33,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUESTED_ACTION" in
-            status|bot-restart|bot-logs|nginx-status) ;;
+            status|bot-restart|nginx-status) ;;
             *) echo "Rejected operation"; exit 2 ;;
           esac
           sudo -n /usr/local/sbin/istore-admin "$REQUESTED_ACTION"
