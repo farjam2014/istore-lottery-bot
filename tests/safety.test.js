@@ -115,3 +115,24 @@ test('registration confirmation token is bound to user, chat and Business connec
   assert.match(source, /String\(s\.business_connection_id\)!==String\(q\.message\?\.business_connection_id\|\|""\)/);
   assert.match(source, /callback_data:makeConfirmationPayload\(uid,chat,conn\)/);
 });
+
+test('registration callback is answered once after durable confirmation', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('async function handleCallbackQuery(q)');
+  const end = source.indexOf('async function handlePrivateUpdate(update)', start);
+  const handler = source.slice(start, end);
+  assert.equal((handler.match(/answerCallbackQuery/g) || []).length, 4);
+  assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
+  assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
+});
+
+test('contact-card delivery failure does not strand registration in confirmation state', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const contact = source.indexOf('if(s.step==="instagram"){');
+  const confirm = source.indexOf('await putSession(uid,chat,"awaiting_confirmation"', contact);
+  const failure = source.indexOf('ارسال کارت مخاطب ممکن نشد', contact);
+  assert.ok(contact >= 0 && confirm > failure);
+  assert.match(source, /if\(s\.step==="awaiting_confirmation"\)\{\s*return tg\("sendMessage"/);
+});
