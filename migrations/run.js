@@ -29,6 +29,7 @@ async function main() {
     }
     let c = await columns('lottery_sessions');
     if (!c.has('instagram')) await db.query('ALTER TABLE lottery_sessions ADD COLUMN instagram VARCHAR(40) NULL AFTER phone');
+    await db.query('ALTER TABLE lottery_sessions MODIFY instagram VARCHAR(40) NULL');
     await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation') NOT NULL");
 
     c = await columns('lottery_entries');
@@ -36,6 +37,21 @@ async function main() {
     if (!c.has('updated_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
     if (!c.has('deleted_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deleted_at TIMESTAMP NULL');
     if (!c.has('deletion_reason')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deletion_reason VARCHAR(255) NULL');
+
+    // Abort before adding unique indexes if existing active records collide.
+    const [phoneDuplicates] = await db.query("SELECT phone, COUNT(*) AS n FROM lottery_entries WHERE status='active' GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1");
+    if (phoneDuplicates.length) throw new Error('Duplicate active phone numbers exist; resolve them before migration.');
+    const [instagramDuplicates] = await db.query("SELECT LOWER(instagram) AS normalized_instagram, COUNT(*) AS n FROM lottery_entries WHERE status='active' GROUP BY LOWER(instagram) HAVING COUNT(*) > 1 LIMIT 1");
+    if (instagramDuplicates.length) throw new Error('Duplicate active Instagram handles (case-insensitive) exist; resolve them before migration.');
+
+    c = await columns('lottery_entries');
+    if (!c.has('active_phone')) await db.query("ALTER TABLE lottery_entries ADD COLUMN active_phone VARCHAR(25) GENERATED ALWAYS AS (CASE WHEN status='active' THEN phone ELSE NULL END) STORED");
+    c = await columns('lottery_entries');
+    if (!c.has('active_instagram')) await db.query("ALTER TABLE lottery_entries ADD COLUMN active_instagram VARCHAR(40) GENERATED ALWAYS AS (CASE WHEN status='active' THEN LOWER(instagram) ELSE NULL END) STORED");
+    const [entryIndexes] = await db.query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_entries'");
+    const indexNames = new Set(entryIndexes.map(x => x.INDEX_NAME));
+    if (!indexNames.has('uq_entries_active_phone')) await db.query('ALTER TABLE lottery_entries ADD UNIQUE KEY uq_entries_active_phone(active_phone)');
+    if (!indexNames.has('uq_entries_active_instagram')) await db.query('ALTER TABLE lottery_entries ADD UNIQUE KEY uq_entries_active_instagram(active_instagram)');
 
     await db.query('CREATE TABLE IF NOT EXISTS admin_audit_log (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, admin_id VARCHAR(64) NOT NULL, action VARCHAR(64) NOT NULL, entity_type VARCHAR(64) NOT NULL, entity_id VARCHAR(64) NULL, details JSON NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_audit_created(created_at), KEY idx_audit_entity(entity_type,entity_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     await db.query("CREATE TABLE IF NOT EXISTS webhook_inbox (update_id BIGINT NOT NULL PRIMARY KEY, payload JSON NOT NULL, status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending', attempts INT UNSIGNED NOT NULL DEFAULT 0, last_error VARCHAR(500) NULL, received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP NULL, KEY idx_inbox_status_received(status,received_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
