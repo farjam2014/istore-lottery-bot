@@ -26,5 +26,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Validate installer syntax
+        run: bash -n install.sh
       - name: Run tests
         run: npm test
