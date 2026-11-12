@@ -104,3 +104,19 @@ test('admin delete requires confirmation and writes soft-delete plus audit atomi
   assert.ok(commitIndex > auditIndex);
   assert.equal(h.calls.some(x => x.sql === 'ROLLBACK'), false);
 });
+
+
+test('participant list supports status and date filters with parameterized status values', async () => {
+  const h = harness();
+  await h.admin.handleCallback({
+    id: 'filter1', data: 'adm:entries:0:active:7d',
+    from: { id: 12345 },
+    message: { chat: { id: 12345, type: 'private' } }
+  });
+  const query = h.calls.find(x => x.sql.includes('FROM lottery_entries WHERE status <>'));
+  assert.ok(query);
+  assert.match(query.sql, /status = \?/);
+  assert.match(query.sql, /DATE_SUB\(NOW\(\), INTERVAL 7 DAY\)/);
+  assert.deepEqual(query.params, ['active', 0]);
+  assert.ok(h.telegram.some(x => JSON.stringify(x.payload.reply_markup || {}).includes('entry-status')));
+});
