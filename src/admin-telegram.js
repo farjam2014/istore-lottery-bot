@@ -117,8 +117,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (period === '7d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)');
     if (period === '30d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)');
     const [rows] = await db.execute('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE '+clauses.join(' AND ')+' ORDER BY created_at DESC',params);
-    const cell = v => { let s=String(v??''); if (/^[\\s]*[=+\\-@]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
-    const csv='\\uFEFF'+[['نام','موبایل','اینستاگرام','کد','وضعیت','زمان'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.raffle_code,x.status,x.created_at])].map(r=>r.map(cell).join(',')).join('\\r\\n');
+    const cell = v => { let s=String(v??''); if (/^[\s]*[=+\-@]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
+    const csv='\uFEFF'+[['نام','موبایل','اینستاگرام','کد','وضعیت','زمان'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.raffle_code,x.status,x.created_at])].map(r=>r.map(cell).join(',')).join('\r\n');
     return tgDocument(chat,'istore-lottery.csv',csv,'text/csv;charset=utf-8');
   }
   async function exportMenu(chat) {
