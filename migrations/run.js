@@ -36,7 +36,18 @@ async function main() {
     await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation') NOT NULL");
 
     c = await columns('lottery_entries');
-    if (!c.has('status')) await db.query("ALTER TABLE lottery_entries ADD COLUMN status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active'");
+    if (!c.has('status')) {
+      await db.query("ALTER TABLE lottery_entries ADD COLUMN status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active'");
+    } else {
+      const [[statusColumn]] = await db.execute(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_entries' AND COLUMN_NAME='status'"
+      );
+      if (statusColumn && statusColumn.COLUMN_TYPE.toLowerCase().startsWith('enum(') && !statusColumn.COLUMN_TYPE.includes("'deleted'")) {
+        const [invalidStatuses] = await db.query("SELECT status FROM lottery_entries WHERE status NOT IN ('active','inactive','deleted') LIMIT 1");
+        if (invalidStatuses.length) throw new Error('Unknown lottery_entries.status value; resolve it before extending the status enum.');
+        await db.query("ALTER TABLE lottery_entries MODIFY status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active'");
+      }
+    }
     if (!c.has('updated_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
     if (!c.has('deleted_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deleted_at TIMESTAMP NULL');
     if (!c.has('deletion_reason')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deletion_reason VARCHAR(255) NULL');
