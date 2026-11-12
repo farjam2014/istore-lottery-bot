@@ -13,11 +13,11 @@ curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/featu
 sudo bash /root/istore-install.sh
 ```
 
-It asks for domain, SSL email, BotFather token, numeric Telegram admin ID, and optional store contact phone. It verifies DNS and validates the bot token before the destructive confirmation phrase `DELETE-ISTORE-ALL`.
+It interactively asks for domain, SSL email, BotFather token, numeric Telegram admin ID, MySQL password, website admin-panel password, and optional store contact phone. Passwords are entered invisibly and must be confirmed; the MySQL password requires at least 20 characters and the panel password at least 16 characters. Webhook/session secrets are generated automatically. It verifies DNS and validates the bot token before the destructive confirmation phrase `DELETE-ISTORE-ALL`.
 
-It installs Node.js 22, MySQL, Nginx, Certbot and Git; clones `main`; runs dependency install, tests, schema import and migrations; generates DB credentials, webhook/session secrets and an admin panel password; configures systemd, HTTPS, Telegram webhook and health check. Registration stays closed.
+It installs Node.js 22, MySQL, Nginx, Certbot and Git; clones the configured feature branch; runs dependency install, tests, schema import and migrations; generates DB credentials, webhook/session secrets and an admin panel password; configures systemd, HTTPS, Telegram webhook and health check. Registration stays closed.
 
-Generated admin password and database credentials are stored in `/opt/istore-lottery-bot/.env` (mode 600). Read locally on the server; never paste this file into chat or commit it.
+The MySQL and admin-panel passwords are the values entered during installation. All credentials are stored in `/opt/istore-lottery-bot/.env` (mode 640, readable only by root and the service group). Webhook/session secrets are generated automatically. Never paste this file into chat or commit it.
 
 ## Operations
 
