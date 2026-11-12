@@ -3,6 +3,8 @@ const express=require("express"), mysql=require("mysql2/promise"), crypto=requir
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const app=express();
+const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
+patchAsyncRoutes(app);
 app.disable("x-powered-by");
 app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","same-origin");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cache-Control","no-store");next()});
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
@@ -472,6 +474,7 @@ console.error("Webhook enqueue error:",e.message);
 return r.sendStatus(503);
 }
 });
+app.use(createErrorMiddleware(console));
 const server=app.listen(+(process.env.PORT||3000),async()=>{
 try{
 await db.query("SELECT 1");
