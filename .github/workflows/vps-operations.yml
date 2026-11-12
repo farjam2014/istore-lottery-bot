@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Choose one approved read-only VPS operation"
+        description: "Choose one approved VPS operation"
         required: true
         type: choice
         options:
           - status
           - health
+          - dns-check
 
 permissions:
   contents: read
@@ -31,7 +32,19 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUESTED_ACTION" in
-            status|health) ;;
-            *) echo "Rejected operation"; exit 2 ;;
+            status|health)
+              sudo -n /usr/local/sbin/istore-admin "$REQUESTED_ACTION"
+              ;;
+            dns-check)
+              echo "=== IPv4 DNS ==="
+              getent ahostsv4 hi.ali-pardis.ir || true
+              echo "=== IPv6 DNS ==="
+              getent ahostsv6 hi.ali-pardis.ir || true
+              echo "=== HTTPS RESPONSE ==="
+              curl -sSI --max-time 8 https://hi.ali-pardis.ir/ || true
+              ;;
+            *)
+              echo "Rejected operation"
+              exit 2
+              ;;
           esac
-          sudo -n /usr/local/sbin/istore-admin "$REQUESTED_ACTION"
