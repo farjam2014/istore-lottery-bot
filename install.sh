@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 REPO="https://github.com/farjam2014/istore-lottery-bot.git"
-BRANCH="main"
+BRANCH="feature/complete-telegram-lottery-system"
 APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
 DB_NAME="istore_lottery"
