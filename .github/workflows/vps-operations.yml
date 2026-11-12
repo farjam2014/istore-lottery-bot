@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Choose one approved VPS operation"
+        description: "Choose one approved read-only VPS operation"
         required: true
         type: choice
         options:
           - status
-          - bot-restart
-          - nginx-status
+          - health
 
 permissions:
   contents: read
@@ -32,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUESTED_ACTION" in
-            status|bot-restart|nginx-status) ;;
+            status|health) ;;
             *) echo "Rejected operation"; exit 2 ;;
           esac
           sudo -n /usr/local/sbin/istore-admin "$REQUESTED_ACTION"
