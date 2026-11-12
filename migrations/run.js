@@ -82,8 +82,11 @@ async function main() {
 `);
     console.log('MIGRATIONS_OK');
   } finally {
-    if (releaseMigrationLock) await releaseMigrationLock();
-    await db.end();
+    try {
+      if (releaseMigrationLock) await releaseMigrationLock();
+    } finally {
+      await db.end();
+    }
   }
 }
 main().catch(err => { console.error('Migration failed:', err.message); process.exit(1); });
