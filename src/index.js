@@ -11,18 +11,39 @@ const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
 const [rows]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' LIMIT 1");
-return (rows[0]?.setting_value ?? (process.env.REGISTRATION_OPEN||"true")).toLowerCase()==="true";
+return (rows[0]?.setting_value ?? (process.env.REGISTRATION_OPEN||"false")).toLowerCase()==="true";
 }
 const adminSearchModes = new Map();
-async function tg(method,payload){const r=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw Error(d.description||method+" failed");return d.result}
+async function telegramResponse(response,method){
+if(!response.ok)throw new Error(`Telegram HTTP ${response.status} for ${method}`);
+const data=await response.json();
+if(!data.ok)throw new Error(data.description||method+" failed");
+return data.result;
+}
+async function tg(method,payload){
+const controller=new AbortController();
+const timeout=setTimeout(()=>controller.abort(),15000);
+try{
+const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+return await telegramResponse(response,method);
+}catch(error){
+if(error.name==="AbortError")throw new Error(`Telegram ${method} timed out after 15 seconds`);
+throw error;
+}finally{clearTimeout(timeout)}
+}
 async function tgDocument(chat,filename,content,mime){
 const form=new FormData();
 form.append("chat_id",String(chat));
 form.append("document",new Blob([content],{type:mime}),filename);
-const r=await fetch(`https://api.telegram.org/bot${token}/sendDocument`,{method:"POST",body:form});
-const d=await r.json();
-if(!d.ok)throw Error(d.description||"sendDocument failed");
-return d.result;
+const controller=new AbortController();
+const timeout=setTimeout(()=>controller.abort(),30000);
+try{
+const response=await fetch(`https://api.telegram.org/bot${token}/sendDocument`,{method:"POST",body:form,signal:controller.signal});
+return await telegramResponse(response,"sendDocument");
+}catch(error){
+if(error.name==="AbortError")throw new Error("Telegram sendDocument timed out after 30 seconds");
+throw error;
+}finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text})}
 const code=makeRaffleCode;
@@ -401,60 +422,12 @@ await conn.execute("UPDATE lottery_settings SET setting_value='true' WHERE setti
 await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID||"admin"),"draw","lottery_draw",String(draw.insertId),JSON.stringify({eligible_count:rows.length,winner_entry_id:winner.id})]);
 await conn.commit();r.json({total:rows.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.raffle_code}})
 }catch(e){await conn.rollback();console.error("Draw error:",e.message);r.status(500).json({error:"اجرای قرعه‌کشی ناموفق بود."})}finally{conn.release()}});
-let queueBusy=false;
-let leaseHeartbeat=null;
-async function processOneWebhook(){
-if(queueBusy)return;
-queueBusy=true;
-let item=null;
-try{
-const conn=await db.getConnection();
-try{
-await conn.beginTransaction();
-await conn.execute("UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,NOW()),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL 5 MINUTE)");
-const [rows]=await conn.query("SELECT update_id,payload FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at LIMIT 1 FOR UPDATE SKIP LOCKED");
-if(!rows.length){await conn.commit();return}
-item=rows[0];
-item.processingToken=crypto.randomUUID();
-await conn.execute("UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE update_id=? AND status='pending'",[item.processingToken,item.update_id]);
-await conn.commit();
-}catch(e){await conn.rollback();throw e}
-finally{conn.release()}
-
-leaseHeartbeat=setInterval(()=>{
-db.execute("UPDATE webhook_inbox SET processing_started_at=NOW() WHERE update_id=? AND status='processing' AND processing_token=?",[item.update_id,item.processingToken]).catch(e=>console.error("Webhook lease heartbeat error:",e.message));
-},60000);
-leaseHeartbeat.unref?.();
-
-const [alreadyProcessed]=await db.execute("SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",[item.update_id]);
-if(!alreadyProcessed.length){
-const u=typeof item.payload==='string'?JSON.parse(item.payload):item.payload;
-if(u.business_message)await handleUpdate(u);
-else if(u.message)await handlePrivateUpdate(u);
-else if(u.callback_query)await handleCallbackQuery(u.callback_query);
-}
-
-const finish=await db.getConnection();
-try{
-await finish.beginTransaction();
-const [result]=await finish.execute("UPDATE webhook_inbox SET status='done',processed_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='processing' AND processing_token=?",[item.update_id,item.processingToken]);
-if(result.affectedRows===1){
-await finish.execute("INSERT IGNORE INTO processed_updates(update_id) VALUES(?)",[item.update_id]);
-}
-await finish.commit();
-}catch(e){await finish.rollback();throw e}
-finally{finish.release()}
-
-}catch(e){
-console.error("Webhook processing error:",e.message);
-if(item){
-await db.execute("UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL 3 SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",[String(e.message||"Unknown error").slice(0,500),item.update_id,item.processingToken]).catch(x=>console.error("Queue update error:",x.message));
-}
-}finally{
-if(leaseHeartbeat){clearInterval(leaseHeartbeat);leaseHeartbeat=null;}
-queueBusy=false;
-}
-}
+const {createWebhookQueue}=require("./webhook-queue");
+const webhookQueue=createWebhookQueue({
+db,
+handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallbackQuery},
+logger:console
+});
 app.post("/telegram/"+secret,async(q,r)=>{
 if(q.get("x-telegram-bot-api-secret-token")!==secret)return r.status(401).send("Unauthorized");
 const u=q.body||{};
@@ -468,10 +441,15 @@ console.error("Webhook enqueue error:",e.message);
 return r.sendStatus(503);
 }
 });
-app.listen(+(process.env.PORT||3000),async()=>{
+const server=app.listen(+(process.env.PORT||3000),async()=>{
 try{
 await db.query("SELECT 1");
 console.log("iStore lottery bot started");
-}catch(e){console.error("DB connection failed:",e.message)}
+}catch(e){
+console.error("DB connection failed:",e.message);
+server.close(()=>process.exit(1));
+}
 });
-setInterval(()=>processOneWebhook().catch(e=>console.error("Queue worker error:",e.message)),500);
+webhookQueue.start();
+process.on("SIGTERM",()=>{webhookQueue.stop();server.close(()=>process.exit(0));});
+process.on("SIGINT",()=>{webhookQueue.stop();server.close(()=>process.exit(0));});
