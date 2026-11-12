@@ -1,0 +1,40 @@
+name: VPS Safe Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vps-safe-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Read-only VPS diagnostics
+        shell: bash
+        run: |
+          set -u
+          echo "=== HOST ==="
+          hostname
+          id
+          echo "=== UPTIME ==="
+          uptime
+          echo "=== MEMORY ==="
+          free -h
+          echo "=== DISK ==="
+          df -h /
+          echo "=== NODE ==="
+          node --version 2>/dev/null || true
+          npm --version 2>/dev/null || true
+          echo "=== RUNNER SERVICE ==="
+          systemctl list-units --type=service --state=running --no-legend 'actions.runner.*' 2>/dev/null || true
+          echo "=== LOTTERY SERVICE ==="
+          systemctl is-active istore-lottery-bot 2>/dev/null || true
+          echo "=== LOCAL HEALTH CHECK ==="
+          curl --silent --show-error --max-time 3 http://127.0.0.1:3000/health || true
