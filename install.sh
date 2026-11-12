@@ -14,7 +14,7 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ کد خطا: $rc"
 . /etc/os-release
 [[ "$ID" == ubuntu && "$(cut -d. -f1 <<< "$VERSION_ID")" == 24 ]] || die "فقط Ubuntu 24 پشتیبانی می‌شود."
 
-echo "نصب پاک: دیتابیس‌های istore_lottery و istore_lottery_staging و فایل‌های قبلی ربات حذف می‌شوند."
+echo "نصب/ارتقای امن: دیتابیس موجود حذف نمی‌شود؛ قبل از migration از آن backup گرفته می‌شود."
 read -r -p "دامنه: " DOMAIN
 read -r -p "ایمیل SSL: " EMAIL
 read -r -s -p "Telegram Bot Token: " BOT_TOKEN
@@ -60,30 +60,33 @@ ME="$(curl -fsS --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" || 
 [[ "$(printf '%s' "$ME" | jq -r '.ok // false')" == true ]] || die "توکن تلگرام معتبر نیست."
 BOT_USERNAME="$(printf '%s' "$ME" | jq -r '.result.username')"
 
-echo "هشدار: تمام اطلاعات دو دیتابیس بالا برای همیشه حذف می‌شوند."
-read -r -p "برای تأیید دقیقاً DELETE-ISTORE-ALL را وارد کنید: " CONFIRM
-[[ "$CONFIRM" == DELETE-ISTORE-ALL ]] || die "تأیید نشد؛ حذف انجام نشد."
+log "پشتیبان‌گیری و آماده‌سازی دیتابیس بدون حذف داده"
+BACKUP_DIR="/var/backups/istore-lottery"
+install -d -m 700 "$BACKUP_DIR"
+if mysql --protocol=socket -uroot -Nse "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='istore_lottery'" | grep -qx "istore_lottery"; then
+  BACKUP_FILE="$BACKUP_DIR/istore_lottery-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+  mysqldump --protocol=socket -uroot --single-transaction --routines --triggers istore_lottery | gzip -9 > "$BACKUP_FILE"
+  test -s "$BACKUP_FILE" || die "تهیه بکاپ دیتابیس ناموفق بود."
+  gzip -t "$BACKUP_FILE" || die "اعتبارسنجی بکاپ ناموفق بود."
+  log "بکاپ معتبر ذخیره شد: $BACKUP_FILE"
+else
+  log "دیتابیس هنوز وجود ندارد؛ نصب تازه خواهد بود."
+fi
 
-log "توقف و حذف نسخه قبلی"
-systemctl stop "$SERVICE" 2>/dev/null || true
-systemctl disable "$SERVICE" 2>/dev/null || true
-rm -f "/etc/systemd/system/$SERVICE.service"
-systemctl daemon-reload
-rm -rf /root/istore-lottery-bot /root/istore-staging "$APP_DIR"
-rm -f "/etc/nginx/sites-enabled/$SERVICE" "/etc/nginx/sites-available/$SERVICE"
-
-log "بازسازی دیتابیس"
 mysql --protocol=socket -uroot <<SQL
-DROP DATABASE IF EXISTS istore_lottery;
-DROP DATABASE IF EXISTS istore_lottery_staging;
-DROP USER IF EXISTS 'istore_lottery'@'localhost';
-CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+CREATE DATABASE IF NOT EXISTS istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO 'istore_lottery'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-log "دریافت شاخه main از GitHub"
+log "آماده‌سازی مسیر نسخه جدید"
+if [[ -e "$APP_DIR" ]]; then
+  PREVIOUS_DIR="/opt/istore-lottery-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+  systemctl stop "$SERVICE" 2>/dev/null || true
+  mv "$APP_DIR" "$PREVIOUS_DIR"
+  log "نسخه قبلی حفظ شد: $PREVIOUS_DIR"
+fi
 git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP_DIR"
 cd "$APP_DIR"
 npm ci --omit=dev
