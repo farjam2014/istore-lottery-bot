@@ -1,8 +1,10 @@
 'use strict';
 const crypto = require('node:crypto');
+const { normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
 function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) {
   const searchModes = new Map();
+  const editModes = new Map();
   const pending = new Map();
   const isAdmin = (q) => String(q?.from?.id || '') === String(adminId) && q?.message?.chat?.type === 'private';
   const menu = [
@@ -63,7 +65,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     const [hist] = await db.execute('SELECT raffle_code,action,actor,created_at FROM lottery_code_history WHERE entry_id=? ORDER BY id DESC LIMIT 5', [id]);
     const history = hist.length ? hist.map(h => h.action + ' · ' + h.raffle_code + ' · ' + h.actor).join('\n') : 'بدون سابقه کد';
     const rowsKb = [[{text:'📝 تاریخچه کد',callback_data:'adm:history:'+id}]];
-    if (x.status !== 'deleted') rowsKb.push([{text:x.status === 'active' ? '⏸ غیرفعال‌سازی' : '✅ فعال‌سازی',callback_data:'adm:confirm-status:'+id+':'+(x.status === 'active' ? 'inactive' : 'active')}]);
+    if (x.status !== 'deleted') {
+      rowsKb.push([{text:'✏️ ویرایش اطلاعات',callback_data:'adm:edit:'+id},{text:'🗑 حذف منطقی',callback_data:'adm:delete:'+id}]);
+      rowsKb.push([{text:x.status === 'active' ? '⏸ غیرفعال‌سازی' : '✅ فعال‌سازی',callback_data:'adm:confirm-status:'+id+':'+(x.status === 'active' ? 'inactive' : 'active')}]);
+    }
     rowsKb.push([{text:'👥 فهرست',callback_data:'adm:entries:0'},{text:'↩️ منوی اصلی',callback_data:'adm:home'}]);
     return tg('sendMessage', { chat_id: chat, text:
       '👤 پرونده شرکت‌کننده #' + x.id + '\n\nنام: ' + x.full_name +
@@ -145,6 +150,55 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (data.startsWith('adm:entries:')) return entries(chat,data.split(':')[2]);
     if (data.startsWith('adm:entry:')) return detail(chat,data.split(':')[2]);
     if (data.startsWith('adm:history:')) return history(chat,data.split(':')[2]);
+
+    if (data.startsWith('adm:edit:')) {
+      const id=data.slice(9);
+      if(!/^\d+$/.test(id)) return tg('sendMessage',{chat_id:chat,text:'شناسه پرونده نامعتبر است.'});
+      const [found]=await db.execute("SELECT id,full_name,phone,instagram,status FROM lottery_entries WHERE id=? LIMIT 1",[id]);
+      if(!found.length||found[0].status==='deleted') return tg('sendMessage',{chat_id:chat,text:'پرونده پیدا نشد یا حذف شده است.'});
+      editModes.set(String(adminId),{id,expires:Date.now()+300000});
+      return tg('sendMessage',{chat_id:chat,text:'اطلاعات جدید را در یک پیام با قالب زیر بفرستید:\nنام و نام خانوادگی | شماره موبایل | آیدی اینستاگرام\nمثال: علی رضایی | 09123456789 | ali.rezaei\nبرای لغو /cancel را بفرستید.'});
+    }
+    if (data.startsWith('adm:delete:')) {
+      const id=data.slice(11);
+      if(!/^\d+$/.test(id)) return tg('sendMessage',{chat_id:chat,text:'شناسه پرونده نامعتبر است.'});
+      const [found]=await db.execute("SELECT id,full_name,raffle_code,status FROM lottery_entries WHERE id=? LIMIT 1",[id]);
+      if(!found.length||found[0].status==='deleted') return tg('sendMessage',{chat_id:chat,text:'پرونده پیدا نشد یا قبلاً حذف شده است.'});
+      pending.set(String(adminId),{type:'delete',id,expires:Date.now()+60000});
+      return tg('sendMessage',{chat_id:chat,text:'حذف منطقی این شرکت‌کننده را تأیید می‌کنید؟\n'+found[0].full_name+' · '+found[0].raffle_code+'\nکد آزاد نمی‌شود و تاریخچه حفظ می‌شود.',reply_markup:keyboard([[{text:'تأیید حذف',callback_data:'adm:apply-delete:'+id},{text:'لغو',callback_data:'adm:entry:'+id}]])});
+    }
+    if (data.startsWith('adm:apply-delete:')) {
+      const id=data.slice(17),p=pending.get(String(adminId));pending.delete(String(adminId));
+      if(!/^\d+$/.test(id)||!p||p.type!=='delete'||p.id!==id||p.expires<Date.now()) return tg('sendMessage',{chat_id:chat,text:'درخواست حذف منقضی یا نامعتبر است.'});
+      const conn=await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [rows]=await conn.execute("SELECT id,status,raffle_code FROM lottery_entries WHERE id=? FOR UPDATE",[id]);
+        if(!rows.length||rows[0].status==='deleted') throw new Error('پرونده پیدا نشد یا قبلاً حذف شده است.');
+        await conn.execute("UPDATE lottery_entries SET status='deleted',deleted_at=NOW(),deletion_reason='حذف منطقی توسط مدیر تلگرام' WHERE id=?",[id]);
+        await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'delete_entry','lottery_entry',id,JSON.stringify({raffle_code:rows[0].raffle_code,source:'telegram'})]);
+        await conn.commit();
+      } catch(e) { await conn.rollback(); return tg('sendMessage',{chat_id:chat,text:'حذف انجام نشد: '+e.message}); }
+      finally { conn.release(); }
+      return detail(chat,id);
+    }
+    if (data.startsWith('adm:apply-edit:')) {
+      const id=data.slice(15),p=pending.get(String(adminId));pending.delete(String(adminId));
+      if(!/^\d+$/.test(id)||!p||p.type!=='edit'||p.id!==id||p.expires<Date.now()) return tg('sendMessage',{chat_id:chat,text:'درخواست ویرایش منقضی یا نامعتبر است.'});
+      const conn=await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [oldRows]=await conn.execute("SELECT id,full_name,phone,instagram,status FROM lottery_entries WHERE id=? FOR UPDATE",[id]);
+        if(!oldRows.length||oldRows[0].status==='deleted') throw new Error('پرونده پیدا نشد یا حذف شده است.');
+        const [dups]=await conn.execute("SELECT id FROM lottery_entries WHERE status='active' AND id<>? AND (phone=? OR LOWER(instagram)=LOWER(?)) LIMIT 1",[id,p.phone,p.instagram]);
+        if(dups.length) throw new Error('شماره یا آیدی اینستاگرام برای فرد فعال دیگری ثبت شده است.');
+        await conn.execute("UPDATE lottery_entries SET full_name=?,phone=?,instagram=? WHERE id=?",[p.full_name,p.phone,p.instagram,id]);
+        await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'edit_entry','lottery_entry',id,JSON.stringify({source:'telegram',before:{full_name:oldRows[0].full_name,phone:oldRows[0].phone,instagram:oldRows[0].instagram},after:{full_name:p.full_name,phone:p.phone,instagram:p.instagram}})]);
+        await conn.commit();
+      } catch(e) { await conn.rollback(); return tg('sendMessage',{chat_id:chat,text:'ویرایش انجام نشد: '+e.message}); }
+      finally { conn.release(); }
+      return detail(chat,id);
+    }
     if (data.startsWith('adm:confirm-status:')) {
       const [, , id, status] = data.split(':');
       pending.set(String(adminId),{type:'status',id,status,expires:Date.now()+60000});
@@ -192,7 +246,20 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
     const text=String(m.text||'').trim();
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
-    if (text.toLowerCase()==='/cancel' && searchModes.has(String(adminId))) { searchModes.delete(String(adminId)); return home(m.chat.id,'جستجو لغو شد.'); }
+
+    if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
+    if (editModes.has(String(adminId)) && text) {
+      const mode=editModes.get(String(adminId)); editModes.delete(String(adminId));
+      if(mode.expires<Date.now()) return tg('sendMessage',{chat_id:m.chat.id,text:'مهلت ویرایش تمام شده است؛ دوباره از پرونده اقدام کنید.'});
+      const parts=text.split('|').map(x=>x.trim());
+      if(parts.length!==3) return tg('sendMessage',{chat_id:m.chat.id,text:'قالب نادرست است. سه مقدار را با | جدا کنید.'});
+      const full_name=parts[0].replace(/\s+/g,' '),phone=normalizePhone(digits(parts[1])),instagram=normalizeInstagram(parts[2]);
+      if(!validFullName(full_name)||!validPhone(phone)||!validInstagram(instagram)) return tg('sendMessage',{chat_id:m.chat.id,text:'اطلاعات نامعتبر است؛ نام، شماره و آیدی را بررسی کنید.'});
+      const [rows]=await db.execute('SELECT id,status FROM lottery_entries WHERE id=? LIMIT 1',[mode.id]);
+      if(!rows.length||rows[0].status==='deleted') return tg('sendMessage',{chat_id:m.chat.id,text:'پرونده پیدا نشد یا حذف شده است.'});
+      pending.set(String(adminId),{type:'edit',id:mode.id,full_name,phone,instagram,expires:Date.now()+60000});
+      return tg('sendMessage',{chat_id:m.chat.id,text:'پیش‌نمایش ویرایش:\nنام: '+full_name+'\nموبایل: '+phone+'\nاینستاگرام: @'+instagram+'\n\nثبت تغییرات؟',reply_markup:keyboard([[{text:'تأیید و ثبت',callback_data:'adm:apply-edit:'+mode.id},{text:'لغو',callback_data:'adm:entry:'+mode.id}]])});
+    }
     if (!searchModes.has(String(adminId)) || !text) return false;
     searchModes.delete(String(adminId));
     const term=digits(text).slice(0,100);
