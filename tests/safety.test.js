@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 const { wrapAsyncHandler, patchAsyncRoutes, createErrorMiddleware } = require('../src/async-route');
 const { acquireMigrationLock } = require('../src/migration-lock');
 
@@ -55,4 +56,44 @@ test('migration lock is acquired and released exactly once', async () => {
 test('migration aborts when another process owns the lock', async () => {
   const db = { async execute() { return [[{ acquired: 0 }]]; } };
   await assert.rejects(acquireMigrationLock(db, 'test_lock', 1), /another migration may be running/);
+});
+
+
+test('Express integration converts a rejected async route into a safe HTTP 500', async () => {
+  const app = express();
+  patchAsyncRoutes(app);
+  app.get('/async-failure', async () => { throw new Error('private database detail'); });
+  app.use(createErrorMiddleware({ error: () => {} }));
+  const server = app.listen(0);
+  try {
+    const address = server.address();
+    const response = await fetch(`http://127.0.0.1:${address.port}/async-failure`);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'خطای داخلی سرور.' });
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('a second migration process cannot enter until the first releases its lock', async () => {
+  let held = false;
+  const makeConnection = () => ({
+    async execute(sql) {
+      if (sql.includes('GET_LOCK')) {
+        if (held) return [[{ acquired: 0 }]];
+        held = true;
+        return [[{ acquired: 1 }]];
+      }
+      if (sql.includes('RELEASE_LOCK')) {
+        held = false;
+        return [[{ released: 1 }]];
+      }
+      throw new Error('Unexpected SQL');
+    }
+  });
+  const first = await acquireMigrationLock(makeConnection(), 'shared_lock', 1);
+  await assert.rejects(acquireMigrationLock(makeConnection(), 'shared_lock', 1), /another migration may be running/);
+  await first();
+  const second = await acquireMigrationLock(makeConnection(), 'shared_lock', 1);
+  await second();
 });
