@@ -17,7 +17,7 @@ function fakeDb(rows=[]){
   };},
   async execute(sql,params){
    if(sql.includes("SET status='sent'")){const row=state.rows.find(x=>x.id===params[0]);if(row&&row.status==="processing"&&row.token===params[1]){row.status="sent";return [{affectedRows:1}];}return [{affectedRows:0}];}
-   if(sql.includes("SET status=IF(attempts>=?,'failed','pending')")){const row=state.rows.find(x=>x.id===params[2]);if(row&&row.status==="processing"&&row.token===params[3]){row.status=row.attempts>=params[0]?"failed":"pending";row.error=params[1];}return [{affectedRows:1}];}
+   if(sql.includes("SET status=IF(attempts>=?,'failed','pending')")){const row=state.rows.find(x=>x.id===params[2]);if(row&&row.status==="processing"&&row.token===params[4]){row.status=row.attempts>=params[0]?"failed":"pending";row.error=params[2];row.nextAttemptScheduled=row.status==="pending";}return [{affectedRows:1}];}
    throw new Error("Unexpected DB SQL: "+sql);
   }
  };
@@ -34,5 +34,5 @@ test("outbox claims a pending notification and marks it sent after delivery",asy
 test("outbox returns failed delivery to pending for retry",async()=>{
  const db=fakeDb([{method:"sendMessage",payload:{chat_id:"1"}}]);let calls=0;
  const worker=createNotificationOutbox({db,send:async()=>{calls++;throw new Error("Telegram unavailable");},logger:{error(){}}});
- assert.equal(await worker.processOne(),false);assert.equal(calls,1);assert.equal(db.state.rows[0].status,"pending");assert.equal(db.state.rows[0].error,"Telegram unavailable");
+ assert.equal(await worker.processOne(),false);assert.equal(calls,1);assert.equal(db.state.rows[0].status,"pending");assert.equal(db.state.rows[0].error,"Telegram unavailable");assert.equal(db.state.rows[0].nextAttemptScheduled,true);
 });
