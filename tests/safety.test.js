@@ -97,3 +97,11 @@ test('a second migration process cannot enter until the first releases its lock'
   const second = await acquireMigrationLock(makeConnection(), 'shared_lock', 1);
   await second();
 });
+
+
+test('legacy phone text step cannot bypass Telegram contact ownership verification', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null\)/);
+  assert.doesNotMatch(source, /if\(s\.step===\"phone\"\)\{const p=t\.replace/);
+});
