@@ -489,9 +489,14 @@ let shuttingDown=false;
 async function shutdown(signal){
 if(shuttingDown)return;
 shuttingDown=true;
-console.log(signal+" received; draining webhook queue");
-await webhookQueue.stop();
-server.close(()=>{db.end().finally(()=>process.exit(0))});
+console.log(signal+" received; draining webhook queue (30s limit)");
+const forceExit=setTimeout(()=>{
+console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
+process.exit(1);
+},35000);
+const drained=await webhookQueue.stop(30000);
+if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
+server.close(()=>{db.end().finally(()=>{clearTimeout(forceExit);process.exit(drained?0:1)})});
 }
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
