@@ -419,7 +419,7 @@ await conn.rollback();
 return r.status(409).json({error:"قرعه‌کشی این دوره انجام شده؛ برای شروع دوره جدید باید فرآیند کمپین جدید تعریف شود."});
 }
 await conn.execute("UPDATE lottery_settings SET setting_value=? WHERE setting_key='registration_open'",[v]);
-await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),"admin",v==="true"?"open_registration":"close_registration","lottery","current",JSON.stringify({previous:registrationState?.setting_value||"false",next:v})]);
+await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),v==="true"?"open_registration":"close_registration","lottery","current",JSON.stringify({previous:registrationState?.setting_value||"false",next:v})]);
 await conn.commit();
 r.json({open:v==="true"});
 }catch(e){
