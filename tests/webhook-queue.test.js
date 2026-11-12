@@ -114,7 +114,7 @@ test("handler failure does not mark update done and schedules retry", async () =
 });
 
 test("lost processing token prevents finalization", async () => {
-  const { queue, calls } = createHarness({ finishAffectedRows: 0 });
+  const { queue, calls, logs } = createHarness({ finishAffectedRows: 0 });
 
   const result = await queue.processOne();
 
