@@ -44,17 +44,29 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
       '\n🏆 قرعه‌کشی: ' + (d?.setting_value === 'true' ? 'انجام شده' : 'انجام نشده'),
       reply_markup: keyboard([[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]]) });
   }
-  async function entries(chat, page) {
+  async function entries(chat, page, status = 'all', period = 'all') {
     const p = Math.max(0, Math.min(10000, Number(page) || 0));
+    if (!['all','active','inactive'].includes(status) || !['all','today','7d','30d'].includes(period)) {
+      return tg('sendMessage', { chat_id: chat, text: 'فیلتر نامعتبر است.' });
+    }
+    const clauses = ["status <> 'deleted'"];
+    const params = [];
+    if (status !== 'all') { clauses.push('status = ?'); params.push(status); }
+    if (period === 'today') clauses.push('created_at >= CURDATE()');
+    if (period === '7d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)');
+    if (period === '30d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)');
+    const where = clauses.join(' AND ');
     const [rows] = await db.execute(
-      "SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries WHERE status<>'deleted' ORDER BY id DESC LIMIT 8 OFFSET ?",
-      [p * 8]
+      'SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries WHERE ' + where + ' ORDER BY id DESC LIMIT 8 OFFSET ?',
+      [...params, p * 8]
     );
     const buttons = rows.map(x => [{ text: (x.status === 'active' ? '✅ ' : '⏸ ') + String(x.full_name).slice(0, 28) + ' · ' + x.raffle_code, callback_data: 'adm:entry:' + x.id }]);
     const nav = [];
-    if (p > 0) nav.push({ text: '⬅️ قبلی', callback_data: 'adm:entries:' + (p - 1) });
-    if (rows.length === 8) nav.push({ text: 'بعدی ➡️', callback_data: 'adm:entries:' + (p + 1) });
+    const state = status + ':' + period;
+    if (p > 0) nav.push({ text: '⬅️ قبلی', callback_data: 'adm:entries:' + (p - 1) + ':' + state });
+    if (rows.length === 8) nav.push({ text: 'بعدی ➡️', callback_data: 'adm:entries:' + (p + 1) + ':' + state });
     if (nav.length) buttons.push(nav);
+    buttons.push([{text:'وضعیت: '+status,callback_data:'adm:entry-status:'+period},{text:'تاریخ: '+period,callback_data:'adm:entry-period:'+status}]);
     buttons.push([{text:'🔎 جستجو',callback_data:'adm:search'}, {text:'↩️ منوی اصلی',callback_data:'adm:home'}]);
     return tg('sendMessage', { chat_id: chat, text: '👥 شرکت‌کنندگان · صفحه ' + (p + 1) + '\nبرای مشاهده جزئیات یک نفر را انتخاب کنید:', reply_markup: keyboard(buttons) });
   }
@@ -147,7 +159,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (data==='adm:export') return exportCsv(chat);
     if (data==='adm:audit') return auditLog(chat);
     if (data==='adm:search') { searchModes.set(String(adminId),'search'); return tg('sendMessage',{chat_id:chat,text:'🔎 نام، شماره، آیدی اینستاگرام یا کد را ارسال کنید. برای لغو /cancel را بفرستید.'}); }
-    if (data.startsWith('adm:entries:')) return entries(chat,data.split(':')[2]);
+    if (data.startsWith('adm:entries:')) { const [, , page, status='all', period='all'] = data.split(':'); return entries(chat,page,status,period); }
+    if (data.startsWith('adm:entry-status:')) { const period=data.slice('adm:entry-status:'.length); return tg('sendMessage',{chat_id:chat,text:'فیلتر وضعیت را انتخاب کنید:',reply_markup:keyboard([[{text:'همه',callback_data:'adm:entries:0:all:'+period},{text:'فعال',callback_data:'adm:entries:0:active:'+period},{text:'غیرفعال',callback_data:'adm:entries:0:inactive:'+period}],[{text:'لغو',callback_data:'adm:entries:0'}]])}); }
+    if (data.startsWith('adm:entry-period:')) { const status=data.slice('adm:entry-period:'.length); return tg('sendMessage',{chat_id:chat,text:'بازه ثبت‌نام را انتخاب کنید:',reply_markup:keyboard([[{text:'همه',callback_data:'adm:entries:0:'+status+':all'},{text:'امروز',callback_data:'adm:entries:0:'+status+':today'}],[{text:'۷ روز اخیر',callback_data:'adm:entries:0:'+status+':7d'},{text:'۳۰ روز اخیر',callback_data:'adm:entries:0:'+status+':30d'}],[{text:'لغو',callback_data:'adm:entries:0'}]])}); }
     if (data.startsWith('adm:entry:')) return detail(chat,data.split(':')[2]);
     if (data.startsWith('adm:history:')) return history(chat,data.split(':')[2]);
 
