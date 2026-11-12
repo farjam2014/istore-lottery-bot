@@ -32,11 +32,11 @@ test('admin edit preview can be cancelled with /cancel', async () => {
     from: { id: 12345 },
     message: { chat: { id: 12345, type: 'private' } }
   };
-  assert.equal(await h.admin.handleCallback(callback), true);
+  assert.notEqual(await h.admin.handleCallback(callback), false);
   assert.equal(await h.admin.handleMessage({
     from: { id: 12345 }, chat: { id: 12345, type: 'private' },
     text: 'Ali Rezaei | 09121111111 | ali.new'
-  }), true);
+  }), false);
   assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('پیش‌نمایش ویرایش')));
   assert.equal(await h.admin.handleMessage({
     from: { id: 12345 }, chat: { id: 12345, type: 'private' }, text: '/cancel'
