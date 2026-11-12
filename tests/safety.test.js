@@ -33,7 +33,7 @@ test('all supported Express route methods wrap their handlers', async () => {
 
 test('error middleware returns a safe 500 response without leaking details', () => {
   let logged, status, body;
-  const middleware = createErrorMiddleware({ error: value => { logged = value; } });
+  const middleware = createErrorMiddleware({ error: (...values) => { logged = values.join(' '); } });
   const res = { headersSent: false, status(value) { status = value; return this; }, json(value) { body = value; return value; } };
   middleware(new Error('secret SQL detail'), {}, res, () => {});
   assert.equal(status, 500);
