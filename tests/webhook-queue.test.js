@@ -119,5 +119,40 @@ test("lost processing token prevents finalization", async () => {
   const result = await queue.processOne();
 
   assert.equal(result, false);
-  assert.ok(!calls.includes("finish:execute:other"));
+  assert.ok(calls.includes("finish:rollback"));
+  assert.ok(logs.some(line => line.includes("token was lost")));
+});
+
+test("a second poll cannot process while the first handler is running", async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { queue } = createHarness({
+    handler: async () => { await gate; }
+  });
+
+  const first = queue.processOne();
+  const second = await queue.processOne();
+  assert.equal(second, false);
+
+  release();
+  assert.equal(await first, true);
+});
+
+test("stop waits for an in-flight webhook handler", async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { queue } = createHarness({
+    handler: async () => { await gate; }
+  });
+
+  const processing = queue.processOne();
+  let stopped = false;
+  const stopping = queue.stop().then(() => { stopped = true; });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(stopped, false);
+
+  release();
+  await Promise.all([processing, stopping]);
+  assert.equal(stopped, true);
 });
