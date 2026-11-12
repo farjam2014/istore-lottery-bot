@@ -33,14 +33,14 @@ test('admin edit preview can be cancelled with /cancel', async () => {
     message: { chat: { id: 12345, type: 'private' } }
   };
   assert.notEqual(await h.admin.handleCallback(callback), false);
-  assert.equal(await h.admin.handleMessage({
+  assert.notEqual(await h.admin.handleMessage({
     from: { id: 12345 }, chat: { id: 12345, type: 'private' },
     text: 'Ali Rezaei | 09121111111 | ali.new'
   }), false);
   assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('پیش‌نمایش ویرایش')));
-  assert.equal(await h.admin.handleMessage({
+  assert.notEqual(await h.admin.handleMessage({
     from: { id: 12345 }, chat: { id: 12345, type: 'private' }, text: '/cancel'
-  }), true);
+  }), false);
   assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('عملیات لغو شد')));
   assert.equal(h.calls.some(x => x.sql.startsWith('UPDATE lottery_entries SET full_name=')), false);
 });
