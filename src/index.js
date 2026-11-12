@@ -152,10 +152,9 @@ return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌
 }
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
 try{
-const old=await entry(uid);
-const c=old&&old.status==="active"?old.raffle_code:await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
+await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
 await delSession(uid);
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"ثبت‌نام نهایی شد. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت."});
+return;
 }catch(e){
 console.error("Lottery confirmation error:",e.message);
 const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
@@ -301,7 +300,7 @@ return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده م�
 }
 await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id);
 await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example");
-return tg("sendMessage",{chat_id:chat,text:"✅ شماره شما با موفقیت ثبت شد.\n\nبرای ادامه مراحل ثبت‌نام، به پی‌وی @istore_admiin برگردید.",reply_markup:{remove_keyboard:true,inline_keyboard:[[{text:"🔙 ادامه ثبت‌نام",url:"https://t.me/istore_admiin"}]]}});
+return tg("sendMessage",{chat_id:chat,text:"✅ شماره شما با موفقیت ثبت شد.\n\nبه گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{remove_keyboard:true}});
 }
 
 if(typeof m.text==="string"){
@@ -353,12 +352,14 @@ if(lower==="لاتاری"||lower==="/start"){if(!await registrationOpen())return
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
 if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
+if(s.step==="awaiting_confirmation"){
+return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
+}
 if(s.step==="instagram"){
 const inst=normalizeInstagram(t);
 if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است؛ فقط حروف انگلیسی، عدد، نقطه و زیرخط مجاز است.");
 const old=await entry(uid);
 if(old&&old.status==="active"){await delSession(uid);return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید. کد شما: "+old.raffle_code)}
-await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
 try{
 if(!process.env.CONTACT_PHONE)throw new Error("CONTACT_PHONE is not configured");
 await tg("sendContact",{
@@ -368,7 +369,8 @@ phone_number:process.env.CONTACT_PHONE,
 first_name:"موبایل مهدی زاده",
 last_name:"iStore"
 });
-}catch(e){console.error("Contact card error:",e.message);return reply(chat,conn,"⚠️ فعلاً ارسال کارت مخاطب ممکن نشد. لطفاً چند دقیقه دیگر دوباره تلاش کنید؛ اطلاعات ثبت‌شده شما حفظ شده است.")}
+}catch(e){console.error("Contact card error:",e.message);return reply(chat,conn,"⚠️ فعلاً ارسال کارت مخاطب ممکن نشد. لطفاً دوباره آیدی اینستاگرام خود را ارسال کنید؛ اطلاعات قبلی حفظ شده است.")}
+await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
 return tg("sendMessage",{
 chat_id:chat,
 business_connection_id:conn,
