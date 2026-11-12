@@ -502,8 +502,9 @@ console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished 
 process.exit(1);
 },35000);
 const drained=await webhookQueue.stop(30000);
-notificationOutbox.stop();
+const notificationsDrained=await notificationOutbox.stop(30000);
 if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
+if(!notificationsDrained)console.error("Notification outbox did not drain within 30 seconds; unfinished notifications remain leased for recovery.");
 server.close(()=>{db.end().finally(()=>{clearTimeout(forceExit);process.exit(drained?0:1)})});
 }
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
