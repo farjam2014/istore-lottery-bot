@@ -26,6 +26,8 @@ function harness() {
       if (sql.includes('SELECT id,status FROM lottery_entries')) return [[{ id: 42, status: 'active' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deletion_reason')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09121111111', instagram: 'ali.new', raffle_code: 'LOT-ABCDEFGH', status: 'active', created_at: 'now' }]];
       if (sql.includes('SELECT raffle_code,action,actor,created_at FROM lottery_code_history')) return [[]];
+      if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[]];
+      if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
       return [{ affectedRows: 1 }];
     },
     async query() { return [[]]; },
@@ -119,4 +121,23 @@ test('participant list supports status and date filters with parameterized statu
   assert.match(query.sql, /DATE_SUB\(NOW\(\), INTERVAL 7 DAY\)/);
   assert.deepEqual(query.params, ['active', 0]);
   assert.ok(h.telegram.some(x => JSON.stringify(x.payload.reply_markup || {}).includes('entry-status')));
+});
+
+
+test('draw history is reachable from the Telegram draw menu', async () => {
+  const h = harness();
+  const callback = { id:'drawhist1',data:'adm:draw-history:0',from:{id:12345},message:{chat:{id:12345,type:'private'}} };
+  await h.admin.handleCallback(callback);
+  assert.ok(h.calls.some(x => x.sql.includes('FROM lottery_draws d LEFT JOIN lottery_draw_participants')));
+  assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('هنوز قرعه‌کشی ثبت‌شده‌ای وجود ندارد')));
+});
+
+test('filtered CSV export uses parameterized status and valid date windows', async () => {
+  const h = harness();
+  await h.admin.handleMessage({from:{id:12345},chat:{id:12345,type:'private'},text:'/export inactive 30d'});
+  const query = h.calls.find(x => x.sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries'));
+  assert.ok(query);
+  assert.match(query.sql,/status = \\?/);
+  assert.match(query.sql,/DATE_SUB\\(NOW\\(\\), INTERVAL 30 DAY\\)/);
+  assert.deepEqual(query.params,['inactive']);
 });
