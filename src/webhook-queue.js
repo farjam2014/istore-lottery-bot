@@ -145,10 +145,14 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
     timer.unref?.();
   }
 
-  async function stop() {
+  async function stop(timeoutMs = 30000) {
     if (timer) clearInterval(timer);
     timer = null;
-    while (busy) await new Promise(resolve => setTimeout(resolve, 25));
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (busy && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return !busy;
   }
 
   return { processOne, start, stop };
