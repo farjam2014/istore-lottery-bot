@@ -6,10 +6,10 @@ Telegram Business lottery bot with MySQL, durable webhook inbox, Telegram-first 
 
 > **Destructive:** this installer permanently drops MySQL databases `istore_lottery` and `istore_lottery_staging`, including participants, raffle codes, sessions, draw history, and audit data. It also removes the old application directories and service.
 
-After this release is merged into `main`, run on the VPS:
+Run on the VPS to install the current tested feature branch:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/main/install.sh -o /root/istore-install.sh
+curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/complete-telegram-lottery-system/install.sh -o /root/istore-install.sh
 sudo bash /root/istore-install.sh
 ```
 
