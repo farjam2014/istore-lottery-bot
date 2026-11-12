@@ -106,11 +106,28 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
         [{text:'↩️ منوی اصلی',callback_data:'adm:home'}]
       ]) });
   }
-  async function exportCsv(chat) {
-    const [rows] = await db.query("SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-    const cell = v => { let s=String(v??''); if (/^[\s]*[=+\-@]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
-    const csv='\uFEFF'+[['نام','موبایل','اینستاگرام','کد','وضعیت','زمان'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.raffle_code,x.status,x.created_at])].map(r=>r.map(cell).join(',')).join('\r\n');
+  async function exportCsv(chat, status = 'active', period = 'all') {
+    if (!['all','active','inactive'].includes(status) || !['all','today','7d','30d'].includes(period)) {
+      return tg('sendMessage',{chat_id:chat,text:'فیلتر خروجی نامعتبر است.'});
+    }
+    const clauses = ["status <> 'deleted'"];
+    const params = [];
+    if (status !== 'all') { clauses.push('status = ?'); params.push(status); }
+    if (period === 'today') clauses.push('created_at >= CURDATE()');
+    if (period === '7d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)');
+    if (period === '30d') clauses.push('created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)');
+    const [rows] = await db.execute('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE '+clauses.join(' AND ')+' ORDER BY created_at DESC',params);
+    const cell = v => { let s=String(v??''); if (/^[\\s]*[=+\\-@]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
+    const csv='\\uFEFF'+[['نام','موبایل','اینستاگرام','کد','وضعیت','زمان'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.raffle_code,x.status,x.created_at])].map(r=>r.map(cell).join(',')).join('\\r\\n');
     return tgDocument(chat,'istore-lottery.csv',csv,'text/csv;charset=utf-8');
+  }
+  async function exportMenu(chat) {
+    return tg('sendMessage',{chat_id:chat,text:'فیلتر خروجی CSV را انتخاب کنید:',reply_markup:keyboard([
+      [{text:'همه وضعیت‌ها',callback_data:'adm:export:all'},{text:'فعال‌ها',callback_data:'adm:export:active'}],
+      [{text:'غیرفعال‌ها',callback_data:'adm:export:inactive'}],
+      [{text:'راهنما و بازه زمانی',callback_data:'adm:export:help'}],
+      [{text:'منوی اصلی',callback_data:'adm:home'}]
+    ])});
   }
   async function auditLog(chat) {
     const [rows] = await db.query('SELECT action,entity_type,entity_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 15');
@@ -156,7 +173,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (data==='adm:home') return home(chat);
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:campaign') return campaign(chat);
-    if (data==='adm:export') return exportCsv(chat);
+    if (data==='adm:export') return exportMenu(chat);
+    if (data==='adm:export:help') return tg('sendMessage',{chat_id:chat,text:'برای خروجی فیلترشده از دستورهای زیر استفاده کن:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
+    if (data.startsWith('adm:export:')) return exportCsv(chat,data.slice('adm:export:'.length),'all');
     if (data==='adm:audit') return auditLog(chat);
     if (data==='adm:search') { searchModes.set(String(adminId),'search'); return tg('sendMessage',{chat_id:chat,text:'🔎 نام، شماره، آیدی اینستاگرام یا کد را ارسال کنید. برای لغو /cancel را بفرستید.'}); }
     if (data.startsWith('adm:entries:')) { const [, , page, status='all', period='all'] = data.split(':'); return entries(chat,page,status,period); }
@@ -259,6 +278,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
   async function handleMessage(m) {
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
     const text=String(m.text||'').trim();
+    if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
 
     if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)) || pending.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
