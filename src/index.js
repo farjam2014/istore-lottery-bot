@@ -474,5 +474,13 @@ server.close(()=>process.exit(1));
 }
 });
 webhookQueue.start();
-process.on("SIGTERM",()=>{webhookQueue.stop();server.close(()=>process.exit(0));});
-process.on("SIGINT",()=>{webhookQueue.stop();server.close(()=>process.exit(0));});
+let shuttingDown=false;
+async function shutdown(signal){
+if(shuttingDown)return;
+shuttingDown=true;
+console.log(signal+" received; draining webhook queue");
+await webhookQueue.stop();
+server.close(()=>{db.end().finally(()=>process.exit(0))});
+}
+process.on("SIGTERM",()=>shutdown("SIGTERM"));
+process.on("SIGINT",()=>shutdown("SIGINT"));
