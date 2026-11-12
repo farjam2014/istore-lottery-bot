@@ -52,18 +52,11 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
 
       heartbeat = setInterval(async () => {
         try {
-          const [rows] = await db.execute(
-            "SELECT 1 FROM webhook_inbox WHERE update_id=? AND status='processing' AND processing_token=? LIMIT 1",
-            [item.update_id, item.processingToken]
-          );
-          if (!rows.length) {
-            leaseLost = true;
-            return;
-          }
-          await db.execute(
+          const [result] = await db.execute(
             "UPDATE webhook_inbox SET processing_started_at=NOW() WHERE update_id=? AND status='processing' AND processing_token=?",
             [item.update_id, item.processingToken]
           );
+          if (result.affectedRows !== 1) leaseLost = true;
         } catch (error) {
           logger.error("Webhook lease heartbeat error:", error.message);
         }
@@ -109,8 +102,13 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
           );
         }
 
+        if (result.affectedRows !== 1) {
+          await finish.rollback();
+          throw new Error("Webhook processing token was lost before finalization");
+        }
+
         await finish.commit();
-        return result.affectedRows === 1;
+        return true;
       } catch (error) {
         await finish.rollback();
         throw error;
