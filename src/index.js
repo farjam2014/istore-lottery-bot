@@ -117,21 +117,19 @@ return target===String(uid)&&Number(expiry)>Date.now();
 }catch{return false}
 }
 
-function makeConfirmationPayload(uid){
-const raw=String(uid)+"."+String(Date.now()+15*60*1000);
-const p=Buffer.from(raw).toString("base64url");
+function makeConfirmationPayload(uid,chat,connection){
+const p=Buffer.from(JSON.stringify({uid:String(uid),chat:String(chat),connection:String(connection),exp:Date.now()+15*60*1000})).toString("base64url");
 return "lc:"+p+"_"+signed(p).slice(0,16);
 }
-function verifyConfirmationPayload(payload,uid){
+function verifyConfirmationPayload(payload,uid,chat,connection){
 try{
-if(!payload.startsWith("lc:"))return false;
-const data=payload.slice(3);
-const i=data.lastIndexOf("_");
+if(typeof payload!=="string"||!payload.startsWith("lc:"))return false;
+const data=payload.slice(3),i=data.lastIndexOf("_");
 if(i<1)return false;
 const p=data.slice(0,i),sig=data.slice(i+1);
 if(!equal(sig,signed(p).slice(0,16)))return false;
-const [target,expiry]=Buffer.from(p,"base64url").toString().split(".");
-return target===String(uid)&&Number(expiry)>Date.now();
+const claims=JSON.parse(Buffer.from(p,"base64url").toString("utf8"));
+return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection===String(connection)&&Number.isFinite(claims.exp)&&claims.exp>Date.now();
 }catch{return false}
 }
 
@@ -139,9 +137,9 @@ async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
-if(verifyConfirmationPayload(q.data||"",uid)){
+if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
-if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat){
+if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||"")){
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
 }
 if(!await registrationOpen()){
@@ -377,7 +375,7 @@ chat_id:chat,
 business_connection_id:conn,
 text:"📇 کارت مخاطب فروشگاه ارسال شد. برای ادامه ثبت‌نام و دریافت کد قرعه‌کشی، دکمه زیر را بزن.",
 reply_markup:{inline_keyboard:[[
-{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid)}
+{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}
 ]]}
 });
 }}
