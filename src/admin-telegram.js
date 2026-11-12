@@ -247,7 +247,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     const text=String(m.text||'').trim();
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
 
-    if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
+    if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)) || pending.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
     if (editModes.has(String(adminId)) && text) {
       const mode=editModes.get(String(adminId)); editModes.delete(String(adminId));
       if(mode.expires<Date.now()) return tg('sendMessage',{chat_id:m.chat.id,text:'مهلت ویرایش تمام شده است؛ دوباره از پرونده اقدام کنید.'});
