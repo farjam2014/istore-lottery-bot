@@ -32,6 +32,7 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
     try {
       const schema = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
       await db.query(schema);
+      await db.query("ALTER TABLE lottery_entries DROP INDEX uq_entries_active_phone, DROP INDEX uq_entries_active_instagram, DROP COLUMN active_phone, DROP COLUMN active_instagram");
       await db.query("ALTER TABLE lottery_entries MODIFY status ENUM('active','inactive') NOT NULL DEFAULT 'active'");
     } finally {
       await db.end();
