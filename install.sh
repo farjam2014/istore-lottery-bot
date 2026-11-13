@@ -24,7 +24,6 @@ read -r -s -p "Telegram Bot Token: " BOT_TOKEN
 echo
 read -r -p "Telegram numeric Admin ID: " ADMIN_ID
 read -r -p "شماره تماس فروشگاه با کد کشور (اختیاری): " CONTACT_PHONE
-read -r -p "لینک تلگرام فروشگاه مثل https://t.me/store (اختیاری): " STORE_TELEGRAM_URL
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]] || die "دامنه نامعتبر است."
 [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "ایمیل نامعتبر است."
 [[ "$BOT_TOKEN" =~ ^[0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]] || die "توکن نامعتبر است."
@@ -101,9 +100,7 @@ DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 ADMIN_ID=$ADMIN_ID
 CONTACT_PHONE=$CONTACT_PHONE
-STORE_TELEGRAM_URL=$STORE_TELEGRAM_URL
 PUBLIC_SITE_URL=https://$DOMAIN
-REGISTRATION_OPEN=false
 ENV
 chmod 600 "$APP_DIR/.env"
 if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
