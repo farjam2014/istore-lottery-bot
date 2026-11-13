@@ -97,6 +97,9 @@ async function main() {
     const { up: migrateMultiCampaign } = require('./multi-campaign');
     const multiCampaignResult = await migrateMultiCampaign(db);
     console.log('MULTI_CAMPAIGN_MIGRATION', JSON.stringify(multiCampaignResult));
+    const { up: migrateBankCards } = require('./bank-cards');
+    const bankCardResult = await migrateBankCards(db);
+    console.log('BANK_CARD_MIGRATION', JSON.stringify(bankCardResult));
     console.log('MIGRATIONS_OK');
   } finally {
     try {
