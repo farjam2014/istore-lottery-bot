@@ -387,7 +387,7 @@ if(lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns')
   return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:'🧩 کمپین فعال موردنظرتان را انتخاب کنید:',reply_markup:{inline_keyboard:buttons}});
 }
 
-const profileChangeMatch=t.match(/^اصلاح\\s+(نام|موبایل|اینستاگرام)\\s*[:：]\\s*(.+)$/);
+const profileChangeMatch=t.match(/^اصلاح\s+(نام|موبایل|اینستاگرام)\s*[:：]\s*(.+)$/);
 if(profileChangeMatch){
   const fieldMap={'نام':'full_name','موبایل':'phone','اینستاگرام':'instagram'};
   try{
