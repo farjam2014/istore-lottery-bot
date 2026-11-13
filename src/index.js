@@ -176,6 +176,35 @@ const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا 
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
+if(String(q.data||'').startsWith('campaign:join:')){
+  const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
+  if(!uid||!chat||!connection||!/^\d+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
+  await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال بررسی کمپین...'});
+  try{
+    let [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
+    if(!participant){
+      const [[legacy]]=await db.execute("SELECT telegram_user_id,full_name,phone,instagram FROM lottery_entries WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+      if(!legacy)return tg('sendMessage',{chat_id:chat,business_connection_id:connection,text:'برای استفاده از کمپین‌ها ابتدا پروفایل خود را با ارسال «لاتاری» تکمیل کنید؛ سپس «کمپین‌ها» را بفرستید.'});
+      await db.execute("INSERT IGNORE INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[uid,chat,connection,legacy.full_name,legacy.phone,legacy.instagram]);
+      [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
+    }
+    if(!participant||participant.status!=='active')throw new Error('پروفایل فعال پیدا نشد.');
+    await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
+    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
+    if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
+    if(campaign.payment_mode==='free'){
+      const result=await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity:1});
+      return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد.\nکدهای شما:\n'+result.codes.join('\n'));
+    }
+    if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
+    const card=String(process.env.PAYMENT_CARD_NUMBER||'').replace(/\s/g,'');
+    const holder=String(process.env.PAYMENT_CARD_HOLDER||'').trim();
+    if(!/^\d{16}$/.test(card)||!holder)throw new Error('اطلاعات کارت پرداخت هنوز توسط مدیر تنظیم نشده است.');
+    const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity:1});
+    await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
+    return reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card+'\nبه نام: '+holder+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
+  }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
+}
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
 if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private"){
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
@@ -337,8 +366,27 @@ reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",
 }
 }
 
-async function handleUpdate(update){const m=update.business_message;if(!m?.from||!m.chat||!m.text||m.from.is_bot||!m.business_connection_id)return;
-const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=m.text.trim(),lower=t.toLowerCase();
+async function handleUpdate(update){
+const m=update.business_message;
+if(!m?.from||!m.chat||m.from.is_bot||!m.business_connection_id)return;
+const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
+if(m.photo?.length){
+  const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
+  if(!paymentSession)return;
+  try{
+    const photo=m.photo[m.photo.length-1];
+    await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:photo.file_id,fileUniqueId:photo.file_unique_id,trackingReference:m.caption||null});
+    await db.execute('DELETE FROM campaign_payment_sessions WHERE telegram_user_id=?',[uid]);
+    return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.');
+  }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
+}
+if(lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
+  if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
+  const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:join:'+c.id}]);
+  return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:'🧩 کمپین فعال موردنظرتان را انتخاب کنید:',reply_markup:{inline_keyboard:buttons}});
+}
+
 if(lower==="/export" || lower.startsWith("/export@")){
 if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
 try{
