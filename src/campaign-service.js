@@ -41,16 +41,38 @@ function createCampaignService({ db, adminId }) {
     if (!['per_code', 'per_participant'].includes(c.drawBasis)) throw new Error('مبنای قرعه‌کشی نامعتبر است.');
     if (!['one_per_participant', 'allow'].includes(c.multipleWinPolicy)) throw new Error('سیاست برنده‌شدن نامعتبر است.');
     if (!['system', 'live_wheel', 'hybrid'].includes(c.drawMethod)) throw new Error('روش قرعه‌کشی نامعتبر است.');
-    const [result] = await db.execute(
-      `INSERT INTO campaigns
-      (slug,name,description,status,payment_mode,price_per_code,currency,max_participants,max_codes,
-       max_codes_per_participant,draw_basis,winner_count,alternate_count,multiple_win_policy,
-       draw_method,starts_at,ends_at,created_by)
-      VALUES(?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [c.slug,c.name,c.description,c.paymentMode,c.price,c.currency,c.maxParticipants,c.maxCodes,
-       c.maxCodesPerParticipant,c.drawBasis,c.winnerCount,c.alternateCount,c.multipleWinPolicy,
-       c.drawMethod,c.startsAt,c.endsAt,String(adminId)]
-    );
+    const cardId = input.payment_card_id == null || input.payment_card_id === '' ? null : Number(input.payment_card_id);
+    if (c.paymentMode === 'manual' && (!Number.isSafeInteger(cardId) || cardId < 1)) throw new Error('برای کمپین پرداخت دستی باید کارت مقصد انتخاب شود.');
+    if (c.paymentMode !== 'manual' && cardId != null) throw new Error('انتخاب کارت فقط برای پرداخت دستی مجاز است.');
+    const conn = await db.getConnection();
+    let result;
+    try {
+      await conn.beginTransaction();
+      if (cardId != null) {
+        const [[card]] = await conn.execute("SELECT id,status FROM bank_cards WHERE id=? FOR UPDATE",[cardId]);
+        if (!card || card.status !== 'active') throw new Error('کارت انتخاب‌شده فعال نیست.');
+      }
+      const [created] = await conn.execute(
+        `INSERT INTO campaigns
+        (slug,name,description,status,payment_mode,current_payment_card_id,price_per_code,currency,max_participants,max_codes,
+         max_codes_per_participant,draw_basis,winner_count,alternate_count,multiple_win_policy,
+         draw_method,starts_at,ends_at,created_by)
+        VALUES(?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [c.slug,c.name,c.description,c.paymentMode,cardId,c.price,c.currency,c.maxParticipants,c.maxCodes,
+         c.maxCodesPerParticipant,c.drawBasis,c.winnerCount,c.alternateCount,c.multipleWinPolicy,
+         c.drawMethod,c.startsAt,c.endsAt,String(adminId)]
+      );
+      result = created;
+      await conn.execute(
+        "INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,NULL,'draft',?,'campaign created')",
+        [result.insertId,String(adminId)]
+      );
+      if (cardId != null) {
+        await conn.execute('INSERT INTO campaign_payment_card_history(campaign_id,card_id,changed_by,change_reason) VALUES(?,?,?,?)',[result.insertId,cardId,String(adminId),'initial campaign card']);
+      }
+      await conn.commit();
+    } catch(error) { await conn.rollback(); throw error; }
+    finally { conn.release(); }
     await db.execute(
       "INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,NULL,'draft',?,'campaign created')",
       [result.insertId,String(adminId)]
@@ -92,6 +114,8 @@ function createCampaignService({ db, adminId }) {
       const [[campaign]] = await conn.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign || campaign.status !== 'open') throw new Error('کمپین در حال حاضر باز نیست.');
       if (campaign.payment_mode !== 'manual') throw new Error('این کمپین پرداخت دستی ندارد.');
+      const [[paymentCard]] = await conn.execute("SELECT id,label,bank_name,card_number,cardholder_name,status FROM bank_cards WHERE id=? FOR UPDATE",[campaign.current_payment_card_id]);
+      if (!paymentCard || paymentCard.status !== 'active') throw new Error('مدیر هنوز کارت فعال برای این کمپین انتخاب نکرده است.');
       if (qty > campaign.max_codes_per_participant) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
       const [[participant]] = await conn.execute("SELECT id,status FROM participants WHERE id=? FOR UPDATE", [participantId]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل شرکت‌کننده فعال نیست.');
@@ -143,7 +167,7 @@ function createCampaignService({ db, adminId }) {
         [campaignId,participantId,order.insertId,participantSlots,qty,hold]
       );
       await conn.commit();
-      return { id: order.insertId, orderRef, quantity: qty, total, currency: campaign.currency };
+      return { id: order.insertId, orderRef, quantity: qty, total, currency: campaign.currency, card: paymentCard };
     } catch (error) {
       await conn.rollback();
       throw error;
