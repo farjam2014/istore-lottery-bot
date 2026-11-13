@@ -144,7 +144,11 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
             error => error.code === 'DUPLICATE_CONTACT'
           );
           await assert.rejects(
-            joinCampaign({ ...args, telegramUserId: '987654324', fullName: 'Invalid Participant', phone: 'not-a-phone', instagram: 'invalid_user', chatId: '987654324' }),
+            joinCampaign({ ...args, telegramUserId: '987654324', fullName: 'Duplicate Instagram', phone: '09123456782', instagram: '@CAMPAIGN_USER', chatId: '987654324' }),
+            error => error.code === 'DUPLICATE_CONTACT'
+          );
+          await assert.rejects(
+            joinCampaign({ ...args, telegramUserId: '987654326', fullName: 'Invalid Participant', phone: 'not-a-phone', instagram: 'invalid_user', chatId: '987654326' }),
             error => error.code === 'INVALID_PARTICIPANT_PROFILE'
           );
           await assert.rejects(
@@ -156,6 +160,27 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
             [campaignResult.insertId]
           );
           assert.equal(Number(issuedCount.total), 1);
+
+          const { approveManualPayment } = require('../src/campaign-service');
+          await idempotency.execute(
+            "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,settings) VALUES('integration-manual','Manual Transfer','active',10,'manual_transfer',250000,JSON_OBJECT('card_number','1234567812345678','card_holder','Test Owner'))"
+          );
+          const manualArgs = { ...args, telegramUserId: '987654327', fullName: 'Manual Transfer User', phone: '09123456783', instagram: '@manual_user', chatId: '987654327', campaignSlug: 'integration-manual' };
+          const pending = await joinCampaign(manualArgs);
+          assert.equal(pending.status, 'pending_payment');
+          assert.equal(pending.paymentStatus, 'pending');
+          assert.equal(pending.code, null);
+          await assert.rejects(
+            approveManualPayment({ db: pool, paymentId: pending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret }),
+            error => error.code === 'PAYMENT_PROOF_REQUIRED'
+          );
+          await idempotency.execute(
+            "INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id) VALUES(?,?,?,?,?,?)",
+            [pending.paymentId, 'telegram:test-file', 'image/jpeg', 100, 'a'.repeat(64), 'test-file']
+          );
+          const approved = await approveManualPayment({ db: pool, paymentId: pending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret });
+          assert.equal(approved.approved, true);
+          assert.match(approved.code, /^IS-[A-F0-9]{24}$/);
         } finally {
           await pool.end();
         }
