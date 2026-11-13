@@ -59,8 +59,6 @@ throw error;
 }finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
-function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
-function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
 function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"ادامه",callback_data:"contact:confirm"}]]}}
 function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای ادامه استفاده از ربات، شماره مدیریت USTORE را دریافت می‌کنید. در صورت تمایل آن را در مخاطبین ذخیره کنید و سپس ادامه دهید.\n\nنکته: ربات نمی‌تواند ذخیره‌شدن شماره را در مخاطبین گوشی بررسی کند و ذخیره شماره به‌تنهایی نمایش استوری‌های فروشگاه را تضمین نمی‌کند."}
 function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||"").replace(/[\s()-]/g,"");return /^\+?[0-9]{8,15}$/.test(phone)?phone:null}
@@ -120,34 +118,6 @@ await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,n
 await conn.commit();return {participantId:created.insertId,created:true};
 }catch(e){await conn.rollback();if(e.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});throw e;}finally{conn.release();}
 }
-function makeContactPayload(uid){
-const raw=String(uid)+"."+String(Date.now()+15*60*1000)+"."+crypto.randomBytes(4).toString("base64url");
-const p=Buffer.from(raw).toString("base64url");
-return p+"_"+signed(p).slice(0,16);
-}
-function verifyContactPayload(payload,uid){
-try{
-const i=payload.lastIndexOf("_");
-if(i<1)return false;
-const p=payload.slice(0,i),sig=payload.slice(i+1);
-if(!equal(sig,signed(p).slice(0,16)))return false;
-const [target,expiry]=Buffer.from(p,"base64url").toString().split(".");
-return target===String(uid)&&Number(expiry)>Date.now();
-}catch{return false}
-}
-
-function campaignQuantityKeyboard(campaignId,max,page=0){
-  const pageSize=80,totalPages=Math.max(1,Math.ceil(max/pageSize));
-  const current=Math.max(0,Math.min(totalPages-1,Number(page)||0));
-  const start=current*pageSize+1,end=Math.min(max,start+pageSize-1),rows=[];
-  for(let n=start;n<=end;n+=4)rows.push(Array.from({length:Math.min(4,end-n+1)},(_,i)=>({text:String(n+i)+' کد',callback_data:'campaign:quantity:'+campaignId+':'+(n+i)})));
-  const nav=[];
-  if(current>0)nav.push({text:'⬅️ قبلی',callback_data:'campaign:quantity-page:'+campaignId+':'+(current-1)});
-  if(current<totalPages-1)nav.push({text:'بعدی ➡️',callback_data:'campaign:quantity-page:'+campaignId+':'+(current+1)});
-  if(nav.length)rows.push(nav);
-  return {inline_keyboard:rows};
-}
-
 async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
@@ -157,13 +127,12 @@ if(q.data==="contact:send"||q.data==="contact:confirm")return handleContactGateC
 if(!await contactGateAccepted(uid)){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"برای استفاده از ربات ابتدا مرحله خوش‌آمدگویی را تکمیل کنید.",show_alert:true});return showContactGate(chat,String(q.message?.business_connection_id||""));}
 }
 if(await accountAuth.handleCallback(q))return;
-if(q.data==="reg:continue"||q.data==="reg:cancel"){
-const s=await session(uid);
-if(!uid||!s||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
-if(q.data==="reg:cancel"){await delSession(uid);await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ثبت‌نام لغو شد."});return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:"ثبت‌نام لغو شد. هر زمان خواستید می‌توانید دوباره «لاتاری» را ارسال کنید."});}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ادامه ثبت‌نام"});
-const prompts={name:"لطفاً نام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو تایپ کنید.",instagram:"لطفاً آیدی اینستاگرام خود را ارسال کنید؛ مثال: @example",awaiting_contact:"برای ادامه، دکمه ارسال شماره موبایل را بزنید.",awaiting_confirmation:"برای تکمیل ثبت‌نام، دکمه تأیید را انتخاب کنید.",phone:"برای ادامه ثبت‌نام، شماره موبایل خود را از طریق ربات ارسال کنید."};
-return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
+if(q.data==="reg:cancel"){
+const current=await session(uid);
+if(!uid||!current||String(current.chat_id)!==chat||String(current.business_connection_id||"")!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
+await delSession(uid);
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"عملیات لغو شد."});
+return reply(chat,String(q.message?.business_connection_id||""),"عملیات لغو شد. از منوی اصلی می‌توانید دوباره شروع کنید.",{reply_markup:{inline_keyboard:[[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});
 }
 if(q.data==="profile:create"){
 await tg("answerCallbackQuery",{callback_query_id:q.id});
