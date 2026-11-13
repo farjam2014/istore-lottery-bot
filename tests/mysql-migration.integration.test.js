@@ -90,6 +90,8 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       assert.equal(campaignRows.length, 1);
       const [cardTables] = await verify.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('bank_cards','campaign_payment_card_history','payment_order_card_deliveries')");
       assert.deepEqual(new Set(cardTables.map(x => x.TABLE_NAME)), new Set(['bank_cards','campaign_payment_card_history','payment_order_card_deliveries']));
+      const [accountTables] = await verify.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('account_telegram_links','web_accounts','password_reset_requests','account_reset_tokens')");
+      assert.deepEqual(new Set(accountTables.map(x => x.TABLE_NAME)), new Set(['account_telegram_links','web_accounts','password_reset_requests','account_reset_tokens']));
       const [campaignCardColumn] = await verify.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns' AND COLUMN_NAME='current_payment_card_id'");
       assert.equal(campaignCardColumn.length, 1);
       const [mappingRows] = await verify.execute(
