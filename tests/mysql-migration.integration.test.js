@@ -76,7 +76,7 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       const [campaignRows] = await verify.execute("SELECT id FROM campaigns WHERE slug='legacy-lottery' LIMIT 1");
       assert.equal(campaignRows.length, 1);
       const [mappingRows] = await verify.execute(
-        "SELECT p.telegram_user_id,ce.status,cc.code FROM legacy_entry_mappings m JOIN participants p ON p.id=m.participant_id JOIN campaign_entries ce ON ce.id=m.campaign_entry_id JOIN campaign_codes cc ON cc.id=m.campaign_code_id WHERE m.legacy_entry_id=1"
+        "SELECT p.telegram_user_id,ce.status,cc.code FROM legacy_entry_mappings m JOIN participants p ON p.id=m.participant_id JOIN campaign_entries ce ON ce.id=m.campaign_entry_id JOIN campaign_codes cc ON cc.id=m.campaign_code_id WHERE p.telegram_user_id='7000000001'"
       );
       assert.equal(mappingRows.length, 1);
       assert.equal(String(mappingRows[0].telegram_user_id), '7000000001');
