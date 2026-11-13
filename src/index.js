@@ -624,9 +624,9 @@ handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallb
 logger:console
 });
 app.post("/telegram/"+secret,async(q,r)=>{
-if(q.get("x-telegram-bot-api-secret-token")!==secret)return r.status(401).send("Unauthorized");
+if(!equal(q.get("x-telegram-bot-api-secret-token")||"",secret))return r.status(401).send("Unauthorized");
 const u=q.body||{};
-if(!Number.isSafeInteger(Number(u.update_id)))return r.status(400).send("Invalid update");
+if(typeof u.update_id!=="number"||!Number.isSafeInteger(u.update_id))return r.status(400).send("Invalid update");
 try{
 await db.execute("INSERT INTO webhook_inbox(update_id,payload,status) VALUES(?,?,'pending')",[String(u.update_id),JSON.stringify(u)]);
 return r.sendStatus(200);
@@ -646,6 +646,10 @@ console.error("DB connection failed:",e.message);
 server.close(()=>process.exit(1));
 }
 });
+server.requestTimeout=30000;
+server.headersTimeout=15000;
+server.keepAliveTimeout=5000;
+server.maxRequestsPerSocket=1000;
 webhookQueue.start();
 notificationOutbox.start();
 const reservationExpiryTimer=setInterval(()=>campaignService.expireReservations().catch(e=>console.error('Reservation expiry worker error:',e.message)),60000);
@@ -660,7 +664,7 @@ const serverClosed=new Promise(resolve=>server.close(resolve));
 const forceExit=setTimeout(()=>{
 console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
 process.exit(1);
-},35000);
+},65000);
 const drained=await webhookQueue.stop(30000);
 const notificationsDrained=await notificationOutbox.stop(30000);
 if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
