@@ -157,6 +157,11 @@ async function migrateMultiCampaign(db) {
     await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_unique_id VARCHAR(255) NULL AFTER telegram_file_id');
   }
 
+  const [proofIndexes] = await db.execute(
+    "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs' AND INDEX_NAME='uq_payment_proof_payment'"
+  );
+  if (!proofIndexes.length) await db.query('ALTER TABLE campaign_payment_proofs ADD UNIQUE KEY uq_payment_proof_payment(payment_id)');
+
   await db.execute(
     `INSERT IGNORE INTO campaigns(slug,title,status,payment_mode)
      VALUES('legacy','کمپین قدیمی iStore','closed','free')`
