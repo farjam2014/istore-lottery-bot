@@ -284,6 +284,7 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity});
+    if(order.duplicate)return reply(chat,connection,'این سفارش قبلاً ثبت شده و برای جلوگیری از سفارش تکراری دوباره ساخته نشد. برای بازیابی اطلاعات پرداخت و ارسال رسید ادامه دهید.',{reply_markup:{inline_keyboard:[[{text:'📤 ادامه سفارش '+order.orderRef,callback_data:'order:resume:'+order.id}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'}]]}});
     return reply(chat,connection,'✅ سفارش '+order.orderRef+' ثبت شد. دستور پرداخت و اطلاعات کارت از طریق پیام جداگانه ارسال می‌شود.');
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
