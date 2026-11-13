@@ -80,6 +80,15 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       'SELECT id,status,payment_status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',
       [campaign.id, participant.id]
     );
+    if (existing && existing.status === 'inactive' && existing.payment_status === 'rejected' && campaign.payment_mode === 'manual_transfer') {
+      const [retryPayment] = await conn.execute(
+        "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?)",
+        [existing.id, 'manual_transfer', 'pending', campaign.amount_minor, campaign.currency, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+      );
+      await conn.execute("UPDATE campaign_entries SET status='pending_payment',payment_status='pending' WHERE id=?", [existing.id]);
+      await conn.commit();
+      return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, code: null };
+    }
     if (existing) {
       const [[existingCode]] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' LIMIT 1", [existing.id]
@@ -147,7 +156,7 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
     }
     const [[proof]] = await conn.execute('SELECT id FROM campaign_payment_proofs WHERE payment_id=? LIMIT 1 FOR UPDATE', [paymentId]);
     if (!proof) throw Object.assign(new Error('PAYMENT_PROOF_REQUIRED'), { code: 'PAYMENT_PROOF_REQUIRED' });
-    if (payment.campaign_status !== 'active') throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
+    if (payment.campaign_status === 'archived') throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
     const [[count]] = await conn.execute(
       "SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='active'",
       [payment.campaign_id]
