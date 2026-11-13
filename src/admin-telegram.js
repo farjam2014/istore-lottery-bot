@@ -238,7 +238,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   ];
   function cardWizardPrompt(state) {
     const f=cardWizardFields[state.step];
-    return '💳 '+(state.editingId?'ویرایش کارت':'افزودن کارت')+' · مرحله '+(state.step+1)+' از '+cardWizardFields.length+'\\n\\n'+f.label+'\\n'+f.hint+'\\n\\nپاسخ را ارسال کن.';
+    return '💳 '+(state.editingId?'ویرایش کارت':'افزودن کارت')+' · مرحله '+(state.step+1)+' از '+cardWizardFields.length+'\n\n'+f.label+'\n'+f.hint+'\n\nپاسخ را ارسال کن.';
   }
   function cardWizardMarkup() {
     return keyboard([[{text:'⬅️ بازگشت',callback_data:'adm:card-wizard-back'},{text:'✖️ انصراف',callback_data:'adm:card-wizard-cancel'}]]);
@@ -327,9 +327,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   function campaignWizardValue(state,key) { return state.values[key] == null ? '-' : String(state.values[key]); }
   function campaignWizardPrompt(state) {
     const f=campaignWizardFields[state.step];
-    return '🧩 ساخت کمپین · مرحله '+(state.step+1)+' از '+campaignWizardFields.length+'\\n\\n'+f.label+'\\n'+f.hint+
-      (state.editingId?'\\nویرایش پیش‌نویس #'+state.editingId:'')+
-      (f.key==='payment_mode'?'\\n\\nنوع پرداخت را انتخاب کن.':'\\n\\nپاسخ را ارسال کن.');
+    return '🧩 ساخت کمپین · مرحله '+(state.step+1)+' از '+campaignWizardFields.length+'\n\n'+f.label+'\n'+f.hint+
+      (state.editingId?'\nویرایش پیش‌نویس #'+state.editingId:'')+
+      (f.key==='payment_mode'?'\n\nنوع پرداخت را انتخاب کن.':'\n\nپاسخ را ارسال کن.');
   }
   function campaignWizardMarkup(state) {
     if (campaignWizardFields[state.step].key==='payment_mode') {
@@ -586,7 +586,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
       cardMode.values[field.key]=field.key==='bankName'&&normalized==='-'?'':normalized;
       if(cardMode.reviewEdit){cardMode.reviewEdit=false;return cardWizardReview(m.chat.id,cardMode);}
-      if(cardMode.step<cardWizardFields.length-1){cardMode.step++;return adminMessage({chat_id:m.chat.id,text:cardWizardPrompt(cardMode)});}
+      if(cardMode.step<cardWizardFields.length-1){cardMode.step++;return adminMessage({chat_id:m.chat.id,text:cardWizardPrompt(cardMode),reply_markup:cardWizardMarkup()});}
       return cardWizardReview(m.chat.id,cardMode);
     }
     const wizard=pending.get(String(adminId));
@@ -610,7 +610,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       };
       if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
       wizard.values[field.key]=field.key==='payment_mode'?value.toLowerCase():value;
-      if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
+      if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
       if(wizard.values.payment_mode==='free'&&wizard.step===10){return campaignWizardReview(m.chat.id,wizard);}
