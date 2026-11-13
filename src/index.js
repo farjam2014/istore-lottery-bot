@@ -56,7 +56,7 @@ if(error.name==="AbortError")throw new Error("Telegram sendDocument timed out af
 throw error;
 }finally{clearTimeout(timeout)}
 }
-async function reply(chat,connection,text,extra={}){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text,...extra})}
+async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
@@ -271,6 +271,7 @@ if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
 const uid=String(m.from.id),chat=String(m.chat.id);
 
 const adminHandled=await adminTelegram.handleMessage(m);if(adminHandled!==false)return adminHandled;
+return handleUpdate({business_message:{...m,business_connection_id:""}});
 
 if(m.text?.trim()==="پنل" || m.text?.trim().toLowerCase()==="/panel"){
 if(uid!==String(process.env.ADMIN_ID))return;
@@ -387,8 +388,8 @@ reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",
 
 async function handleUpdate(update){
 const m=update.business_message;
-if(!m?.from||!m.chat||m.from.is_bot||!m.business_connection_id)return;
-const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
+if(!m?.from||!m.chat||m.from.is_bot||m.chat.type!=="private")return;
+const uid=String(m.from.id),chat=String(m.chat.id),conn=String(m.business_connection_id||""),t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
 if(m.photo?.length){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
   if(!paymentSession)return;
