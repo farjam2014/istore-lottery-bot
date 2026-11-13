@@ -32,7 +32,7 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 ## Known limitations
 
 - Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
-- Real payment collection is not implemented.
+- Shaparak/provider payment is not implemented. Manual card-to-card receipt review is available only in the multi-campaign development branch.
 - Instagram JSON import and some advanced participant conversation flows are not implemented.
 - Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
 - Complete real Telegram Business and admin acceptance tests before opening registration.
@@ -43,8 +43,10 @@ The `feature/multicampaign-architecture` branch adds an additive multi-campaign 
 
 Before using this branch:
 - Set `CAMPAIGN_CODE_SECRET` to a cryptographically random secret of at least 32 characters. Never commit it or paste it into chat.
-- Keep `REGISTRATION_OPEN=false`; campaign Telegram onboarding and campaign-scoped draw integration are still in progress.
-- All paid modes (manual transfer and payment provider) are intentionally disabled. Payment-proof upload/storage, payment instructions, and end-to-end payment review must be completed before enabling them.
+- Keep `REGISTRATION_OPEN=false` until the full Telegram Business flow is acceptance-tested in a staging bot.
+- Manual transfer is implemented in this branch: configure a 16-digit card number, cardholder name and amount when creating a campaign. The participant receives payment instructions, sends a receipt photo in the Business chat, and the bot forwards it to the admin Telegram account with approve/reject actions. A code is issued only after admin approval and a receipt record exists. The Telegram file identifiers are stored; the image itself remains hosted by Telegram.
+- Shaparak/provider payments remain disabled.
+- Participant Instagram IDs are canonicalized to lowercase without a leading `@` and globally unique in `participants`. The migration stops if it detects duplicate legacy Instagram IDs; resolve those profiles before retrying. Full names are not unique.
 - Run the migration only after reviewing a verified backup and testing against a disposable database. The migration is additive and retains the legacy tables.
 - Do not use the existing installer to deploy this feature branch; it currently targets the legacy branch and performs broader host changes.
 
