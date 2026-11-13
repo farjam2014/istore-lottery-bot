@@ -16,6 +16,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '💳 مدیریت کارت‌های بانکی', callback_data: 'adm:cards' }],
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
+    [{ text: '💬 تیکت‌های پشتیبانی', callback_data: 'adm:support' }],
     [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
@@ -184,6 +185,43 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!rows.length)return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'داشبورد',callback_data:'adm:stats'}]])});
     const body=rows.map(x=>{const n=Number(x.total_entries||0),a=Number(x.completed_entries||0);return '#'+x.id+' '+x.name+' · '+x.status+'\\nعضویت فعال: '+a+'/'+n+' ('+(n?Math.round(a*100/n):0)+'٪) · معلق: '+Number(x.pending_entries||0)+'\\nکد فعال: '+Number(x.active_codes||0)+' · سفارش تأییدشده: '+Number(x.approved_orders||0);}).join('\\n\\n');
     return adminMessage({chat_id:chat,text:'📈 گزارش کمپین‌ها\\n\\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'داشبورد',callback_data:'adm:stats'}]])});
+  }
+  async function supportList(chat,status='open',page=0) {
+    if(!['open','answered','closed','all'].includes(status))return adminMessage({chat_id:chat,text:'فیلتر تیکت نامعتبر است.'});
+    const p=Math.max(0,Math.min(10000,Number(page)||0));
+    const where=status==='all'?'':'WHERE status=?';
+    const params=status==='all'?[10,p*10]:[status,10,p*10];
+    const [rows]=await db.execute(`SELECT id,telegram_user_id,status,LEFT(message,90) AS preview,created_at FROM customer_support_tickets ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,params);
+    const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.status+' · '+String(x.preview||'').replace(/\\s+/g,' '),callback_data:'adm:support-ticket:'+x.id}]);
+    buttons.push([{text:'باز',callback_data:'adm:support:open'},{text:'پاسخ‌داده',callback_data:'adm:support:answered'},{text:'بسته',callback_data:'adm:support:closed'}]);
+    buttons.push([{text:'همه',callback_data:'adm:support:all'},{text:'منوی اصلی',callback_data:'adm:home'}]);
+    if(p>0)buttons.push([{text:'⬅️ قبلی',callback_data:'adm:support-page:'+status+':'+(p-1)}]);
+    if(rows.length===10)buttons.push([{text:'بعدی ➡️',callback_data:'adm:support-page:'+status+':'+(p+1)}]);
+    return adminMessage({chat_id:chat,text:'💬 تیکت‌های پشتیبانی · '+status+' · صفحه '+(p+1),reply_markup:keyboard(buttons)});
+  }
+  async function supportDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
+    const [[ticket]]=await db.execute('SELECT id,telegram_user_id,chat_id,business_connection_id,message,status,admin_reply,replied_at,created_at FROM customer_support_tickets WHERE id=? LIMIT 1',[id]);
+    if(!ticket)return adminMessage({chat_id:chat,text:'تیکت پیدا نشد.'});
+    const buttons=[];
+    if(ticket.status!=='closed')buttons.push([{text:'🔒 بستن تیکت',callback_data:'adm:support-close:'+id}]);
+    else buttons.push([{text:'↻ بازگشایی تیکت',callback_data:'adm:support-reopen:'+id}]);
+    buttons.push([{text:'✍️ راهنمای پاسخ',callback_data:'adm:support-reply-help:'+id},{text:'↩️ فهرست',callback_data:'adm:support'}]);
+    return adminMessage({chat_id:chat,text:'💬 تیکت #'+ticket.id+' · '+ticket.status+'\nکاربر: '+ticket.telegram_user_id+'\nثبت: '+ticket.created_at+'\n\nپیام مشتری:\n'+ticket.message+'\n\nآخرین پاسخ مدیر:\n'+(ticket.admin_reply||'هنوز پاسخی ثبت نشده است.')+'\n\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
+  }
+  async function setSupportStatus(chat,id,status) {
+    if(!/^\\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
+    const conn=await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[ticket]]=await conn.execute('SELECT id,status FROM customer_support_tickets WHERE id=? FOR UPDATE',[id]);
+      if(!ticket)throw new Error('تیکت پیدا نشد.');
+      await conn.execute('UPDATE customer_support_tickets SET status=? WHERE id=?',[status,id]);
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),status==='closed'?'close_support_ticket':'reopen_support_ticket','support_ticket',String(id),JSON.stringify({from:ticket.status,to:status,source:'telegram'})]);
+      await conn.commit();
+      return supportDetail(chat,id);
+    } catch(e){await conn.rollback();return adminMessage({chat_id:chat,text:'تغییر وضعیت تیکت انجام نشد: '+e.message});}
+    finally{conn.release();}
   }
   async function auditLog(chat) {
     const [rows]=await db.query('SELECT action,entity_type,entity_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 15');
@@ -497,6 +535,13 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی مستقیم می‌توانی از دستورهای زیر هم استفاده کنی:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
     if (data.startsWith('adm:export:')) return exportPeriodMenu(chat,data.slice('adm:export:'.length));
+    if (data==='adm:support') return supportList(chat,'open',0);
+    if (data.startsWith('adm:support-page:')) { const [, , status='open', page='0']=data.split(':'); return supportList(chat,status,page); }
+    if (data.startsWith('adm:support:')) return supportList(chat,data.slice('adm:support:'.length),0);
+    if (data.startsWith('adm:support-ticket:')) return supportDetail(chat,data.slice('adm:support-ticket:'.length));
+    if (data.startsWith('adm:support-close:')) return setSupportStatus(chat,data.slice('adm:support-close:'.length),'closed');
+    if (data.startsWith('adm:support-reopen:')) return setSupportStatus(chat,data.slice('adm:support-reopen:'.length),'open');
+    if (data.startsWith('adm:support-reply-help:')) return adminMessage({chat_id:chat,text:'برای پاسخ به این تیکت در همین گفت‌وگوی خصوصی دستور زیر را ارسال کنید:\\n/reply '+data.slice('adm:support-reply-help:'.length)+' متن پاسخ'});
     if (data==='adm:audit') return auditLog(chat);
     if (data==='adm:export') return exportMenu(chat);
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
