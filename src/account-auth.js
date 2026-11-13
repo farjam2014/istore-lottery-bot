@@ -150,7 +150,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   }
   async function handleCallback(q) {
     if(String(q?.from?.id)!==String(adminId)||q.message?.chat?.type!=='private')return false;
-    const match=String(q.data||'').match(/^acct:([ars]):(\\d+)$/);
+    const match=String(q.data||'').match(/^acct:([ars]):(\d+)$/);
     if(!match)return false;
     const id=Number(match[2]), action=match[1];
     await tg('answerCallbackQuery',{callback_query_id:q.id,text:action==='s'?'در حال ارسال مجدد لینک...':'در حال بررسی درخواست...'});
