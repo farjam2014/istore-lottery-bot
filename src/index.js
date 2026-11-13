@@ -181,12 +181,15 @@ if(String(q.data||"").startsWith("order:resume:")){
   const orderId=String(q.data.split(":")[2]||"");
   if(!/^\\d+$/.test(orderId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"شناسه سفارش نامعتبر است.",show_alert:true});
   await tg("answerCallbackQuery",{callback_query_id:q.id});
-  const [[order]]=await db.execute("SELECT o.id,o.order_ref,o.status,o.quantity,o.total_snapshot,o.currency,o.expires_at,c.name AS campaign_name,p.id AS participant_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? AND p.telegram_user_id=? LIMIT 1",[orderId,uid]);
+  const [[order]]=await db.execute("SELECT o.id,o.order_ref,o.status,o.quantity,o.total_snapshot,o.currency,o.expires_at,o.terms_snapshot,c.name AS campaign_name,p.id AS participant_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? AND p.telegram_user_id=? LIMIT 1",[orderId,uid]);
   if(!order)return reply(chat,String(q.message?.business_connection_id||""),"این سفارش برای حساب شما پیدا نشد.");
   if(order.status!=="pending_payment")return reply(chat,String(q.message?.business_connection_id||""),"وضعیت این سفارش اجازه ادامه پرداخت نمی‌دهد. برای مشاهده آخرین وضعیت، سفارش‌های من را باز کنید.");
   if(new Date(order.expires_at).getTime()<=Date.now())return reply(chat,String(q.message?.business_connection_id||""),"مهلت این سفارش تمام شده است. از فهرست کمپین‌ها سفارش جدید ثبت کنید.");
   await db.execute("INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)",[uid,chat,String(q.message?.business_connection_id||""),order.id]);
-  return reply(chat,String(q.message?.business_connection_id||""),"🔁 نشست پرداخت بازیابی شد.\nسفارش: "+order.order_ref+"\nکمپین: "+order.campaign_name+"\nمبلغ: "+Number(order.total_snapshot).toLocaleString("en-US")+" "+order.currency+"\n\nاگر قبلاً پرداخت کرده‌اید، تصویر رسید یا فایل PDF رسید را همین‌جا ارسال کنید. اگر هنوز پرداخت نکرده‌اید، پیام اطلاعات کارت اولیه را در گفت‌وگو پیدا کنید. اگر آن پیام را ندارید، با پشتیبانی تماس بگیرید؛ برای جلوگیری از ارسال کارت اشتباه، شماره کارت قدیمی را حدس نمی‌زنیم.",{reply_markup:{inline_keyboard:[[{text:"💳 مشاهده سفارش‌ها",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+  let terms={};try{terms=typeof order.terms_snapshot==="string"?JSON.parse(order.terms_snapshot):(order.terms_snapshot||{});}catch{}
+  const card=terms.payment_card||null;
+  const paymentDetails=card?"\n\n💳 اطلاعات کارت ثبت‌شده برای همین سفارش\n"+(card.bank_name?card.bank_name+"\n":"")+"شماره کارت: "+card.card_number+"\nبه نام: "+card.cardholder_name+"\n\nدر صورت پرداخت، رسید را همین‌جا ارسال کنید.": "\n\nاطلاعات کارت برای سفارش قدیمی در پرونده ذخیره نشده است. برای دریافت اطلاعات صحیح با پشتیبانی تماس بگیرید؛ کارت جدید را جایگزین اطلاعات قبلی فرض نکنید.";
+  return reply(chat,String(q.message?.business_connection_id||""),"🔁 نشست پرداخت بازیابی شد.\nسفارش: "+order.order_ref+"\nکمپین: "+order.campaign_name+"\nمبلغ: "+Number(order.total_snapshot).toLocaleString("en-US")+" "+order.currency+paymentDetails,{reply_markup:{inline_keyboard:[[{text:"💳 مشاهده سفارش‌ها",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
 }
 if(q.data==='participant:tickets'){
   await tg("answerCallbackQuery",{callback_query_id:q.id});
