@@ -418,7 +418,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     await tg('answerCallbackQuery',{callback_query_id:q.id});
     if(data==='adm:cards')return cardList(chat);
     if(data==='adm:card-add'){const state={type:'card-wizard',step:0,values:{label:'',bankName:'',cardNumber:'',cardholderName:''},expires:Date.now()+1800000};pending.set(String(adminId),state);return adminMessage({chat_id:chat,text:cardWizardPrompt(state),reply_markup:cardWizardMarkup()});}
-    if(data.startsWith('adm:card-wizard-edit:')){const p=pending.get(String(adminId));const n=Number(data.slice('adm:card-wizard-edit:'.length));if(!p||p.type!=='card-wizard'||!Number.isInteger(n)||n<0||n>=cardWizardFields.length)return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است.'});p.step=n;p.reviewEdit=true;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:'✏️ اصلاح '+cardWizardFields[n].label+'\nمقدار فعلی: '+(n===2?'•••• '+digits(p.values.cardNumber).slice(-4):p.values[cardWizardFields[n].key]||'-')+'\nمقدار جدید را بفرست. /back بازگشت به مرحله قبل'});}
+    if(data.startsWith('adm:card-wizard-edit:')){const p=pending.get(String(adminId));const n=Number(data.slice('adm:card-wizard-edit:'.length));if(!p||p.type!=='card-wizard'||!Number.isInteger(n)||n<0||n>=cardWizardFields.length)return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است.'});p.step=n;p.reviewEdit=true;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:'✏️ اصلاح '+cardWizardFields[n].label+'\nمقدار فعلی: '+(n===2?'•••• '+digits(p.values.cardNumber).slice(-4):p.values[cardWizardFields[n].key]||'-')+'\nمقدار جدید را بفرست.',reply_markup:cardWizardMarkup()});}
     if(data==='adm:card-wizard-back'){const p=pending.get(String(adminId));if(!p||p.type!=='card-wizard')return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است.'});p.step=Math.max(0,p.step-1);p.reviewEdit=false;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:cardWizardPrompt(p),reply_markup:cardWizardMarkup()});}
     if(data==='adm:card-wizard-cancel'){pending.delete(String(adminId));return cardList(chat);}
     if(data==='adm:card-wizard-save'){const p=pending.get(String(adminId));if(!p||p.type!=='card-wizard'||p.expires<Date.now())return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است؛ دوباره شروع کن.'});try{const v=p.values;let result;if(p.editingId){await bankCardService.updateCard({id:Number(p.editingId),label:v.label,bankName:v.bankName||null,cardNumber:digits(v.cardNumber),cardholderName:v.cardholderName});result={id:Number(p.editingId)};}else{result=await bankCardService.addCard({label:v.label,bankName:v.bankName||null,cardNumber:digits(v.cardNumber),cardholderName:v.cardholderName});}pending.delete(String(adminId));await audit(p.editingId?'edit_bank_card':'add_bank_card','bank_card',result.id,{last4:digits(v.cardNumber).slice(-4),source:'telegram'});return cardDetail(chat,result.id);}catch(e){return adminMessage({chat_id:chat,text:'ذخیره کارت انجام نشد: '+e.message+'\nاطلاعات فرم حفظ شده است.'});}}
@@ -583,7 +583,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
         cardNumber:()=>/^\d{16}$/.test(normalized),
         cardholderName:()=>normalized.length>=3&&normalized.length<=150
       };
-      if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
+      if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.',reply_markup:cardWizardMarkup()});
       cardMode.values[field.key]=field.key==='bankName'&&normalized==='-'?'':normalized;
       if(cardMode.reviewEdit){cardMode.reviewEdit=false;return cardWizardReview(m.chat.id,cardMode);}
       if(cardMode.step<cardWizardFields.length-1){cardMode.step++;return adminMessage({chat_id:m.chat.id,text:cardWizardPrompt(cardMode),reply_markup:cardWizardMarkup()});}
@@ -608,13 +608,13 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
         draw_basis:()=>['per_code','per_participant'].includes(value),
         payment_card_id:()=>wizard.values.payment_mode==='free'?value==='-':/^\d+$/.test(value)&&Number(value)>0
       };
-      if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
+      if(!valid[field.key]())return adminMessage({chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\nدوباره ارسال کن؛ فرم پاک نمی‌شود.',reply_markup:campaignWizardMarkup(wizard)});
       wizard.values[field.key]=field.key==='payment_mode'?value.toLowerCase():value;
       if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
       if(wizard.values.payment_mode==='free'&&wizard.step===10){return campaignWizardReview(m.chat.id,wizard);}
-      if(wizard.step<campaignWizardFields.length-1){wizard.step++;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
+      if(wizard.step<campaignWizardFields.length-1){wizard.step++;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       return campaignWizardReview(m.chat.id,wizard);
     }
     if (text.toLowerCase()==='/newcampaign') return createCampaignPrompt(m.chat.id);
