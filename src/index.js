@@ -219,7 +219,8 @@ if(String(q.data||'').startsWith('campaign:join:')){
   if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id});
   try{
-    const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+    const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+    if(participant&&participant.status!=='active')throw new Error('پروفایل شما غیرفعال است. برای بررسی با پشتیبانی تماس بگیرید.');
     if(!participant){
       await putSession(uid,chat,"name",null,null,connection);
       return reply(chat,connection,"برای شرکت در کمپین، ابتدا پروفایل دائمی خود را تکمیل کنید.\\n\\nنام و نام خانوادگی خود را ارسال کنید. این اطلاعات فقط یک‌بار دریافت می‌شود و برای کمپین‌های بعدی محفوظ می‌ماند.");
@@ -340,7 +341,7 @@ if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پ�
   const orderText=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · سفارش '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(statusLabel[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
   return reply(chat,conn,'👤 پروفایل شما\\nنام: '+participant.full_name+'\\nموبایل: '+participant.phone+'\\nاینستاگرام: @'+participant.instagram+'\\nوضعیت: '+participant.status+'\\n\\n🎟 کمپین‌ها و کدهای شما\\n'+entryText+'\\n\\n💳 سفارش‌ها\\n'+orderText,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
 }
-if(lower==='/start'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
+if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
   const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
