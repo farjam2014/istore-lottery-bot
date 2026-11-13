@@ -560,7 +560,29 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (text.toLowerCase()==='/newcampaign') return createCampaignPrompt(m.chat.id);
     if (text.toLowerCase()==='/cancel') { pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
   }
-  const handleCallback = processCallback;
+  const handleCallback = async (q) => {
+    if (!isAdmin(q)) return false;
+    const callbackId=String(q.id||'');
+    if(!callbackId)return false;
+    if(completedCallbackIds.has(callbackId)||callbackInFlight.has(callbackId))return true;
+    const actionKey=String(q.message?.chat?.id||'')+':'+String(q.message?.message_id||'')+':'+String(q.data||'');
+    if(actionInFlight.has(actionKey)){
+      await tg('answerCallbackQuery',{callback_query_id:q.id,text:'این عملیات در حال اجراست؛ لطفاً کمی صبر کنید.'});
+      return true;
+    }
+    callbackInFlight.set(callbackId,true);
+    actionInFlight.set(actionKey,callbackId);
+    try {
+      const result=await processCallback(q);
+      completedCallbackIds.add(callbackId);
+      completedCallbackOrder.push(callbackId);
+      while(completedCallbackOrder.length>2000){const expired=completedCallbackOrder.shift();completedCallbackIds.delete(expired);}
+      return result;
+    } finally {
+      callbackInFlight.delete(callbackId);
+      if(actionInFlight.get(actionKey)===callbackId)actionInFlight.delete(actionKey);
+    }
+  };
   return { handleCallback, handleMessage };
 }
 module.exports = { createAdminTelegram };
