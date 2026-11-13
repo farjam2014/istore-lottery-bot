@@ -32,7 +32,8 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 ## Known limitations
 
 - Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
-- Real payment collection is not implemented.
+- Manual card-to-card payment with receipt review is implemented; an online payment-gateway adapter and provider verification are not implemented yet.
+- The website currently provides the admin interface; a shared participant account and participant-facing website are planned, not implemented.
 - Instagram JSON import and some advanced participant conversation flows are not implemented.
 - Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
 - Complete real Telegram Business and admin acceptance tests before opening registration.
