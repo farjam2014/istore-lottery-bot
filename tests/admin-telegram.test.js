@@ -13,6 +13,7 @@ function harness() {
     async execute(sql, params = []) {
       calls.push({ sql, params });
       if (sql.includes('SELECT id,status,raffle_code FROM lottery_entries')) return [[{ id: 42, status: 'active', raffle_code: 'LOT-ABCDEFGH' }]];
+      if (sql.includes('SELECT id,status,phone,instagram FROM lottery_entries')) return [[{ id: 42, status: 'inactive', phone: '09120000000', instagram: 'ali.old' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
       if (sql.includes("SELECT id FROM lottery_entries WHERE status='active'")) return [[]];
       return [{ affectedRows: 1, insertId: 77 }];
@@ -41,6 +42,7 @@ function harness() {
       if (sql.includes('FROM telegram_notification_outbox')) return [[{ failed: 0 }]];
       if (sql.includes('FROM campaigns')) return [[{ total: 0, open: 0, draft: 0, paused: 0, closed: 0 }]];
       if (sql.includes('FROM participants')) return [[{ total: 0, active: 0 }]];
+      if (sql.includes('FROM campaign_entries')) return [[{ total: 10, completed: 6, pending: 2, inactive: 1, excluded: 1 }]];
       if (sql.includes('FROM campaign_codes')) return [[{ total: 0 }]];
       if (sql.includes('FROM payment_orders')) return [[{ total: 0, pending: 0, receipts: 0, approved: 0, rejected: 0 }]];
       if (sql.includes('FROM payment_transactions')) return [[]];
@@ -79,6 +81,34 @@ test('management dashboard reports multi-campaign, payment and reliability metri
   assert.match(body.payload.text,/پرداخت‌های تأییدشده/);
   assert.match(body.payload.text,/خطاهای Webhook/);
   assert.ok(JSON.stringify(body.payload.reply_markup).includes('adm:orders'));
+});
+
+test('management dashboard includes an explicitly defined campaign membership completion rate', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'dash-funnel',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  const dashboard=h.telegram.find(x=>String(x.payload.text||'').includes('داشبورد مدیریتی'));
+  assert.ok(dashboard);
+  assert.match(dashboard.payload.text,/نرخ تکمیل: 60٪/);
+  assert.ok(dashboard.payload.reply_markup.inline_keyboard.flat().some(b=>b.callback_data==='adm:reports'));
+  assert.ok(h.calls.some(x=>x.sql.includes('SUM(status=\'active\') completed')&&x.sql.includes('FROM campaign_entries')));
+});
+
+test('campaign report exposes per-campaign completion and states that it is not conversation conversion', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'report-1',data:'adm:reports',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM campaigns c')&&x.sql.includes('completed_entries')));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('نرخ تکمیل = عضویت‌های فعال')));
+});
+
+test('admin callback query IDs are processed only once', async () => {
+  const h=harness();
+  const q={id:'same-callback-id',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}};
+  await h.admin.handleCallback(q);
+  const before=h.calls.filter(x=>x.sql.includes('FROM lottery_entries')).length;
+  await h.admin.handleCallback(q);
+  const after=h.calls.filter(x=>x.sql.includes('FROM lottery_entries')).length;
+  assert.equal(after,before);
+  assert.equal(h.telegram.filter(x=>x.method==='answerCallbackQuery').length,1);
 });
 
 test('campaign management supports validated status filters and pagination', async () => {
@@ -170,6 +200,21 @@ test('admin delete requires confirmation and writes soft-delete plus audit atomi
   assert.equal(h.calls.some(x => x.sql === 'ROLLBACK'), false);
 });
 
+
+test('participant status changes lock the row and commit audit atomically', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'status-confirm',data:'adm:confirm-status:42:active',from:message.from,message:{chat:message.chat}});
+  await h.admin.handleCallback({id:'status-apply',data:'adm:apply-status:42:active',from:message.from,message:{chat:message.chat}});
+  const lockIndex=h.calls.findIndex(x=>x.sql.includes('SELECT id,status,phone,instagram FROM lottery_entries WHERE id=? FOR UPDATE'));
+  const updateIndex=h.calls.findIndex(x=>x.sql.includes('UPDATE lottery_entries SET status=?'));
+  const auditIndex=h.calls.findIndex(x=>x.sql.includes('INSERT INTO admin_audit_log'));
+  const commitIndex=h.calls.findIndex(x=>x.sql==='COMMIT');
+  assert.ok(lockIndex>=0);
+  assert.ok(updateIndex>lockIndex);
+  assert.ok(auditIndex>updateIndex);
+  assert.ok(commitIndex>auditIndex);
+  assert.equal(h.calls.some(x=>x.sql==='ROLLBACK'),false);
+});
 
 test('participant list supports status and date filters with parameterized status values', async () => {
   const h = harness();
