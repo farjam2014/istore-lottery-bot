@@ -137,13 +137,16 @@ test('optional contact gate fails open when CONTACT_PHONE is unset or invalid', 
   assert.match(source, /if\(!await contactGateAccepted\(uid\)\)/);
 });
 
-test('multi-campaign Business flow supports campaign listing, joins, and payment receipt photos', () => {
+test('multi-campaign Business flow supports campaign listing, joins, and photo or PDF receipt uploads', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
   assert.match(source, /lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'/);
   assert.match(source, /campaignService\.joinFreeCampaign\(\{campaignId:Number\(campaignId\),telegramUserId:uid,chatId:chat,businessConnectionId:connection/);
   assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity\}\)/);
-  assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:photo\.file_id/);
+  assert.match(source, /if\(m\.photo\?\.length\|\|m\.document\)/);
+  assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:file\.file_id,fileUniqueId:file\.file_unique_id/);
+  assert.match(source, /application\/pdf/);
+  assert.match(source, /10\*1024\*1024/);
   assert.match(source, /business_connection_id=\? LIMIT 1/);
 });
 
@@ -198,4 +201,18 @@ test('customer flow migration creates support tickets; session states belong to 
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS telegram_sessions/);
   assert.match(bootstrap, /profile_confirmation/);
   assert.match(bootstrap, /support_message/);
+});
+
+test('customer order recovery, cancellation, order history and support history are exposed in Telegram', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const service = fs.readFileSync(require.resolve('../src/campaign-service.js'), 'utf8');
+  assert.match(source, /participant:orders/);
+  assert.match(source, /order:resume:/);
+  assert.match(source, /order:cancel:/);
+  assert.match(source, /participant:tickets/);
+  assert.match(source, /terms\.payment_card/);
+  assert.match(service, /async function cancelManualOrder\(/);
+  assert.match(service, /status='released'/);
+  assert.match(service, /DELETE FROM campaign_payment_sessions WHERE order_id/);
 });
