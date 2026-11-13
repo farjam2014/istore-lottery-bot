@@ -460,16 +460,6 @@ function createCampaignService({ db, adminId }) {
         [order.entry_id]
       );
       await conn.execute("DELETE FROM campaign_payment_sessions WHERE order_id=?", [orderId]);
-      const [[recipient]] = await conn.execute("SELECT chat_id,business_connection_id,order_ref FROM payment_orders o JOIN participants p ON p.id=o.participant_id WHERE o.id=? LIMIT 1", [orderId]);
-      if (recipient?.chat_id) {
-        await conn.execute(
-          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
-          ['order-cancelled:'+orderId,'customer_order_cancelled',JSON.stringify({
-            method:'sendMessage',
-            payload:{chat_id:String(recipient.chat_id),...(recipient.business_connection_id?{business_connection_id:String(recipient.business_connection_id)}:{}),text:'سفارش '+recipient.order_ref+' طبق درخواست شما لغو شد و ظرفیت رزروشده آزاد شد.'}
-          })]
-        );
-      }
       await conn.execute(
         "INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",
         ['customer:'+String(participantId),'cancel_order','payment_order',String(orderId),JSON.stringify({campaign_id:order.campaign_id})]
