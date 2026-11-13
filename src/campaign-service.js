@@ -6,7 +6,7 @@ function makeCampaignCode(campaignId, sequence, secret) {
   const digest = crypto.createHmac('sha256', secret)
     .update(String(campaignId) + ':' + String(sequence))
     .digest('hex').toUpperCase();
-  return 'IS-' + digest.slice(0, 16);
+  return 'IS-' + digest.slice(0, 24);
 }
 
 /**
