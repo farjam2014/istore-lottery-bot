@@ -484,7 +484,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       if(isMethod&&!['system','live_wheel'].includes(selected))return adminMessage({chat_id:chat,text:'روش قرعه‌کشی نامعتبر است.'});
       if(isBasis&&!['per_code','per_participant'].includes(selected))return adminMessage({chat_id:chat,text:'مبنای قرعه‌کشی نامعتبر است.'});
       if(!isMethod&&!isBasis){
-        if(!/^\\d+$/.test(selected))return adminMessage({chat_id:chat,text:'شناسه کارت نامعتبر است.'});
+        if(!/^\d+$/.test(selected))return adminMessage({chat_id:chat,text:'شناسه کارت نامعتبر است.'});
         const card=await bankCardService.getCard(Number(selected),{activeOnly:true});
         if(!(p.cards||[]).some(c=>Number(c.id)===Number(card.id)))return adminMessage({chat_id:chat,text:'این کارت در فهرست کارت‌های فعال فرم نیست؛ فرم را تازه‌سازی کن.'});
       }
