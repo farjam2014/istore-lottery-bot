@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { makeRaffleCode } = require('./domain');
+const { makeRaffleCode, normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
 function assertInteger(value, name, min = 1, max = 10000) {
   const n = Number(value);
@@ -239,7 +239,118 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment };
+  async function joinFreeCampaign({ campaignId, telegramUserId, chatId, fullName, phone, instagram, quantity = 1 }) {
+    const qty = assertInteger(quantity, 'تعداد کد', 1, 1000);
+    const name = String(fullName || '').trim().replace(/\\s+/g, ' ');
+    const normalizedPhone = normalizePhone(phone);
+    const normalizedInstagram = normalizeInstagram(instagram);
+    if (!validFullName(name) || !validPhone(normalizedPhone) || !validInstagram(normalizedInstagram)) throw new Error('اطلاعات پروفایل معتبر نیست.');
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[campaign]] = await conn.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
+      if (!campaign || campaign.status !== 'open' || campaign.payment_mode !== 'free') throw new Error('کمپین رایگان در حال حاضر باز نیست.');
+      if (qty > Number(campaign.max_codes_per_participant)) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
+      const [[existingParticipant]] = await conn.execute('SELECT * FROM participants WHERE telegram_user_id=? FOR UPDATE', [String(telegramUserId)]);
+      let participantId;
+      if (existingParticipant) {
+        if (existingParticipant.status !== 'active') throw new Error('پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.');
+        participantId = existingParticipant.id;
+        await conn.execute('UPDATE participants SET chat_id=? WHERE id=?', [String(chatId),participantId]);
+      } else {
+        const [created] = await conn.execute(
+          "INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,'active')",
+          [String(telegramUserId),String(chatId),name,normalizedPhone,normalizedInstagram]
+        );
+        participantId = created.insertId;
+      }
+      const [[entry]] = await conn.execute('SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE', [campaignId,participantId]);
+      if (entry && !['active','pending'].includes(entry.status)) throw new Error('وضعیت عضویت شما اجازه ورود مجدد به این کمپین را نمی‌دهد.');
+      const [[usage]] = await conn.execute(
+        'SELECT COUNT(*) AS used FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND status=\'active\'',
+        [campaignId,participantId]
+      );
+      if (Number(usage.used) + qty > Number(campaign.max_codes_per_participant)) throw new Error('سقف تعداد کد مجاز برای این فرد تکمیل شده است.');
+      const [[capacity]] = await conn.execute(
+        "SELECT (SELECT COUNT(DISTINCT participant_id) FROM campaign_entries WHERE campaign_id=? AND status='active') AS participants_used,(SELECT COUNT(*) FROM campaign_codes WHERE campaign_id=? AND status='active') AS codes_used",
+        [campaignId,campaignId]
+      );
+      const participantSlots = entry?.status === 'active' ? 0 : 1;
+      if (campaign.max_participants != null && Number(capacity.participants_used) + participantSlots > Number(campaign.max_participants)) throw new Error('ظرفیت شرکت‌کنندگان کمپین تکمیل شده است.');
+      if (campaign.max_codes != null && Number(capacity.codes_used) + qty > Number(campaign.max_codes)) throw new Error('ظرفیت کدهای کمپین تکمیل شده است.');
+      let entryId = entry?.id;
+      if (!entryId) {
+        const [createdEntry] = await conn.execute("INSERT INTO campaign_entries(campaign_id,participant_id,status) VALUES(?,?,'active')", [campaignId,participantId]);
+        entryId = createdEntry.insertId;
+      } else if (entry.status !== 'active') {
+        await conn.execute("UPDATE campaign_entries SET status='active' WHERE id=?", [entryId]);
+      }
+      const issued = [];
+      for (let i=0; i<qty; i++) {
+        let inserted = false;
+        for (let attempt=0; attempt<8 && !inserted; attempt++) {
+          const code = makeRaffleCode();
+          try {
+            const [createdCode] = await conn.execute("INSERT INTO campaign_codes(campaign_id,entry_id,participant_id,code,status) VALUES(?,?,?,?,'active')", [campaignId,entryId,participantId,code]);
+            await conn.execute("INSERT INTO campaign_code_history(campaign_code_id,code,action,actor,reason) VALUES(?,?,'issued','system','free campaign entry')", [createdCode.insertId,code]);
+            issued.push(code);
+            inserted = true;
+          } catch (error) {
+            if (error.code !== 'ER_DUP_ENTRY' || attempt === 7) throw error;
+          }
+        }
+      }
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', ['system','free_campaign_entry','campaign_entry',String(entryId),JSON.stringify({campaign_id:campaignId,participant_id:participantId,codes:issued})]);
+      await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)", ['free-entry:'+campaignId+':'+participantId+':'+issued.join('-'),'campaign_codes_issued',JSON.stringify({campaign_id:campaignId,participant_id:participantId,codes:issued})]);
+      await conn.commit();
+      return { participantId, entryId, codes: issued };
+    } catch (error) {
+      await conn.rollback();
+      if (error.code === 'ER_DUP_ENTRY') throw new Error('شماره موبایل یا آیدی اینستاگرام قبلاً برای حساب دیگری ثبت شده است.');
+      throw error;
+    } finally { conn.release(); }
+  }
+
+  async function requestProfileChange({ participantId, field, value }) {
+    const fields = {
+      full_name: v => { const x=String(v||'').trim().replace(/\\s+/g,' '); if(!validFullName(x)) throw new Error('نام معتبر نیست.'); return x; },
+      phone: v => { const x=normalizePhone(v); if(!validPhone(x)) throw new Error('شماره موبایل معتبر نیست.'); return x; },
+      instagram: v => { const x=normalizeInstagram(v); if(!validInstagram(x)) throw new Error('آیدی اینستاگرام معتبر نیست.'); return x; }
+    };
+    if (!fields[field]) throw new Error('فیلد قابل اصلاح نیست.');
+    const nextValue = fields[field](value);
+    const [[participant]] = await db.execute('SELECT id,?? AS old_value FROM participants WHERE id=? AND status=\'active\' LIMIT 1', [field,participantId]);
+    if (!participant) throw new Error('پروفایل فعال پیدا نشد.');
+    if (String(participant.old_value) === nextValue) throw new Error('مقدار جدید با مقدار فعلی یکسان است.');
+    const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,status) VALUES(?,?,?,?,'pending')", [participantId,field,String(participant.old_value),nextValue]);
+    return { id: result.insertId, status: 'pending' };
+  }
+
+  async function reviewProfileChange({ requestId, approve, note = '' }) {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[request]] = await conn.execute('SELECT * FROM profile_change_requests WHERE id=? FOR UPDATE', [requestId]);
+      if (!request || request.status !== 'pending') throw new Error('درخواست اصلاح پیدا نشد یا قبلاً بررسی شده است.');
+      const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [request.participant_id]);
+      if (!participant || participant.status !== 'active') throw new Error('پروفایل فعال نیست.');
+      if (approve) {
+        const allowed = new Set(['full_name','phone','instagram']);
+        if (!allowed.has(request.field_name)) throw new Error('فیلد درخواست نامعتبر است.');
+        await conn.execute('UPDATE participants SET ??=? WHERE id=?', [request.field_name,request.requested_value,request.participant_id]);
+      }
+      await conn.execute("UPDATE profile_change_requests SET status=?,reviewed_by=?,reviewed_at=UTC_TIMESTAMP(),review_note=? WHERE id=?", [approve?'approved':'rejected',String(adminId),String(note).slice(0,255),requestId]);
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),approve?'approve_profile_change':'reject_profile_change','profile_change_request',String(requestId),JSON.stringify({participant_id:request.participant_id,field:request.field_name,old_value:request.old_value,new_value:request.requested_value,note})]);
+      await conn.commit();
+      return { id: requestId, status: approve?'approved':'rejected' };
+    } catch (error) {
+      await conn.rollback();
+      if (error.code === 'ER_DUP_ENTRY') throw new Error('شماره یا آیدی اینستاگرام جدید قبلاً برای فرد دیگری ثبت شده است.');
+      throw error;
+    } finally { conn.release(); }
+  }
+
+  return { createCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };
