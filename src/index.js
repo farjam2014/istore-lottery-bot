@@ -154,7 +154,7 @@ if(!list.length)return;
 if(list.length<=80){
 return tg("sendMessage",{chat_id:chatId,...(connectionId?{business_connection_id:connectionId}:{}),text:"✅ پرداخت کمپین «"+campaignTitle+"» تأیید شد.\n🎟 کدهای شما ("+list.length+"):\n"+list.join("\n")});
 }
-const csv="\\uFEFF"+[["ردیف","کد"],...list.map((code,index)=>[index+1,code])].map(row=>row.map(csvCell).join(",")).join("\\r\\n");
+const csv="\\uFEFF"+[["ردیف","کد"],...list.map((code,index)=>[index+1,code])].map(row=>row.map(csvCell).join(",")).join("\\r\n");
 const form=new FormData();
 form.append("chat_id",String(chatId));
 if(connectionId)form.append("business_connection_id",String(connectionId));
@@ -181,7 +181,7 @@ if(String(q.data||"").startsWith("pay:")){
 if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private")
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
 const [action,id]=String(q.data).split(":").slice(1);
-if(!/^\\d+$/.test(id||"")||!["approve","reject"].includes(action))
+if(!/^\d+$/.test(id||"")||!["approve","reject"].includes(action))
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"درخواست نامعتبر",show_alert:true});
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال بررسی..."});
 try{
@@ -491,7 +491,7 @@ if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نا
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
 if(s.step==="quantity"){
 const quantity=Number(t);
-if(!/^\\d{1,5}$/.test(t)||!Number.isSafeInteger(quantity)||quantity<1||quantity>10000)
+if(!/^\d{1,5}$/.test(t)||!Number.isSafeInteger(quantity)||quantity<1||quantity>10000)
 return reply(chat,conn,"لطفاً تعداد کد را به‌صورت عدد صحیح بین ۱ تا ۱۰۰۰۰ وارد کنید.");
 const [[campaign]]=await db.execute("SELECT slug,title,payment_mode,max_codes_per_participant FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
 if(!campaign){await delSession(uid);return reply(chat,conn,"این کمپین دیگر فعال نیست.");}
@@ -505,7 +505,7 @@ await delSession(uid);
 return reply(chat,conn,await manualPaymentInstructions(s.campaign_id,result.paymentId));
 }
 await delSession(uid);
-return reply(chat,conn,"کدهای شما قبلاً صادر شده‌اند:\\n"+(result.codes||[]).join("\\n"));
+return reply(chat,conn,"کدهای شما قبلاً صادر شده‌اند:\n"+(result.codes||[]).join("\n"));
 }catch(e){
 const messages={CODE_LIMIT_EXCEEDED:"تعداد درخواستی از سقف مجاز شما بیشتر است.",PAYMENT_ALREADY_PENDING:"یک پرداخت قبلی شما هنوز در انتظار بررسی است. ابتدا همان پرداخت را تکمیل کنید.",CAMPAIGN_FULL:"ظرفیت کمپین تکمیل شده است.",DUPLICATE_CONTACT:"شماره یا آیدی اینستاگرام قبلاً ثبت شده است."};
 return reply(chat,conn,messages[e.code]||"ثبت درخواست انجام نشد؛ دوباره تلاش کنید.");
