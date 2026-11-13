@@ -35,7 +35,7 @@
     <div class="wrap"><table style="min-width:700px"><thead><tr><th>نام</th><th>موبایل</th><th>اینستاگرام</th><th>وضعیت</th><th>کد</th><th>زمان</th></tr></thead><tbody id="campaignEntryRows"></tbody></table></div>
     <div class="top"><button class="secondary" id="campaignEntriesPrev" onclick="pageCampaignEntries(-1)">قبلی</button><span id="campaignEntriesPage" class="muted"></span><button class="secondary" id="campaignEntriesNext" onclick="pageCampaignEntries(1)">بعدی</button></div>
   </div>
-  <h3>پرداخت‌های منتظر بررسی</h3><div id="campaignPayments" class="muted">در حال دریافت…</div>
+  <h3>پرداخت‌های منتظر بررسی</h3><p class="muted">تصویر رسید مستقیماً در تلگرام برای مدیر ارسال می‌شود. تا زمانی که رسید دریافت نشده باشد، تأیید پرداخت غیرفعال است.</p><div id="campaignPayments" class="muted">در حال دریافت…</div>
 </section>
 </main>
 <script>
@@ -138,8 +138,8 @@ async function loadCampaignPayments(){
     if(!d.payments.length){el.textContent='پرداخت معلقی وجود ندارد.';return}
     for(const p of d.payments){
       const box=document.createElement('div');box.className='card';
-      const info=document.createElement('p');info.textContent=p.campaign_title+' · '+p.full_name+' · '+p.phone+' · '+p.amount_minor+' '+p.currency;box.appendChild(info);
-      const b=document.createElement('button');b.textContent='تأیید پرداخت و صدور کد';b.onclick=async()=>{
+      const info=document.createElement('p');info.textContent=p.campaign_title+' · '+p.full_name+' · '+p.phone+' · '+p.amount_minor+' '+p.currency+' · '+(p.has_proof?'رسید دریافت شده':'هنوز رسیدی دریافت نشده؛ رسید را در تلگرام بررسی کنید');box.appendChild(info);
+      const b=document.createElement('button');b.textContent='تأیید پرداخت و صدور کد';b.disabled=!p.has_proof;b.onclick=async()=>{
         if(!confirm('رسید را خارج از سامانه بررسی کرده‌اید و مبلغ واقعاً دریافت شده است؟'))return;
         try{const result=await api('/api/admin/campaign-payments/'+p.payment_id+'/approve',{method:'POST',body:'{}'});info.textContent+=' · تأیید شد · کد: '+result.code;b.disabled=true;await loadCampaigns();await loadAudit()}catch(e){message(e.message)}
       };box.appendChild(b);el.appendChild(box);
