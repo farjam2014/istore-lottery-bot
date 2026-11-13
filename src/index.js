@@ -372,7 +372,7 @@ try{const result=await campaignService.createCampaign(q.body||{});r.status(201).
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
 try{const result=await campaignService.setCampaignStatus(Number(q.params.id),String(q.body.status||""),String(q.body.reason||""));await audit("admin","campaign_status","campaign",q.params.id,{status:result.status,reason:q.body.reason||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -399,34 +399,34 @@ r.setHeader("Content-Type",mime);r.setHeader("Content-Disposition","inline; file
 }catch(e){console.error("Receipt preview error:",e.message);return r.status(502).json({error:"دریافت تصویر رسید از تلگرام انجام نشد."});}
 });
 app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
 try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/campaigns/:id/draws/prepare",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
 try{const result=await drawService.prepareDraw(Number(q.params.id));r.status(201).json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.get("/api/admin/draws/:id/candidates",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 const [[draw]]=await db.execute("SELECT id,campaign_id,method,status,draw_basis,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[q.params.id]);
 if(!draw)return r.status(404).json({error:"قرعه‌کشی پیدا نشد."});
 const [candidates]=await db.execute("SELECT candidate_reference,participant_id,code FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference",[q.params.id]);
 r.json({draw,candidates});
 });
 app.post("/api/admin/draws/:id/run",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.runSystemDraw(Number(q.params.id));r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/draws/:id/live-results",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.submitLiveWheelResults({drawId:Number(q.params.id),candidateReferences:q.body.candidate_references,externalReference:q.body.external_reference,evidenceHash:q.body.evidence_hash});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/draws/:id/approve",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.approveDraw(Number(q.params.id));r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -437,7 +437,7 @@ const [rows]=await db.execute("SELECT r.id,r.participant_id,p.telegram_user_id,p
 r.json({requests:rows});
 });
 app.post("/api/admin/profile-change-requests/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه درخواست نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه درخواست نامعتبر است."});
 try{const result=await campaignService.reviewProfileChange({requestId:Number(q.params.id),approve:q.body.approve===true,note:q.body.note||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -453,94 +453,6 @@ r.json({participants:rows,limit});
 async function audit(adminId,action,type,id,details={}) {
   await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)]);
 }
-app.get("/api/admin/campaigns",admin,async(_q,r)=>{
-const [rows]=await db.query("SELECT id,slug,name,status,payment_mode,price_per_code,currency,max_participants,max_codes,max_codes_per_participant,draw_basis,winner_count,alternate_count,draw_method,starts_at,ends_at,created_at FROM campaigns ORDER BY id DESC LIMIT 200");
-r.json({campaigns:rows});
-});
-app.post("/api/admin/campaigns",admin,async(q,r)=>{
-try{const result=await campaignService.createCampaign(q.body||{});r.status(201).json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
-try{const result=await campaignService.setCampaignStatus(Number(q.params.id),String(q.body.status||""),String(q.body.reason||""));await audit("admin","campaign_status","campaign",q.params.id,{status:result.status,reason:q.body.reason||""});r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.get("/api/admin/payment-orders",admin,async(q,r)=>{
-const status=String(q.query.status||"receipt_submitted");
-if(!["pending_payment","receipt_submitted","approved","rejected","expired","cancelled"].includes(status))return r.status(400).json({error:"فیلتر وضعیت نامعتبر است."});
-const [rows]=await db.execute("SELECT o.id,o.order_ref,o.campaign_id,c.name AS campaign_name,o.participant_id,p.full_name,p.phone,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,o.created_at FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.status=? ORDER BY o.created_at ASC LIMIT 200",[status]);
-r.json({orders:rows});
-});
-app.get("/api/admin/payment-orders/:id/receipt",admin,async(q,r)=>{
-if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
-const [rows]=await db.execute("SELECT telegram_file_id FROM payment_receipts WHERE order_id=? ORDER BY submitted_at DESC LIMIT 1",[q.params.id]);
-if(!rows.length)return r.status(404).json({error:"رسیدی برای این سفارش ثبت نشده است."});
-try{
-const file=await tg("getFile",{file_id:rows[0].telegram_file_id});
-if(!file?.file_path)throw new Error("Telegram file path missing");
-const response=await fetch("https://api.telegram.org/file/bot"+token+"/"+file.file_path);
-if(!response.ok)throw new Error("Telegram receipt download failed");
-const bytes=Buffer.from(await response.arrayBuffer());
-if(bytes.length>12*1024*1024)return r.status(413).json({error:"حجم رسید بیش از حد مجاز است."});
-const ext=String(file.file_path).split(".").pop().toLowerCase();
-const mime=ext==="png"?"image/png":ext==="webp"?"image/webp":ext==="pdf"?"application/pdf":"image/jpeg";
-r.setHeader("Content-Type",mime);r.setHeader("Content-Disposition","inline; filename=payment-receipt."+ext);r.setHeader("Cache-Control","private, no-store");return r.send(bytes);
-}catch(e){console.error("Receipt preview error:",e.message);return r.status(502).json({error:"دریافت تصویر رسید از تلگرام انجام نشد."});}
-});
-app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
-try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.post("/api/admin/campaigns/:id/draws/prepare",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
-try{const result=await drawService.prepareDraw(Number(q.params.id));r.status(201).json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.get("/api/admin/draws/:id/candidates",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
-const [[draw]]=await db.execute("SELECT id,campaign_id,method,status,draw_basis,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[q.params.id]);
-if(!draw)return r.status(404).json({error:"قرعه‌کشی پیدا نشد."});
-const [candidates]=await db.execute("SELECT candidate_reference,participant_id,code FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference",[q.params.id]);
-r.json({draw,candidates});
-});
-app.post("/api/admin/draws/:id/run",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
-try{const result=await drawService.runSystemDraw(Number(q.params.id));r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.post("/api/admin/draws/:id/live-results",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
-try{const result=await drawService.submitLiveWheelResults({drawId:Number(q.params.id),candidateReferences:q.body.candidate_references,externalReference:q.body.external_reference,evidenceHash:q.body.evidence_hash});r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.post("/api/admin/draws/:id/approve",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
-try{const result=await drawService.approveDraw(Number(q.params.id));r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.get("/api/admin/profile-change-requests",admin,async(q,r)=>{
-const status=String(q.query.status||"pending");
-if(!["pending","approved","rejected","cancelled"].includes(status))return r.status(400).json({error:"وضعیت درخواست نامعتبر است."});
-const [rows]=await db.execute("SELECT r.id,r.participant_id,p.telegram_user_id,p.full_name,r.field_name,r.old_value,r.requested_value,r.status,r.created_at FROM profile_change_requests r JOIN participants p ON p.id=r.participant_id WHERE r.status=? ORDER BY r.created_at ASC LIMIT 200",[status]);
-r.json({requests:rows});
-});
-app.post("/api/admin/profile-change-requests/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه درخواست نامعتبر است."});
-try{const result=await campaignService.reviewProfileChange({requestId:Number(q.params.id),approve:q.body.approve===true,note:q.body.note||""});r.json({ok:true,...result});}
-catch(e){r.status(400).json({error:e.message});}
-});
-app.get("/api/admin/participants",admin,async(q,r)=>{
-const term=String(q.query.q||"").trim().slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50));
-const [rows]=await db.execute(`SELECT p.id,p.telegram_user_id,p.full_name,p.phone,p.instagram,p.status,p.created_at,
-(SELECT COUNT(*) FROM campaign_entries e WHERE e.participant_id=p.id AND e.status='active') AS campaign_count,
-(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.participant_id=p.id AND cc.status='active') AS active_codes
-FROM participants p WHERE (?='' OR p.full_name LIKE ? OR p.phone LIKE ? OR p.instagram LIKE ? OR p.telegram_user_id LIKE ?)
-ORDER BY p.created_at DESC,p.id DESC LIMIT ${limit}`,[term,like,like,like,like]);
-r.json({participants:rows,limit});
-});
-
 app.get("/api/admin/audit",admin,async(q,r)=>{
   const limit=Math.min(100,Math.max(1,Number(q.query.limit)||20));
   const [events]=await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,created_at FROM admin_audit_log ORDER BY id DESC LIMIT "+limit);
