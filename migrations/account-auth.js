@@ -33,6 +33,10 @@ async function up(db) {
     KEY idx_reset_request_status(status,created_at),
     CONSTRAINT fk_reset_request_account FOREIGN KEY(account_id) REFERENCES web_accounts(id) ON DELETE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  const [resetColumns] = await db.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='password_reset_requests'");
+  const resetColumnNames = new Set(resetColumns.map(row => row.COLUMN_NAME));
+  if (!resetColumnNames.has('delivery_status')) await db.query("ALTER TABLE password_reset_requests ADD COLUMN delivery_status ENUM('not_required','pending','sent','failed') NOT NULL DEFAULT 'not_required' AFTER status");
+  if (!resetColumnNames.has('delivery_error')) await db.query("ALTER TABLE password_reset_requests ADD COLUMN delivery_error VARCHAR(500) NULL AFTER delivery_status");
   await db.query(`CREATE TABLE IF NOT EXISTS account_reset_tokens (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     request_id BIGINT UNSIGNED NOT NULL,
