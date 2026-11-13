@@ -9,9 +9,13 @@ const CAMPAIGN_SCHEMA = [
     phone VARCHAR(25) NOT NULL,
     instagram VARCHAR(40) NOT NULL,
     status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active',
+    active_phone VARCHAR(25) GENERATED ALWAYS AS (CASE WHEN status='active' THEN phone ELSE NULL END) STORED,
+    active_instagram VARCHAR(40) GENERATED ALWAYS AS (CASE WHEN status='active' THEN LOWER(instagram) ELSE NULL END) STORED,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_participants_telegram(telegram_user_id),
+    UNIQUE KEY uq_participants_active_phone(active_phone),
+    UNIQUE KEY uq_participants_active_instagram(active_instagram),
     KEY idx_participants_phone(phone),
     KEY idx_participants_instagram(instagram)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
