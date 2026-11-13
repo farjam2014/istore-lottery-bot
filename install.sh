@@ -54,10 +54,9 @@ WEBHOOK_SECRET="$(openssl rand -hex 32)"
 SESSION_SECRET="$(openssl rand -hex 48)"
 log "بازسازی دیتابیس آزمایشی بدون تهیه بک‌آپ"
 mysql --protocol=socket -uroot <<SQL
-DROP DATABASE IF EXISTS istore_lottery;
-CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-DROP USER IF EXISTS 'istore_lottery'@'localhost';
-CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '\${DB_PASSWORD}';
+CREATE DATABASE IF NOT EXISTS istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO 'istore_lottery'@'localhost';
 FLUSH PRIVILEGES;
 SQL
