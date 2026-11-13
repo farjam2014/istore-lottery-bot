@@ -1,25 +1,78 @@
-# iStore Lottery
+# USTORE Campaign & Lottery Bot
 
-Telegram Business lottery bot with MySQL, durable webhook inbox, Telegram-first admin tools, and a web admin interface.
+Telegram-first, multi-campaign platform for USTORE. The current implementation uses one normalized MySQL schema for participants, campaign memberships, codes, orders, payments, draw evidence, support tickets, account recovery, Telegram sessions and operational queues.
 
-## Install — Ubuntu 24.04 staging server
+## Fresh-install policy
 
-Run the installer on the VPS:
+This repository is being prepared as a new installation. The legacy single-campaign data model is not used:
+
+- No runtime dependency on `lottery_entries`, `lottery_settings`, `lottery_draws` or legacy session tables.
+- `participants` is the customer profile; `campaign_entries` is membership in a specific campaign; `campaign_codes` holds issued codes.
+- Campaign orders, receipts, reservations and draws are scoped to a campaign.
+- `schema.sql` is intentionally not an importable legacy schema. Use the migration runner.
+
+The installer is non-destructive. It creates the database when missing and proceeds only if the target database has zero tables. It never drops a database or table. If the database already contains tables, installation stops for manual review.
+
+## Install — Ubuntu 24.04
+
+The installer currently targets the development branch used for this initial build:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/multi-campaign-platform/install.sh -o /root/istore-install.sh
+curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/telegram-account-recovery/install.sh -o /root/istore-install.sh
 sudo bash /root/istore-install.sh
 ```
 
-The installer asks for the domain, SSL email, Telegram BotFather token, numeric Telegram admin ID, and optional store contact details / Telegram URL. It does **not** ask you to choose either password.
+It validates the domain and Telegram bot token, runs the test suite in a staging directory before replacing the application, creates a fresh empty database, generates credentials and secrets, runs migrations, configures systemd/Nginx/HTTPS and registers the webhook.
 
-A cryptographically random 32-byte MySQL password and a separate random 32-byte admin-panel password are generated automatically. They are not printed in the terminal. Both are stored in `/opt/istore-lottery-bot/.env`; the file is owned by root and the service group with mode `640`, so only root and the bot service can read it. The generated webhook and session secrets are also stored there. Do not share or commit this file.
+The installer moves an existing application directory to a timestamped folder; it does not delete it. It does not back up or modify a non-empty database. Keep the generated `/opt/istore-lottery-bot/.env` private.
 
-**Destructive fresh reinstall:** no database backup is created. The installer stops and disables the existing `istore-lottery-bot` service, then asks for the exact confirmation phrase `DELETE istore_lottery`. Only after that confirmation, it permanently drops the `istore_lottery` database and its local MySQL user, recreates both with fresh credentials, imports `schema.sql`, and runs migrations. If the phrase is not entered exactly, the installer exits before dropping the database. Existing application files are moved to a timestamped directory and the new branch is cloned into `/opt/istore-lottery-bot`. The same systemd service, Nginx site, domain, and Telegram bot token/webhook are reconfigured for the new version. This is destructive and must only be used when all data in that database can be discarded.
+## Configuration
 
-The installer targets the `feature/multi-campaign-platform` branch, installs Node.js 22, MySQL, Nginx and Certbot, configures systemd and HTTPS, registers the Telegram webhook, and verifies the local health endpoint. Registration remains closed.
+The installer asks for:
 
-## Operations
+- Domain and SSL email
+- Telegram BotFather token
+- Numeric Telegram admin ID
+- Optional `CONTACT_PHONE`
+- Optional store Telegram URL
+
+The generated `.env` contains `BOT_TOKEN`, `WEBHOOK_SECRET`, `SESSION_SECRET`, database credentials, `ADMIN_ID`, `CONTACT_PHONE`, and `PUBLIC_SITE_URL`.
+
+If `CONTACT_PHONE` is blank, the optional contact gate is disabled. If configured, the gate records an explicit user confirmation; Telegram Bot API cannot verify whether a user actually saved the contact or can view a Telegram story.
+
+## Data model
+
+- `participants`: one persistent customer profile linked to Telegram
+- `campaigns`: campaign configuration and lifecycle
+- `campaign_entries`: participant membership per campaign
+- `campaign_codes`: unique campaign codes
+- `payment_orders`, `payment_receipts`, `payment_transactions`, `campaign_capacity_reservations`: payment and capacity lifecycle
+- `campaign_draws`, `draw_candidates`, `draw_winners`, `draw_evidence`: draw preparation and evidence
+- `telegram_sessions`, `telegram_notification_outbox`, `webhook_inbox`, `processed_updates`: conversation state and durable processing
+- `customer_support_tickets`, `web_accounts`, `password_reset_requests`, `account_reset_tokens`: support and account recovery
+
+Run migrations with:
+
+```bash
+npm run migrate
+```
+
+Migrations are idempotent and create the normalized schema. They do not import or migrate records from the retired single-campaign database.
+
+## Admin operations
+
+Send `/panel` to the bot from the configured admin account. The Telegram panel supports:
+
+- Campaign lifecycle and payment-card configuration
+- Customer profile lookup and activation/deactivation
+- Orders, receipts and profile-change requests
+- Per-campaign reports and CSV export
+- Campaign draw preparation, result review and approval
+- Audit history
+
+For support replies, use `/reply TICKET_ID message` in the admin's private chat.
+
+## Operational checks
 
 ```bash
 sudo systemctl status istore-lottery-bot
@@ -27,36 +80,11 @@ sudo journalctl -u istore-lottery-bot -f
 curl -fsS https://YOUR_DOMAIN/health
 ```
 
-Send `/panel` to the bot from the configured admin account for Telegram admin controls.
+Before opening registration, require a green GitHub Actions run, a successful fresh-database migration test, Telegram private-chat and Telegram Business acceptance tests, payment receipt review tests, and a staging draw review.
 
-## Mandatory Telegram contact-save gate
+## Current limitations
 
-- Before customer menus or campaign actions are available, the bot sends the configured store manager contact card and asks the user to continue. The user may save the contact, but the bot cannot verify that action.
-- Set `CONTACT_PHONE` in `.env` to the manager's phone number (8–15 digits, optional leading +). The bot sends it as a Telegram contact card when the user taps **افزودن مخاطب**.
-- The **ذخیره کردم؛ ادامه** button records the user's confirmation in `telegram_contact_gate`. Telegram Bot API cannot verify that the contact was actually saved; this is an explicit user confirmation, not technical verification.
-- Run `npm run migrate` before deploying this feature so the `telegram_contact_gate` table exists. Without `CONTACT_PHONE`, customer access remains blocked and the bot displays a configuration warning.
-
-## Participant accounts and Telegram password recovery
-
-- Participant portal: `/account.html` supports phone/password registration and login. Registration requires an active participant profile and a prior private `/start` to the bot from the same Telegram account.
-- Password recovery requests are sent to the configured admin in Telegram for approval. Approval sends a one-time reset link to the user's private bot chat; links expire after 15 minutes.
-- Set `PUBLIC_SITE_URL` in `.env` to the site's HTTPS origin. The installer writes this automatically for fresh installations.
-
-## Known limitations
-
-- Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
-- Manual card-to-card payment with receipt review is implemented; an online payment-gateway adapter and provider verification are not implemented yet.
-- The website currently provides the admin interface; a shared participant account and participant-facing website are planned, not implemented.
-- Instagram JSON import and some advanced participant conversation flows are not implemented.
-- Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
-- Complete real Telegram Business and admin acceptance tests before opening registration.
-
-
-## Telegram customer experience
-
-- The customer menu exposes active campaigns, account/profile, issued codes, profile creation and support.
-- A participant can create a persistent profile even when no campaign is currently open. The profile flow verifies phone ownership through Telegram's own contact-sharing button and asks the customer to confirm their Instagram handle before saving.
-- Profile edits are submitted as review requests; administrators approve or reject them from the management panel.
-- Support messages are stored as tickets and delivered to the admin. Reply from the admin's private bot chat with `/reply TICKET_ID message`.
-- The contact gate records an explicit user confirmation only. Telegram does not let the bot prove that a phone number was saved in the device contacts or that the user can view the store's stories.
-- Apply the additive schema changes with `npm run migrate`; this migration does not drop existing participant or campaign data.
+- Telegram cannot technically verify Instagram follows or contact saving.
+- Manual card-to-card payment and manual receipt approval are supported; an online payment gateway is not implemented.
+- Live-wheel/hybrid draw evidence and the independent public verification flow still require additional acceptance work.
+- This branch is still under development. A successful GitHub CI run and staging acceptance are required before deployment.
