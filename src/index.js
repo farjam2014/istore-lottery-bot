@@ -48,7 +48,9 @@ if(error.name==="AbortError")throw new Error("Telegram sendDocument timed out af
 throw error;
 }finally{clearTimeout(timeout)}
 }
-async function reply(chat,connection,text){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text})}
+async function reply(chat,connection,text,extra={}){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text,...extra})}
+function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
+function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -142,6 +144,14 @@ async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
+if(q.data==="reg:continue"||q.data==="reg:cancel"){
+const s=await session(uid);
+if(!uid||!s||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
+if(q.data==="reg:cancel"){await delSession(uid);await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ثبت‌نام لغو شد."});return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:"ثبت‌نام لغو شد. هر زمان خواستید می‌توانید دوباره «لاتاری» را ارسال کنید."});}
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ادامه ثبت‌نام"});
+const prompts={name:"لطفاً نام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو تایپ کنید.",instagram:"لطفاً آیدی اینستاگرام خود را ارسال کنید؛ مثال: @example",awaiting_contact:"برای ادامه، دکمه ارسال شماره موبایل را بزنید.",awaiting_confirmation:"برای تکمیل ثبت‌نام، دکمه تأیید را انتخاب کنید.",phone:"برای ادامه ثبت‌نام، شماره موبایل خود را از طریق ربات ارسال کنید."};
+return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
+}
 if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
 if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||"")){
@@ -300,8 +310,8 @@ if(!validPhone(phone)){
 return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده معتبر نیست. دوباره شماره خودتان را ارسال کنید."});
 }
 await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id);
-await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example");
-return tg("sendMessage",{chat_id:chat,text:"✅ شماره شما با موفقیت ثبت شد.\n\nبه گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{remove_keyboard:true}});
+await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example",{reply_markup:registrationKeyboard()});
+await tg("sendMessage",{chat_id:chat,text:"✅ شماره موبایل شما با موفقیت دریافت شد.",reply_markup:{remove_keyboard:true}});const back=storeReturnButton();if(back)return tg("sendMessage",{chat_id:chat,text:"برای ادامه ثبت‌نام، به پی‌وی فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{inline_keyboard:[[back]]}});return tg("sendMessage",{chat_id:chat,text:"برای ادامه ثبت‌نام، به گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید."});
 }
 
 if(typeof m.text==="string"){
@@ -349,9 +359,9 @@ const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE 
 return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\\n\\n👥 شرکت‌کنندگان: "+a.total+"\\n🎟 تعداد کدها: "+a.codes+"\\n🔑 کدهای یکتا: "+a.unique_codes+"\\n📅 ثبت‌نام امروز: "+b.today);
 }
 if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
-if(lower==="لاتاری"||lower==="/start"){if(!await registrationOpen())return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nپس از فالو کردن صفحه، نام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\n\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.")}
+if(lower==="لاتاری"||lower==="/start"){if(!await registrationOpen())return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nنام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو وارد کنید؛ اطلاعات پروفایل تلگرام شما دریافت نمی‌شود.\n\nبرای لغو ثبت‌نام از دکمه زیر استفاده کنید.",{reply_markup:registrationKeyboard()})}
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
-if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
+if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);const keyboard=[[{text:"▶️ ادامه ثبت‌نام و ارسال شماره موبایل",url:link}]];const back=storeReturnButton();if(back)keyboard.push([back]);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"✅ نام و نام خانوادگی شما ثبت شد. برای ادامه، دکمه شیشه‌ای زیر را بزنید و شماره موبایل خودتان را در ربات به اشتراک بگذارید. پس از ارسال شماره، با دکمه بازگشت به همین گفتگوی فروشگاه برگردید.",reply_markup:{inline_keyboard:keyboard}})}
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
 if(s.step==="awaiting_confirmation"){
 return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
