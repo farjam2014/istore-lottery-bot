@@ -527,21 +527,22 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
         name:()=>value.length>=2&&value.length<=150,
         slug:()=>/^[a-z0-9][a-z0-9-]{1,79}$/.test(value),
         payment_mode:()=>['free','manual'].includes(value.toLowerCase()),
-        price_per_code:()=>/^\\d+$/.test(value)&&Number(value)>=0&&(wizard.values.payment_mode==='free'?Number(value)===0:Number(value)>0),
-        max_participants:()=>value==='-'||(/^\\d+$/.test(value)&&Number(value)>0),
-        max_codes:()=>value==='-'||(/^\\d+$/.test(value)&&Number(value)>0),
-        max_codes_per_participant:()=>/^\\d+$/.test(value)&&Number(value)>0,
-        winner_count:()=>/^\\d+$/.test(value)&&Number(value)>0,
-        alternate_count:()=>/^\\d+$/.test(value)&&Number(value)>=0,
+        price_per_code:()=>/^\d+$/.test(value)&&Number(value)>=0&&(wizard.values.payment_mode==='free'?Number(value)===0:Number(value)>0),
+        max_participants:()=>value==='-'||(/^\d+$/.test(value)&&Number(value)>0),
+        max_codes:()=>value==='-'||(/^\d+$/.test(value)&&Number(value)>0),
+        max_codes_per_participant:()=>/^\d+$/.test(value)&&Number(value)>0,
+        winner_count:()=>/^\d+$/.test(value)&&Number(value)>0,
+        alternate_count:()=>/^\d+$/.test(value)&&Number(value)>=0,
         draw_method:()=>['system','live_wheel','hybrid'].includes(value),
         draw_basis:()=>['per_code','per_participant'].includes(value),
-        payment_card_id:()=>wizard.values.payment_mode==='free'?value==='-':/^\\d+$/.test(value)&&Number(value)>0
+        payment_card_id:()=>wizard.values.payment_mode==='free'?value==='-':/^\d+$/.test(value)&&Number(value)>0
       };
       if(!valid[field.key]())return tg('sendMessage',{chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
       wizard.values[field.key]=field.key==='payment_mode'?value.toLowerCase():value;
       if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
+      if(wizard.values.payment_mode==='free'&&wizard.step===10){return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.step<campaignWizardFields.length-1){wizard.step++;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
       return campaignWizardReview(m.chat.id,wizard);
     }
