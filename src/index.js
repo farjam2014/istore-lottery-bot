@@ -88,7 +88,7 @@ buttons.push([{text:"📝 ساخت پروفایل",callback_data:"profile:create
 return reply(chat,connection,campaigns.length?"دسترسی فعال شد. از منوی USTORE استفاده کنید:":"دسترسی فعال شد. کمپین فعالی نیست؛ می‌توانید پروفایل بسازید یا با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:buttons}});
 }
 }
-const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
+const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService,drawService});
 const accountAuth=createAccountAuth({app,db,tg,adminId:process.env.ADMIN_ID,sessionSecret,siteUrl:process.env.PUBLIC_SITE_URL||"https://"+String(process.env.DOMAIN||"")});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
