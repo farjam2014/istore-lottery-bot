@@ -192,7 +192,7 @@ function createCampaignService({ db, adminId }) {
       // Persist session and payment instructions atomically with the order.
       await conn.execute(
         "INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)",
-        [String(participant.telegram_user_id),String(participant.chat_id || ''),participant.business_connection_id || null,order.insertId]
+        [String(participant.telegram_user_id),String(participant.chat_id || ''),String(participant.business_connection_id || ''),order.insertId]
       );
       if (participant.chat_id) {
         const paymentText = '🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nتعداد کد: '+qty+'\nشماره سفارش: '+orderRef+'\nمبلغ: '+total+' '+campaign.currency+'\n\nشماره کارت: '+paymentCard.card_number+'\nبه نام: '+paymentCard.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو '+hold+' دقیقه است.';
@@ -344,7 +344,6 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[campaign]] = await conn.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign || campaign.status !== 'open' || campaign.payment_mode !== 'free') throw new Error('کمپین رایگان در حال حاضر باز نیست.');
-      if (qty > Number(campaign.max_codes_per_participant)) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
       const [[existingParticipant]] = await conn.execute('SELECT * FROM participants WHERE telegram_user_id=? FOR UPDATE', [String(telegramUserId)]);
       let participantId;
       if (existingParticipant) {
@@ -369,6 +368,7 @@ function createCampaignService({ db, adminId }) {
         await conn.commit();
         return { participantId, entryId: entry.id, codes: existingCodes.map(row => row.code), duplicate: true };
       }
+      if (qty > Number(campaign.max_codes_per_participant)) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
       const [[usage]] = await conn.execute(
         'SELECT COUNT(*) AS used FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND status=\'active\'',
         [campaignId,participantId]
