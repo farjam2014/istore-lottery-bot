@@ -11,6 +11,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 شرکت‌کنندگان', callback_data: 'adm:entries:0' }],
     [{ text: '🎟 کدها و خروجی', callback_data: 'adm:export' }, { text: '⚙️ کمپین قدیمی', callback_data: 'adm:campaign' }],
     [{ text: '🧩 مدیریت کمپین‌ها', callback_data: 'adm:campaigns' }],
+    [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '🏆 قرعه‌کشی', callback_data: 'adm:draw' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔎 جستجو', callback_data: 'adm:search' }, { text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
@@ -214,6 +215,22 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     pending.set(String(adminId),{type:'create-campaign',expires:Date.now()+600000});
     return tg('sendMessage',{chat_id:chat,text:'یک خط با ۱۱ بخش و جداکننده | ارسال کنید:\nنام | slug انگلیسی | free یا manual | مبلغ هر کد | سقف افراد یا - | سقف کل کد یا - | سقف کد هر نفر | تعداد برنده | تعداد ذخیره | system/live_wheel/hybrid | per_code/per_participant\nمثال: کمپین پاییز | autumn-1405 | free | 0 | 500 | 1000 | 2 | 1 | 3 | system | per_code\nکمپین در وضعیت پیش‌نویس ساخته می‌شود و خودکار باز نمی‌شود. /cancel برای لغو'});
   }
+  async function orderList(chat) {
+    const [rows]=await db.query("SELECT o.id,o.order_ref,o.total_snapshot,o.currency,o.status,o.created_at,c.name campaign_name,p.full_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.status IN ('pending_payment','receipt_submitted') ORDER BY o.created_at ASC LIMIT 20");
+    const buttons=rows.map(o=>[{text:'#'+o.id+' '+o.full_name+' · '+o.status,callback_data:'adm:order:'+o.id}]);
+    buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:orders'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
+    const body=rows.length?rows.map(o=>'#'+o.id+' '+o.order_ref+' | '+o.campaign_name+'\n'+o.full_name+' | '+o.total_snapshot+' '+o.currency+' | '+o.status).join('\n\n'):'سفارش در انتظار بررسی وجود ندارد.';
+    return tg('sendMessage',{chat_id:chat,text:'💳 سفارش‌های نیازمند اقدام\n\n'+body,reply_markup:keyboard(buttons)});
+  }
+  async function orderDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه سفارش نامعتبر است.'});
+    const [[o]]=await db.execute('SELECT o.*,c.name campaign_name,p.full_name,p.phone,p.instagram,p.chat_id,p.business_connection_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? LIMIT 1',[id]);
+    if(!o)return tg('sendMessage',{chat_id:chat,text:'سفارش پیدا نشد.'});
+    const [receipts]=await db.execute('SELECT id,telegram_file_id,declared_tracking_ref,submitted_at,review_status FROM payment_receipts WHERE order_id=? ORDER BY id DESC LIMIT 3',[id]);
+    const textBody='💳 سفارش #'+o.id+'\nمرجع: '+o.order_ref+'\nکمپین: '+o.campaign_name+'\nشرکت‌کننده: '+o.full_name+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram+'\nتعداد کد: '+o.quantity+'\nمبلغ: '+o.total_snapshot+' '+o.currency+'\nوضعیت: '+o.status+'\nانقضا: '+o.expires_at+'\nرسیدها: '+receipts.length;
+    await tg('sendMessage',{chat_id:chat,text:textBody,reply_markup:keyboard(o.status==='receipt_submitted'?[[{text:'✅ تأیید پرداخت',callback_data:'adm:order-confirm:'+id+':approve'},{text:'❌ رد پرداخت',callback_data:'adm:order-confirm:'+id+':reject'}],[{text:'↩️ سفارش‌ها',callback_data:'adm:orders'}]]:[[ {text:'↩️ سفارش‌ها',callback_data:'adm:orders'} ]])});
+    for(const r of receipts) await tg('sendPhoto',{chat_id:chat,photo:r.telegram_file_id,caption:'رسید سفارش #'+id+' · '+r.submitted_at+' · '+(r.declared_tracking_ref||'بدون شماره پیگیری')});
+  }
   async function handleCallback(q) {
     if (!isAdmin(q) || !String(q.data||'').startsWith('adm:')) return false;
     const chat = q.message.chat.id, data = q.data;
@@ -222,6 +239,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:campaign') return campaign(chat);
     if (data==='adm:campaigns') return campaignList(chat);
+    if (data==='adm:orders') return orderList(chat);
+    if (data.startsWith('adm:order:')) return orderDetail(chat,data.slice('adm:order:'.length));
+    if (data.startsWith('adm:order-confirm:')) { const [, , id, action]=data.split(':'); if(!/^\\d+$/.test(id)||!['approve','reject'].includes(action)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'order-review',id,action,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:(action==='approve'?'تأیید':'رد')+' پرداخت سفارش #'+id+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید نهایی',callback_data:'adm:order-apply:'+id+':'+action},{text:'بازگشت',callback_data:'adm:order:'+id}]])}); }
+    if (data.startsWith('adm:order-apply:')) { const [, , id, action]=data.split(':'); const p=pending.get(String(adminId)); pending.delete(String(adminId)); if(!p||p.type!=='order-review'||p.id!==id||p.action!==action||p.expires<Date.now()) return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'}); try { await campaignService.reviewManualPayment({orderId:Number(id),approve:action==='approve',note:'Reviewed via Telegram admin panel'}); await audit(action==='approve'?'approve_payment':'reject_payment','payment_order',id,{source:'telegram'}); await tg('sendMessage',{chat_id:chat,text:action==='approve'?'✅ پرداخت تأیید و کدها صادر شدند.':'پرداخت رد شد.',reply_markup:keyboard([[{text:'سفارش‌های در انتظار',callback_data:'adm:orders'}]])}); return orderDetail(chat,id); } catch(e) { return tg('sendMessage',{chat_id:chat,text:'بررسی سفارش انجام نشد: '+e.message}); } }
     if (data==='adm:campaign-create') return createCampaignPrompt(chat);
     if (data.startsWith('adm:campaign-detail:')) return campaignDetail(chat,data.slice('adm:campaign-detail:'.length));
     if (data.startsWith('adm:campaign-confirm:')) { const [, , id, next]=data.split(':'); if(!/^\d+$/.test(id)||!['open','paused','closed','archived'].includes(next)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'campaign-status',id,next,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت کمپین #'+id+' به '+next+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:campaign-apply:'+id+':'+next},{text:'لغو',callback_data:'adm:campaign-detail:'+id}]])}); }
