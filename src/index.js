@@ -3,7 +3,7 @@ const express=require("express"), mysql=require("mysql2/promise"), crypto=requir
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const {createAdminTelegram}=require("./admin-telegram");
-const {joinCampaign}=require("./campaign-service");
+const {joinCampaign,approveManualPayment,rejectManualPayment}=require("./campaign-service");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -139,10 +139,46 @@ return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection==
 }catch{return false}
 }
 
+async function manualPaymentInstructions(campaignId) {
+const [[campaign]]=await db.execute("SELECT title,amount_minor,currency,settings FROM campaigns WHERE id=?",[campaignId]);
+let settings=campaign?.settings||{};if(typeof settings==="string"){try{settings=JSON.parse(settings)}catch{settings={}}}
+return "🧾 پرداخت کارت‌به‌کارت کمپین «"+campaign.title+"»\\n\\nمبلغ: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" "+campaign.currency+
+"\\nشماره کارت: "+String(settings.card_number||"ثبت نشده")+
+"\\nبه نام: "+String(settings.card_holder||"ثبت نشده")+
+(settings.bank_name?"\\nبانک: "+settings.bank_name:"")+
+"\\n\\nپس از واریز، تصویر واضح رسید را همین‌جا در همین گفت‌وگو ارسال کنید. تا بررسی و تأیید مدیر، کدی صادر نمی‌شود.";
+}
 async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
+if(String(q.data||"").startsWith("pay:")){
+if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private")
+return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
+const [action,id]=String(q.data).split(":").slice(1);
+if(!/^\\d+$/.test(id||"")||!["approve","reject"].includes(action))
+return tg("answerCallbackQuery",{callback_query_id:q.id,text:"درخواست نامعتبر",show_alert:true});
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال بررسی..."});
+try{
+if(action==="approve"){
+const result=await approveManualPayment({db,paymentId:id,reviewer:uid,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
+if(recipient)await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\\n🎟 کد اختصاصی شما: "+result.code});
+await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\\n\\n✅ تأیید شد · کد: "+result.code,reply_markup:{inline_keyboard:[]}});
+await audit(uid,"approve_campaign_payment","campaign_payment",id,{entry_id:result.entryId,code:result.code});
+}else{
+await rejectManualPayment({db,paymentId:id,reviewer:uid});
+const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
+if(recipient)await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"❌ رسید پرداخت کمپین «"+recipient.title+"» تأیید نشد. اگر فکر می‌کنید اشتباهی رخ داده، با پشتیبانی تماس بگیرید."});
+await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\\n\\n❌ رد شد",reply_markup:{inline_keyboard:[]}});
+await audit(uid,"reject_campaign_payment","campaign_payment",id,{});
+}
+return;
+}catch(e){
+console.error("Manual payment review failed:",e.message);
+return tg("sendMessage",{chat_id:chat,text:e.code==="CAMPAIGN_FULL"?"ظرفیت کمپین تکمیل شده است.":"بررسی پرداخت انجام نشد؛ وضعیت پرداخت تغییر نکرد."});
+}
+}
 if(String(q.data||"").startsWith("camp:select:")){
   const campaignId=String(q.data).slice("camp:select:".length);
   if(!/^\d+$/.test(campaignId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"کمپین نامعتبر است.",show_alert:true});
@@ -153,7 +189,7 @@ if(String(q.data||"").startsWith("camp:select:")){
   const [[profile]]=await db.execute("SELECT full_name,phone,instagram FROM participants WHERE telegram_user_id=?",[uid]);
   if(profile){
     try{
-      const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+      const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,businessConnectionId:connection,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
       const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
         result.status==="pending_payment"?"🧾 درخواست شما برای «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
@@ -179,7 +215,7 @@ try{
 if(s.campaign_id){
   const [[campaign]]=await db.execute("SELECT slug,title FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
   if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
-  const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+  const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
   await delSession(uid);
   const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
     result.status==="pending_payment"?"🧾 درخواست شما در «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
@@ -355,8 +391,21 @@ reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",
 }
 }
 
-async function handleUpdate(update){const m=update.business_message;if(!m?.from||!m.chat||!m.text||m.from.is_bot||!m.business_connection_id)return;
-const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=m.text.trim(),lower=t.toLowerCase();
+async function handleUpdate(update){const m=update.business_message;if(!m?.from||!m.chat||m.from.is_bot||!m.business_connection_id)return;
+const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=String(m.text||"").trim(),lower=t.toLowerCase();
+if(Array.isArray(m.photo)&&m.photo.length){
+const [[pending]]=await db.execute(
+"SELECT cp.id,cp.amount_minor,cp.currency,c.title,pt.full_name,pt.phone,pt.instagram FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants pt ON pt.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE pt.telegram_user_id=? AND cp.status='pending' AND cp.mode='manual_transfer' ORDER BY cp.id DESC LIMIT 1",
+[uid]);
+if(!pending)return reply(chat,conn,"برای شما پرداخت کارت‌به‌کارتِ در انتظار رسید پیدا نشد. ابتدا از فهرست کمپین‌ها ثبت‌نام کنید.");
+const photo=m.photo[m.photo.length-1];
+await db.execute(
+"INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
+[pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),crypto.createHash("sha256").update(String(photo.file_unique_id||photo.file_id)).digest("hex"),photo.file_id,photo.file_unique_id||null]);
+await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\\nکمپین: "+pending.title+"\\nنام: "+pending.full_name+"\\nموبایل: "+pending.phone+"\\nاینستاگرام: @"+pending.instagram+"\\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
+return reply(chat,conn,"📨 تصویر رسید دریافت شد و برای مدیر ارسال شد. پس از بررسی نتیجه به شما اطلاع داده می‌شود. تا قبل از تأیید، کدی صادر نخواهد شد.");
+}
+if(!m.text)return;
 if(lower==="/export" || lower.startsWith("/export@")){
 if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
 try{
