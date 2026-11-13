@@ -62,7 +62,7 @@ async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
 function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"✅ ذخیره کردم؛ ادامه",callback_data:"contact:confirm"}]]}}
-function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای دسترسی به ربات، کمپین‌ها و اطلاع از آخرین اخبار و استوری‌های فروشگاه، لطفاً ابتدا شماره مدیریت USTORE را در مخاطبین گوشی خود ذخیره کنید.\n\n📌 نام مخاطب: مدیریت USTORE\n\n⚠️ لطفاً قبل از انتخاب دکمه «ذخیره کردم؛ ادامه»، شماره را واقعاً در مخاطبین گوشی خود ذخیره کنید. با انتخاب این گزینه تأیید می‌کنید که این کار را انجام داده‌اید.\n\nبرای ادامه استفاده از ربات، انجام این مرحله الزامی است."}
+function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای ادامه استفاده از ربات، شماره مدیریت USTORE را دریافت می‌کنید. در صورت تمایل آن را در مخاطبین ذخیره کنید و سپس ادامه دهید.\n\nنکته: ربات نمی‌تواند ذخیره‌شدن شماره را در مخاطبین گوشی بررسی کند و ذخیره شماره به‌تنهایی نمایش استوری‌های فروشگاه را تضمین نمی‌کند."}
 function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||"").replace(/[\s()-]/g,"");return /^\+?[0-9]{8,15}$/.test(phone)?phone:null}
 async function contactGateAccepted(uid){const [rows]=await db.execute("SELECT telegram_user_id FROM telegram_contact_gate WHERE telegram_user_id=? AND accepted_at IS NOT NULL LIMIT 1",[String(uid)]);return rows.length>0}
 async function showContactGate(chat,connection){return tg("sendMessage",{chat_id:chat,business_connection_id:connection||undefined,text:contactGateText(),reply_markup:contactGateKeyboard()})}
@@ -102,6 +102,19 @@ async function entry(uid){const [r]=await db.execute("SELECT * FROM lottery_entr
 async function session(uid){const [r]=await db.execute("SELECT * FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO lottery_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)])}
+async function saveParticipantProfile(uid,chat,name,phone,inst,businessConnection){
+const conn=await db.getConnection();
+try{
+await conn.beginTransaction();
+const [[old]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
+if(old){if(old.status!=="active")throw new Error("پروفایل شما غیرفعال است.");await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,old.id]);await conn.commit();return {participantId:old.id,created:false};}
+const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
+if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+const [created]=await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
+await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["customer-profile:"+uid,"customer_profile_created",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پروفایل مشتری جدید: "+name+" | "+phone+" | @"+inst}})]);
+await conn.commit();return {participantId:created.insertId,created:true};
+}catch(e){await conn.rollback();if(e.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});throw e;}finally{conn.release();}
+}
 async function saveEntry(uid,chat,name,phone,inst,businessConnection){
 const conn=await db.getConnection();
 try{
@@ -223,6 +236,18 @@ await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ادامه ثبت�
 const prompts={name:"لطفاً نام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو تایپ کنید.",instagram:"لطفاً آیدی اینستاگرام خود را ارسال کنید؛ مثال: @example",awaiting_contact:"برای ادامه، دکمه ارسال شماره موبایل را بزنید.",awaiting_confirmation:"برای تکمیل ثبت‌نام، دکمه تأیید را انتخاب کنید.",phone:"برای ادامه ثبت‌نام، شماره موبایل خود را از طریق ربات ارسال کنید."};
 return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
 }
+if(q.data==="profile:create"){
+const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+if(p)return reply(chat,String(q.message?.business_connection_id||""),"پروفایل شما قبلاً ساخته شده است.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}]]}});
+const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"profile_name",null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});
+return reply(chat,connection,"نام و نام خانوادگی خود را برای ساخت پروفایل دائمی وارد کنید؛ حتی بدون کمپین فعال.",{reply_markup:{inline_keyboard:[[{text:"لغو",callback_data:"reg:cancel"}]]}});
+}
+if(q.data==="profile:confirm"){
+const s=await session(uid),connection=String(q.message?.business_connection_id||"");
+if(!s||s.step!=="profile_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection)return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ساخت پروفایل..."});
+try{await saveParticipantProfile(uid,chat,s.full_name,s.phone,s.instagram,connection);await delSession(uid);return reply(chat,connection,"پروفایل شما با موفقیت ساخته شد.",{reply_markup:{inline_keyboard:[[{text:"🧩 کمپین‌ها",callback_data:"campaign:list"}],[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
+}
 if(q.data==="reg:confirm"){
 const s=await session(uid),connection=String(q.message?.business_connection_id||"");
 if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection){
@@ -272,16 +297,24 @@ if(String(q.data||'').startsWith('campaign:details:')){
   const body='🧩 '+campaign.name+'\\n\\n'+(campaign.description||'توضیحات تکمیلی برای این کمپین ثبت نشده است.')+'\\n\\n💳 شیوه شرکت: '+price+'\\n🎟 حداکثر کد برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nبرای ادامه، دکمه زیر را بزنید.';
   return tg('sendMessage',{chat_id:chat,text:body,reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
 }
+if(q.data==='profile:edit:name'||q.data==='profile:edit:instagram'||q.data==='profile:edit:phone'){
+const connection=String(q.message?.business_connection_id||"");const field=q.data.split(':')[2];const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,connection,"پروفایل فعال پیدا نشد.");
+const step=field==="name"?"profile_change_full_name":field==="instagram"?"profile_change_instagram":"profile_change_phone_contact";await putSession(uid,chat,step,null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});
+if(field==="phone")return reply(chat,connection,"شماره جدید را با دکمه رسمی تلگرام ارسال کنید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}});
+return reply(chat,connection,field==="name"?"نام جدید را ارسال کنید:":"آیدی اینستاگرام جدید را ارسال کنید:");
+}
+if(q.data==='support:start'){const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"support_message",null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});return reply(chat,connection,"پیام خود را برای پشتیبانی بنویسید (۵ تا ۲۰۰۰ نویسه).");}
+if(q.data==='participant:codes'){await tg("answerCallbackQuery",{callback_query_id:q.id});const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل بسازید.");const [rows]=await db.execute("SELECT c.name,cc.code FROM campaign_codes cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.participant_id=? AND cc.status='active' ORDER BY cc.issued_at DESC LIMIT 100",[p.id]);return reply(chat,String(q.message?.business_connection_id||""),rows.length?rows.map((x,i)=>(i+1)+". "+x.name+" — "+x.code).join("\\n"):"هنوز کدی ندارید.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
 if(q.data==='participant:account'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
   const [[p]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
-  if(!p)return tg('sendMessage',{chat_id:chat,text:'هنوز پروفایلی ندارید. ابتدا یک کمپین را انتخاب کنید.',reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
+  if(!p)return tg('sendMessage',{chat_id:chat,text:'هنوز پروفایلی ندارید. حتی بدون کمپین فعال می‌توانید پروفایل بسازید.',reply_markup:{inline_keyboard:[[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
   const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[p.id]);
   const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
   const labels={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
   const et=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\\n\\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
   const ot=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(labels[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
-  return tg('sendMessage',{chat_id:chat,text:'👤 حساب شما\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram+'\\nوضعیت: '+p.status+'\\n\\n🎟 کمپین‌ها و کدها\\n'+et+'\\n\\n💳 سفارش‌ها\\n'+ot,reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
+  return tg('sendMessage',{chat_id:chat,text:'👤 حساب شما\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram+'\\nوضعیت: '+p.status+'\\n\\n🎟 کمپین‌ها و کدها\\n'+et+'\\n\\n💳 سفارش‌ها\\n'+ot,reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
 }
 if(q.data==='participant:home'){
  await tg('answerCallbackQuery',{callback_query_id:q.id});
@@ -404,12 +437,13 @@ const uid=String(m.from.id),chat=String(m.chat.id),conn=String(m.business_connec
 if(uid!==String(process.env.ADMIN_ID||"")&&!await contactGateAccepted(uid))return showContactGate(chat,conn);
 if(m.contact){
   const s=await session(uid);
-  if(!s||s.step!=="awaiting_contact"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
+  if(!s||!["awaiting_contact","profile_awaiting_contact","profile_change_phone_contact"].includes(s.step)||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
   if(!m.contact.user_id||String(m.contact.user_id)!==uid)return reply(chat,conn,"❌ فقط شماره متعلق به حساب تلگرام خودتان پذیرفته می‌شود.");
   const phone=normalizePhone(m.contact.phone_number||"");
   if(!validPhone(phone))return reply(chat,conn,"شماره دریافت‌شده معتبر نیست. لطفاً دوباره از دکمه اشتراک‌گذاری شماره استفاده کنید.");
-  await putSession(uid,chat,"instagram",s.full_name,phone,conn);
-  return reply(chat,conn,"✅ شماره موبایل تأیید شد.\\nحالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
+  if(s.step==="profile_change_phone_contact"){try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field:"phone",value:phone});await delSession(uid);return reply(chat,conn,"درخواست اصلاح شماره ثبت شد. شناسه: "+request.id,{reply_markup:{remove_keyboard:true}});}catch(e){return reply(chat,conn,"اصلاح شماره ثبت نشد: "+e.message,{reply_markup:{remove_keyboard:true}});}}
+  await putSession(uid,chat,s.step==="profile_awaiting_contact"?"profile_instagram":"instagram",s.full_name,phone,conn);
+  return reply(chat,conn,"شماره موبایل تأیید شد. حالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
 }
 if(m.photo?.length){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
@@ -440,6 +474,27 @@ if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower=
 }
 
 
+const currentSession=await session(uid);
+if(currentSession?.step==="profile_name"){
+if(!validFullName(t))return reply(chat,conn,"نام و نام خانوادگی معتبر وارد کنید.");
+await putSession(uid,chat,"profile_awaiting_contact",t.trim().replace(/\s+/g," "),null,conn);
+return reply(chat,conn,"شماره متعلق به حساب تلگرام خود را با دکمه رسمی زیر ارسال کنید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}});
+}
+if(currentSession?.step==="profile_instagram"){
+const inst=normalizeInstagram(t);if(!validInstagram(inst))return reply(chat,conn,"آیدی اینستاگرام معتبر نیست.");
+await putSession(uid,chat,"profile_confirmation",currentSession.full_name,currentSession.phone,conn,inst);
+return reply(chat,conn,"اطلاعات را بررسی کنید:\\nنام: "+currentSession.full_name+"\\nموبایل: "+currentSession.phone+"\\nاینستاگرام: @"+inst,{reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:"profile:confirm"}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
+}
+if(currentSession?.step==="profile_change_full_name"||currentSession?.step==="profile_change_instagram"){
+const field=currentSession.step==="profile_change_full_name"?"full_name":"instagram";
+try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field,value:t});await delSession(uid);return reply(chat,conn,"درخواست اصلاح ثبت شد؛ پس از بررسی مدیر اعمال می‌شود. شناسه: "+request.id);}catch(e){return reply(chat,conn,"درخواست اصلاح ثبت نشد: "+e.message);}
+}
+if(currentSession?.step==="support_message"){
+if(t.length<5||t.length>2000)return reply(chat,conn,"پیام باید بین ۵ تا ۲۰۰۰ نویسه باشد.");
+const [ticket]=await db.execute("INSERT INTO customer_support_tickets(telegram_user_id,chat_id,business_connection_id,message,status) VALUES(?,?,?,?,'open')",[uid,chat,conn||null,t]);
+await db.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-ticket:"+ticket.insertId,"customer_support_ticket",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پیام پشتیبانی #"+ticket.insertId+" از "+uid+": "+t+"\\nپاسخ: /reply "+ticket.insertId+" متن پاسخ"}})]);
+await delSession(uid);return reply(chat,conn,"پیام شما ثبت شد. شماره پیگیری: #"+ticket.insertId,{reply_markup:{inline_keyboard:[[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});
+}
 const profileChangeMatch=t.match(/^اصلاح\s+(نام|موبایل|اینستاگرام)\s*[:：]\s*(.+)$/);
 if(profileChangeMatch){
   const fieldMap={'نام':'full_name','موبایل':'phone','اینستاگرام':'instagram'};
