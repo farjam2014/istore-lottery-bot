@@ -12,8 +12,10 @@ patchAsyncRoutes(app);
 app.disable("x-powered-by");
 app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","same-origin");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cache-Control","no-store");next()});
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
+const { createSameOriginGuard } = require("./security");
+app.use(createSameOriginGuard());
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
-const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,charset:"utf8mb4"});
+const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,waitForConnections:true,queueLimit:100,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0,charset:"utf8mb4"});
 const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
 const bankCardService=createBankCardService({db,adminId:process.env.ADMIN_ID});
 const drawService=createDrawService({db,adminId:process.env.ADMIN_ID});
@@ -653,6 +655,8 @@ async function shutdown(signal){
 if(shuttingDown)return;
 shuttingDown=true;
 console.log(signal+" received; draining webhook queue (30s limit)");
+clearInterval(reservationExpiryTimer);
+const serverClosed=new Promise(resolve=>server.close(resolve));
 const forceExit=setTimeout(()=>{
 console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
 process.exit(1);
@@ -661,7 +665,10 @@ const drained=await webhookQueue.stop(30000);
 const notificationsDrained=await notificationOutbox.stop(30000);
 if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
 if(!notificationsDrained)console.error("Notification outbox did not drain within 30 seconds; unfinished notifications remain leased for recovery.");
-server.close(()=>{db.end().finally(()=>{clearTimeout(forceExit);process.exit(drained?0:1)})});
+await serverClosed;
+await db.end();
+clearTimeout(forceExit);
+process.exit(drained&&notificationsDrained?0:1);
 }
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
