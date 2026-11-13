@@ -117,7 +117,7 @@ async function refreshCampaignEntries(){
       const tr=document.createElement('tr');
       cell(tr,entry.full_name);cell(tr,entry.phone);cell(tr,entry.instagram);
       cell(tr,entry.status+(entry.payment_status==='approved'?' · پرداخت تأییدشده':''));
-      cell(tr,entry.code||'—');cell(tr,entry.created_at?new Date(entry.created_at).toLocaleString():'—');
+      cell(tr,(entry.code_count||0)+' کد · '+(entry.codes||'—'));cell(tr,entry.created_at?new Date(entry.created_at).toLocaleString():'—');
       body.appendChild(tr);
     }
     if(!d.entries.length){const tr=document.createElement('tr');const td=cell(tr,'شرکت‌کننده‌ای پیدا نشد.');td.colSpan=6;body.appendChild(tr)}
@@ -130,7 +130,7 @@ function searchCampaignEntries(){campaignEntryQuery=document.getElementById('cam
 function pageCampaignEntries(direction){const next=campaignEntryOffset+direction*campaignEntryPageSize;if(next<0||next>=campaignEntryTotal)return;campaignEntryOffset=next;refreshCampaignEntries()}
 async function drawCampaign(c){
   if(!confirm('قرعه‌کشی کمپین «'+c.title+'» فقط یک‌بار اجرا می‌شود. ابتدا از بسته بودن ثبت‌نام و بررسی پرداخت‌ها مطمئن شوید. ادامه می‌دهید؟'))return;
-  try{const result=await api('/api/admin/campaigns/'+c.id+'/draw',{method:'POST',body:'{}'});message('برنده کمپین '+c.title+': '+result.winner.name+' · کد '+result.winner.code+' · واجدان '+result.total);await loadCampaigns();await loadAudit()}catch(e){message(e.message)}
+  try{const result=await api('/api/admin/campaigns/'+c.id+'/draw',{method:'POST',body:'{}'});message('برنده کمپین '+c.title+': '+result.winner.name+' · کد '+result.winner.code+' · تعداد کدهای واجد شرایط '+result.total);await loadCampaigns();await loadAudit()}catch(e){message(e.message)}
 }
 async function loadCampaignPayments(){
   const el=document.getElementById('campaignPayments');
