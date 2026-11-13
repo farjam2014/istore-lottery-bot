@@ -314,8 +314,8 @@ if(m.photo?.length||m.document){
     return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. وضعیت آن را از بخش «سفارش‌های من» پیگیری کنید.');
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
-if(lower==='/orders'||lower==='سفارش‌های من'||lower==='سفارش های من')return handleCallbackQuery({id:"cmd-"+Date.now(),from:m.from,message:m,data:"participant:orders"});
-if(lower==='/tickets'||lower==='تیکت‌های من'||lower==='تیکت های من')return handleCallbackQuery({id:"cmd-"+Date.now(),from:m.from,message:m,data:"participant:tickets"});
+if(lower==='/orders'||lower==='سفارش‌های من'||lower==='سفارش های من')return reply(chat,conn,"برای مشاهده وضعیت سفارش‌ها، دکمه زیر را بزنید:",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}]]}});
+if(lower==='/tickets'||lower==='تیکت‌های من'||lower==='تیکت های من')return reply(chat,conn,"برای مشاهده پیام‌های پشتیبانی، دکمه زیر را بزنید:",{reply_markup:{inline_keyboard:[[{text:"🎫 تیکت‌های من",callback_data:"participant:tickets"}]]}});
 if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پروفایل من'){
   const [[participant]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
   if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع، /campaigns را بزنید و یک کمپین را انتخاب کنید.");
