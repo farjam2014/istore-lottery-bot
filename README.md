@@ -2,22 +2,22 @@
 
 Telegram Business lottery bot with MySQL, durable webhook inbox, Telegram-first admin tools, and a web admin interface.
 
-## Safe install / upgrade — Ubuntu 24.04
+## Install — Ubuntu 24.04 staging server
 
-> **Safe install/upgrade:** this installer does not drop application databases. If `istore_lottery` exists, it creates and verifies a compressed backup under `/var/backups/istore-lottery/` before schema changes. Existing application files are moved to a timestamped backup directory rather than deleted.
-
-Run on the VPS to install the current tested feature branch:
+Run the installer on the VPS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/complete-telegram-lottery-system/install.sh -o /root/istore-install.sh
+curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/multi-campaign-platform/install.sh -o /root/istore-install.sh
 sudo bash /root/istore-install.sh
 ```
 
-It interactively asks for domain, SSL email, BotFather token, numeric Telegram admin ID, MySQL password, website admin-panel password, and optional store contact phone. Passwords are entered invisibly and must be confirmed; the MySQL password requires at least 20 characters and the panel password at least 16 characters. Webhook/session secrets are generated automatically. It verifies DNS and validates the bot token and validates the bot token before changing application configuration.
+The installer asks for the domain, SSL email, Telegram BotFather token, numeric Telegram admin ID, and optional store contact details / Telegram URL. It does **not** ask you to choose either password.
 
-It installs Node.js 22, MySQL, Nginx, Certbot and Git; backs up an existing application database before schema changes; preserves the previous application directory; clones the configured feature branch; runs dependency install, tests, schema import and migrations; generates DB credentials, webhook/session secrets and an admin panel password; configures systemd, HTTPS, Telegram webhook and health check. Registration stays closed.
+A cryptographically random 32-byte MySQL password and a separate random 32-byte admin-panel password are generated automatically. They are not printed in the terminal. Both are stored in `/opt/istore-lottery-bot/.env`; the file is owned by root and the service group with mode `640`, so only root and the bot service can read it. The generated webhook and session secrets are also stored there. Do not share or commit this file.
 
-The MySQL and admin-panel passwords are the values entered during installation. All credentials are stored in `/opt/istore-lottery-bot/.env` (mode 640, readable only by root and the service group). Webhook/session secrets are generated automatically. Never paste this file into chat or commit it.
+**Destructive fresh reinstall:** no database backup is created. The installer stops and disables the existing `istore-lottery-bot` service, then asks for the exact confirmation phrase `DELETE istore_lottery`. Only after that confirmation, it permanently drops the `istore_lottery` database and its local MySQL user, recreates both with fresh credentials, imports `schema.sql`, and runs migrations. If the phrase is not entered exactly, the installer exits before dropping the database. Existing application files are moved to a timestamped directory and the new branch is cloned into `/opt/istore-lottery-bot`. The same systemd service, Nginx site, domain, and Telegram bot token/webhook are reconfigured for the new version. This is destructive and must only be used when all data in that database can be discarded.
+
+The installer targets the `feature/multi-campaign-platform` branch, installs Node.js 22, MySQL, Nginx and Certbot, configures systemd and HTTPS, registers the Telegram webhook, and verifies the local health endpoint. Registration remains closed.
 
 ## Operations
 
@@ -32,7 +32,8 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 ## Known limitations
 
 - Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
-- Real payment collection is not implemented.
+- Manual card-to-card payment with receipt review is implemented; an online payment-gateway adapter and provider verification are not implemented yet.
+- The website currently provides the admin interface; a shared participant account and participant-facing website are planned, not implemented.
 - Instagram JSON import and some advanced participant conversation flows are not implemented.
 - Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
 - Complete real Telegram Business and admin acceptance tests before opening registration.
