@@ -35,12 +35,13 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
   try {
     await conn.beginTransaction();
     const [[campaign]] = await conn.execute(
-      'SELECT * FROM campaigns WHERE slug=? FOR UPDATE', [campaignSlug]
+      `SELECT * FROM campaigns
+       WHERE slug=? AND status='active'
+         AND (starts_at IS NULL OR starts_at<=NOW())
+         AND (ends_at IS NULL OR ends_at>=NOW())
+       FOR UPDATE`, [campaignSlug]
     );
-    if (!campaign || campaign.status !== 'active') throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
-    const now = new Date();
-    if (campaign.starts_at && new Date(campaign.starts_at) > now) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
-    if (campaign.ends_at && new Date(campaign.ends_at) < now) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
+    if (!campaign) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
 
     await conn.execute(
       `INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
