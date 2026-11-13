@@ -34,7 +34,7 @@ async function migrateMultiCampaign(db) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS campaign_sequences (
       campaign_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
-      last_value BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      last_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       CONSTRAINT fk_campaign_sequences_campaign FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -130,7 +130,7 @@ async function migrateMultiCampaign(db) {
      VALUES('legacy','کمپین قدیمی iStore','closed','free')`
   );
   const [[campaign]] = await db.execute("SELECT id FROM campaigns WHERE slug='legacy' LIMIT 1");
-  await db.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_value) VALUES(?,0)', [campaign.id]);
+  await db.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)', [campaign.id]);
 
   // Idempotent backfill; preserve every legacy code exactly as it was.
   await db.query(`
@@ -159,7 +159,7 @@ async function migrateMultiCampaign(db) {
     'SELECT COUNT(*) AS total FROM issued_codes WHERE campaign_id=?', [campaign.id]
   );
   await db.execute(
-    'UPDATE campaign_sequences SET last_value=? WHERE campaign_id=? AND last_value<?',
+    'UPDATE campaign_sequences SET last_sequence=? WHERE campaign_id=? AND last_sequence<?',
     [seq.total, campaign.id, seq.total]
   );
 }
