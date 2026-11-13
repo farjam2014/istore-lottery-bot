@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 REPO="https://github.com/farjam2014/istore-lottery-bot.git"
-BRANCH="feature/multi-campaign-platform"
+BRANCH="feature/telegram-account-recovery"
 APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
 DB_NAME="istore_lottery"
@@ -16,7 +16,7 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ فایل پیش�
 . /etc/os-release
 [[ "$ID" == ubuntu && "$(cut -d. -f1 <<< "$VERSION_ID")" == 24 ]] || die "فقط Ubuntu 24 پشتیبانی می‌شود."
 cat <<'NOTICE'
-نصب مجدد مخرب: دیتابیس istore_lottery و کاربر MySQL آن پس از تأیید صریح حذف و از صفر ساخته می‌شوند. هیچ بک‌آپی تهیه نمی‌شود. فایل‌های نسخه قبلی برنامه به پوشه زمان‌دار منتقل می‌شوند. رمز دیتابیس و پنل تصادفی تولید می‌شوند.
+نصب تازه و غیرمخرب: دیتابیس موجود حذف نمی‌شود. نصب فقط روی دیتابیس خالی انجام می‌شود؛ دیتابیس دارای جدول یا داده دست‌نخورده می‌ماند.
 NOTICE
 read -r -p "دامنه (مثلاً example.com): " DOMAIN
 read -r -p "ایمیل دریافت SSL: " EMAIL
@@ -59,20 +59,27 @@ DB_PASSWORD="$(openssl rand -hex 32)"
 ADMIN_PASSWORD="$(openssl rand -hex 32)"
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 SESSION_SECRET="$(openssl rand -hex 48)"
-read -r -p "برای تأیید حذف غیرقابل‌بازگشت دیتابیس istore_lottery عبارت DELETE istore_lottery را وارد کنید: " DB_DELETE_CONFIRM
-[[ "$DB_DELETE_CONFIRM" == "DELETE istore_lottery" ]] || die "تأیید حذف انجام نشد؛ سرویس و دیتابیس قبلی دست‌نخورده ماندند."
-unset DB_DELETE_CONFIRM
-log "توقف سرویس قبلی"
-systemctl disable --now "$SERVICE" 2>/dev/null || true
-log "بازسازی دیتابیس"
-mysql --protocol=socket -uroot <<SQL
-DROP DATABASE IF EXISTS istore_lottery;
-DROP USER IF EXISTS 'istore_lottery'@'localhost';
+log "ایجاد دیتابیس در صورت نبودن؛ هیچ دیتابیسی حذف نمی‌شود"
+DB_EXISTS="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$DB_NAME'")"
+if [[ "$DB_EXISTS" == "0" ]]; then
+  mysql --protocol=socket -uroot <<SQL
 CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
+else
+  TABLE_COUNT="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB_NAME'")"
+  [[ "$TABLE_COUNT" == "0" ]] || die "دیتابیس $DB_NAME خالی نیست؛ برای جلوگیری از تغییر ناخواسته نصب متوقف شد."
+  mysql --protocol=socket -uroot <<SQL
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+fi
+log "توقف سرویس قبلی"
+systemctl disable --now "$SERVICE" 2>/dev/null || true
 log "جایگزینی نسخه آزموده‌شده در مسیر اصلی برنامه"
 if [[ -e "$APP_DIR" || -L "$APP_DIR" ]]; then
   [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر جابه‌جایی نامعتبر است."
@@ -104,7 +111,6 @@ chown -R root:istorebot "$APP_DIR"
 chmod -R g+rX "$APP_DIR"
 chmod 640 "$APP_DIR/.env"
 log "ساخت جداول دیتابیس تازه"
-mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
 npm run migrate
 log "ساخت سرویس systemd"
 cat > "/etc/systemd/system/$SERVICE.service" <<UNIT
