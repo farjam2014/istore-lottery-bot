@@ -714,7 +714,7 @@ app.post("/api/admin/campaign-payments/:id/approve",admin,async(q,r)=>{
   try{
     const result=await approveManualPayment({db,paymentId:q.params.id,reviewer:String(process.env.ADMIN_ID),codeSecret:process.env.CAMPAIGN_CODE_SECRET});
     const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[q.params.id]);
-    if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کدهای اختصاصی شما ("+result.quantity+"):\n"+result.codes.join("\n")})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
+    if(recipient)try{await sendCodeDelivery(recipient.telegram_chat_id||recipient.telegram_user_id,recipient.business_connection_id,recipient.title,result.codes)}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
     await audit(process.env.ADMIN_ID,"approve_campaign_payment","campaign_payment",q.params.id,{entry_id:result.entryId,code:result.code});
     r.json(result);
   }catch(e){
