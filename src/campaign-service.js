@@ -217,7 +217,7 @@ function createCampaignService({ db, adminId }) {
         );
         await conn.execute("UPDATE payment_orders SET status='approved',reviewed_by=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?", [String(adminId),orderId]);
         const [[recipient]] = await conn.execute(
-          'SELECT chat_id FROM participants WHERE id=? LIMIT 1',
+          'SELECT chat_id,business_connection_id FROM participants WHERE id=? LIMIT 1',
           [order.participant_id]
         );
         if (recipient?.chat_id) {
@@ -228,6 +228,7 @@ function createCampaignService({ db, adminId }) {
               method:'sendMessage',
               payload:{
                 chat_id:String(recipient.chat_id),
+                ...(recipient.business_connection_id ? {business_connection_id:String(recipient.business_connection_id)} : {}),
                 text:'✅ پرداخت شما تأیید شد.\n\n🎟 کدهای قرعه‌کشی:\n'+issuedCodes.join('\n')+'\n\nاین کدها را تا پایان کمپین نگه دارید.'
               }
             })]
@@ -254,7 +255,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  async function joinFreeCampaign({ campaignId, telegramUserId, chatId, fullName, phone, instagram, quantity = 1 }) {
+  async function joinFreeCampaign({ campaignId, telegramUserId, chatId, businessConnectionId = null, fullName, phone, instagram, quantity = 1 }) {
     const qty = assertInteger(quantity, 'تعداد کد', 1, 1000);
     const conn = await db.getConnection();
     try {
@@ -267,15 +268,15 @@ function createCampaignService({ db, adminId }) {
       if (existingParticipant) {
         if (existingParticipant.status !== 'active') throw new Error('پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.');
         participantId = existingParticipant.id;
-        await conn.execute('UPDATE participants SET chat_id=? WHERE id=?', [String(chatId),participantId]);
+        await conn.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?', [String(chatId),businessConnectionId,participantId]);
       } else {
         const name = String(fullName || '').trim().replace(/\\s+/g, ' ');
         const normalizedPhone = normalizePhone(phone);
         const normalizedInstagram = normalizeInstagram(instagram);
         if (!validFullName(name) || !validPhone(normalizedPhone) || !validInstagram(normalizedInstagram)) throw new Error('اطلاعات پروفایل معتبر نیست.');
         const [created] = await conn.execute(
-          "INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,'active')",
-          [String(telegramUserId),String(chatId),name,normalizedPhone,normalizedInstagram]
+          "INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",
+          [String(telegramUserId),String(chatId),businessConnectionId,name,normalizedPhone,normalizedInstagram]
         );
         participantId = created.insertId;
       }
@@ -316,7 +317,7 @@ function createCampaignService({ db, adminId }) {
         }
       }
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', ['system','free_campaign_entry','campaign_entry',String(entryId),JSON.stringify({campaign_id:campaignId,participant_id:participantId,codes:issued})]);
-      const [[recipient]] = await conn.execute('SELECT chat_id FROM participants WHERE id=? LIMIT 1',[participantId]);
+      const [[recipient]] = await conn.execute('SELECT chat_id,business_connection_id FROM participants WHERE id=? LIMIT 1',[participantId]);
       if (recipient?.chat_id) {
         await conn.execute(
           "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
@@ -324,6 +325,7 @@ function createCampaignService({ db, adminId }) {
             method:'sendMessage',
             payload:{
               chat_id:String(recipient.chat_id),
+              ...(recipient.business_connection_id ? {business_connection_id:String(recipient.business_connection_id)} : {}),
               text:'🎉 ثبت‌نام شما در کمپین با موفقیت انجام شد.\n\n🎟 کدهای شما:\n'+issued.join('\n')+'\n\nموفق باشید!'
             }
           })]
