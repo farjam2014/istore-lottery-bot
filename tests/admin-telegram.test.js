@@ -283,3 +283,37 @@ test('admin menus and conversational wizard reuse the same Telegram message', as
   assert.equal(nextStepEdit.payload.message_id, 9001);
   assert.match(nextStepEdit.payload.text, /نام بانک/);
 });
+
+
+test('campaign and bank-card wizards expose inline back/cancel controls and Persian payment choices', async () => {
+  const h = harness();
+  const message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
+  const click = async (id, data) => h.admin.handleCallback({ id, data, from: message.from, message: { ...message.chat, chat: message.chat } });
+
+  await click('inline-campaign-start', 'adm:campaign-create');
+  let markup = h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b => b.callback_data === 'adm:campaign-wizard-back'));
+  assert.ok(markup.flat().some(b => b.callback_data === 'adm:campaign-wizard-cancel'));
+
+  await h.admin.handleMessage({ ...message, text: 'کمپین آزمایشی' });
+  await h.admin.handleMessage({ ...message, text: 'test-campaign' });
+  markup = h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b => b.text.includes('رایگان') && b.callback_data.endsWith(':free')));
+  assert.ok(markup.flat().some(b => b.text.includes('پولی') && b.callback_data.endsWith(':manual')));
+
+  await click('choose-paid', 'adm:campaign-wizard-payment:manual');
+  assert.match(h.telegram.at(-1).payload.text, /مبلغ هر کد/);
+  await click('go-back-payment', 'adm:campaign-wizard-back');
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(b => b.text.includes('رایگان')));
+
+  await click('choose-free', 'adm:campaign-wizard-payment:free');
+  assert.match(h.telegram.at(-1).payload.text, /سقف شرکت‌کنندگان/);
+
+  await click('cancel-campaign', 'adm:campaign-wizard-cancel');
+  await click('start-card', 'adm:card-add');
+  markup = h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b => b.callback_data === 'adm:card-wizard-back'));
+  assert.ok(markup.flat().some(b => b.callback_data === 'adm:card-wizard-cancel'));
+  await click('card-back', 'adm:card-wizard-back');
+  assert.match(h.telegram.at(-1).payload.text, /عنوان کارت/);
+});
