@@ -161,7 +161,7 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           );
           assert.equal(Number(issuedCount.total), 1);
 
-          const { approveManualPayment } = require('../src/campaign-service');
+          const { approveManualPayment, rejectManualPayment } = require('../src/campaign-service');
           await idempotency.execute(
             "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,settings) VALUES('integration-manual','Manual Transfer','active',10,'manual_transfer',250000,JSON_OBJECT('card_number','1234567812345678','card_holder','Test Owner'))"
           );
@@ -178,9 +178,21 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
             "INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id) VALUES(?,?,?,?,?,?)",
             [pending.paymentId, 'telegram:test-file', 'image/jpeg', 100, 'a'.repeat(64), 'test-file']
           );
+          const [[storedProfile]] = await idempotency.execute("SELECT instagram FROM participants WHERE telegram_user_id='987654327'");
+          assert.equal(storedProfile.instagram, 'manual_user');
           const approved = await approveManualPayment({ db: pool, paymentId: pending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret });
           assert.equal(approved.approved, true);
           assert.match(approved.code, /^IS-[A-F0-9]{24}$/);
+
+          const rejectedPending = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: 'retry_user', chatId: '987654328' });
+          await idempotency.execute(
+            "INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id) VALUES(?,?,?,?,?,?)",
+            [rejectedPending.paymentId, 'telegram:retry-file', 'image/jpeg', 100, 'b'.repeat(64), 'retry-file']
+          );
+          await rejectManualPayment({ db: pool, paymentId: rejectedPending.paymentId, reviewer: 'admin' });
+          const retry = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: '@retry_user', chatId: '987654328' });
+          assert.equal(retry.status, 'pending_payment');
+          assert.notEqual(retry.paymentId, rejectedPending.paymentId);
         } finally {
           await pool.end();
         }
