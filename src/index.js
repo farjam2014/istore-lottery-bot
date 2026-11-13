@@ -141,6 +141,13 @@ return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection==
 }catch{return false}
 }
 
+async function requestPaidQuantity({uid,chat,connection,campaignId,fullName,phone,instagram}) {
+const [[campaign]]=await db.execute("SELECT title,amount_minor,max_codes_per_participant FROM campaigns WHERE id=? AND status='active'",[campaignId]);
+if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
+await putSession(uid,chat,"quantity",fullName,phone,connection,instagram,campaignId);
+const limit=campaign.max_codes_per_participant==null?"بدون سقف":Number(campaign.max_codes_per_participant).toLocaleString("fa-IR")+" کد";
+return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎟 کمپین «"+campaign.title+"»\nقیمت هر کد: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" ریال\nسقف مجاز برای هر نفر: "+limit+"\n\nچند کد می‌خواهید؟ فقط عدد را ارسال کنید. پس از پرداخت و تأیید مدیر، همان تعداد کد صادر می‌شود."});
+}
 async function manualPaymentInstructions(campaignId, paymentId) {
 const [[campaign]]=await db.execute("SELECT title,amount_minor,currency,settings FROM campaigns WHERE id=?",[campaignId]);
 const [[payment]]=await db.execute("SELECT id,amount_minor,quantity FROM campaign_payments WHERE id=?",[paymentId]);
@@ -191,8 +198,11 @@ if(String(q.data||"").startsWith("camp:select:")){
   const connection=String(q.message?.business_connection_id||"");
   const [[profile]]=await db.execute("SELECT full_name,phone,instagram FROM participants WHERE telegram_user_id=?",[uid]);
   if(profile){
+    if(campaign.payment_mode==="manual_transfer"){
+      return requestPaidQuantity({uid,chat,connection,campaignId:campaign.id,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram});
+    }
     try{
-      const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,businessConnectionId:connection,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+      const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,businessConnectionId:connection,codeSecret:process.env.CAMPAIGN_CODE_SECRET,quantity:1});
       const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
         result.status==="pending_payment"?await manualPaymentInstructions(campaign.id,result.paymentId):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
@@ -224,7 +234,11 @@ try{
 if(s.campaign_id){
   const [[campaign]]=await db.execute("SELECT slug,title FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
   if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
-  const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+  if(campaign.payment_mode==="manual_transfer"){
+    await tg("answerCallbackQuery",{callback_query_id:q.id,text:"اطلاعات شما تأیید شد."});
+    return requestPaidQuantity({uid,chat:s.chat_id,connection:s.business_connection_id,campaignId:s.campaign_id,fullName:s.full_name,phone:s.phone,instagram:s.instagram});
+  }
+  const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET,quantity:1});
   await delSession(uid);
   const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
     result.status==="pending_payment"?await manualPaymentInstructions(s.campaign_id,result.paymentId):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
@@ -461,6 +475,28 @@ return reply(chat,conn,"لطفاً نام و نام خانوادگی خود را
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(s.campaign_id){const [[activeCampaign]]=await db.execute("SELECT id FROM campaigns WHERE id=? AND status='active' AND (starts_at IS NULL OR starts_at<=NOW()) AND (ends_at IS NULL OR ends_at>=NOW())",[s.campaign_id]);if(!activeCampaign){await delSession(uid);return reply(chat,conn,"ثبت‌نام این کمپین بسته شده است.")}}else if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
 if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn,null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
+if(s.step==="quantity"){
+const quantity=Number(t);
+if(!/^\\d{1,5}$/.test(t)||!Number.isSafeInteger(quantity)||quantity<1||quantity>10000)
+return reply(chat,conn,"لطفاً تعداد کد را به‌صورت عدد صحیح بین ۱ تا ۱۰۰۰۰ وارد کنید.");
+const [[campaign]]=await db.execute("SELECT slug,title,payment_mode,max_codes_per_participant FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
+if(!campaign){await delSession(uid);return reply(chat,conn,"این کمپین دیگر فعال نیست.");}
+if(campaign.payment_mode!=="manual_transfer"){await delSession(uid);return reply(chat,conn,"این کمپین پرداختی نیست.");}
+if(campaign.max_codes_per_participant!=null&&quantity>Number(campaign.max_codes_per_participant))
+return reply(chat,conn,"سقف دریافت کد برای این کمپین "+Number(campaign.max_codes_per_participant).toLocaleString("fa-IR")+" است. تعداد دیگری وارد کنید.");
+try{
+const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:chat,businessConnectionId:conn,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET,quantity});
+if(result.status==="pending_payment"){
+await delSession(uid);
+return reply(chat,conn,await manualPaymentInstructions(s.campaign_id,result.paymentId));
+}
+await delSession(uid);
+return reply(chat,conn,"کدهای شما قبلاً صادر شده‌اند:\\n"+(result.codes||[]).join("\\n"));
+}catch(e){
+const messages={CODE_LIMIT_EXCEEDED:"تعداد درخواستی از سقف مجاز شما بیشتر است.",PAYMENT_ALREADY_PENDING:"یک پرداخت قبلی شما هنوز در انتظار بررسی است. ابتدا همان پرداخت را تکمیل کنید.",CAMPAIGN_FULL:"ظرفیت کمپین تکمیل شده است.",DUPLICATE_CONTACT:"شماره یا آیدی اینستاگرام قبلاً ثبت شده است."};
+return reply(chat,conn,messages[e.code]||"ثبت درخواست انجام نشد؛ دوباره تلاش کنید.");
+}
+}
 if(s.step==="awaiting_confirmation"){
 return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
 }
