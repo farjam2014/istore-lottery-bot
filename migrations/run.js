@@ -33,7 +33,7 @@ async function main() {
     let c = await columns('lottery_sessions');
     if (!c.has('instagram')) await db.query('ALTER TABLE lottery_sessions ADD COLUMN instagram VARCHAR(40) NULL AFTER phone');
     await db.query('ALTER TABLE lottery_sessions MODIFY instagram VARCHAR(40) NULL');
-    await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation') NOT NULL");
+    await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation','profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL");
 
     c = await columns('lottery_entries');
     if (!c.has('status')) {
