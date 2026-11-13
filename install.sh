@@ -29,7 +29,6 @@ read -r -p "شماره تماس فروشگاه با کد کشور (اختیار�
 [[ "$BOT_TOKEN" =~ ^[0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]] || die "توکن نامعتبر است."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || die "Admin ID نامعتبر است."
 if [[ -n "$CONTACT_PHONE" && ! "$CONTACT_PHONE" =~ ^\+?[0-9]{8,15}$ ]]; then die "شماره تماس نامعتبر است."; fi
-if [[ -n "$STORE_TELEGRAM_URL" && ! "$STORE_TELEGRAM_URL" =~ ^https://t\.me/[A-Za-z0-9_]{5,32}/?$ ]]; then die "لینک تلگرام فروشگاه نامعتبر است."; fi
 SERVER_IP="$(hostname -I | awk '{print $1}')"
 DNS_IP="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')"
 [[ -n "$DNS_IP" && "$DNS_IP" == "$SERVER_IP" ]] || die "دامنه باید به IP همین سرور اشاره کند (DNS=$DNS_IP / Server=$SERVER_IP)."
