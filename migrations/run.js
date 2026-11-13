@@ -21,7 +21,7 @@ async function main() {
 
     await db.query(`CREATE TABLE IF NOT EXISTS telegram_sessions (
       telegram_user_id BIGINT NOT NULL PRIMARY KEY, chat_id BIGINT NOT NULL,
-      step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation','profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL,
+      step ENUM('profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL,
       full_name VARCHAR(150) NULL, phone VARCHAR(25) NULL, instagram VARCHAR(40) NULL,
       business_connection_id VARCHAR(128) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
