@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const { validFullName, validPhone, validInstagram } = require('./domain');
 
 function makeCampaignCode(campaignId, sequence, secret) {
   if (!secret || String(secret).length < 32) throw new Error('CAMPAIGN_CODE_SECRET must contain at least 32 characters');
@@ -42,6 +43,25 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
        FOR UPDATE`, [campaignSlug]
     );
     if (!campaign) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
+    if (!validFullName(fullName) || !validPhone(phone) || !validInstagram(instagram)) {
+      throw Object.assign(new Error('INVALID_PARTICIPANT_PROFILE'), { code: 'INVALID_PARTICIPANT_PROFILE' });
+    }
+
+    // One real person must not enter an active campaign through multiple Telegram accounts.
+    // Check before the profile upsert so a rejected update cannot overwrite an existing profile.
+    const [[duplicate]] = await conn.execute(
+      `SELECT p.id
+       FROM participants p
+       JOIN campaign_entries e ON e.participant_id=p.id
+       JOIN campaigns c ON c.id=e.campaign_id
+       WHERE p.telegram_user_id<>?
+         AND e.status IN ('active','pending_payment')
+         AND c.status='active'
+         AND (p.phone=? OR LOWER(p.instagram)=LOWER(?))
+       LIMIT 1 FOR UPDATE`,
+      [String(telegramUserId), phone, instagram]
+    );
+    if (duplicate) throw Object.assign(new Error('DUPLICATE_CONTACT'), { code: 'DUPLICATE_CONTACT' });
 
     await conn.execute(
       `INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
