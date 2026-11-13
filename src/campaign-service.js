@@ -72,6 +72,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       return { entryId, existing: false, status: 'pending_payment', paymentStatus: 'pending', code: null };
     }
 
+    await conn.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_value) VALUES(?,0)', [campaign.id]);
     const [[sequenceRow]] = await conn.execute(
       'SELECT last_value FROM campaign_sequences WHERE campaign_id=? FOR UPDATE', [campaign.id]
     );
