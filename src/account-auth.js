@@ -7,6 +7,17 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   const sign = value => crypto.createHmac('sha256', sessionSecret).update(value).digest('hex');
   const safeEqual = (a, b) => { const x=Buffer.from(String(a)); const y=Buffer.from(String(b)); return x.length===y.length && crypto.timingSafeEqual(x,y); };
   const randomToken = () => crypto.randomBytes(32).toString('base64url');
+  const rateBuckets = new Map();
+  function rateAllowed(req, scope, subject, max, windowMs) {
+    const ip=String(req.ip||req.socket?.remoteAddress||'unknown').slice(0,80);
+    const key=scope+':'+ip+':'+hash(subject||'');
+    const now=Date.now();
+    let bucket=rateBuckets.get(key);
+    if(!bucket||bucket.resetAt<=now){bucket={count:0,resetAt:now+windowMs};rateBuckets.set(key,bucket);}
+    bucket.count++;
+    if(rateBuckets.size>5000){for(const [k,v] of rateBuckets)if(v.resetAt<=now)rateBuckets.delete(k);}
+    return bucket.count<=max;
+  }
   const passwordHash = password => new Promise((resolve,reject) => crypto.scrypt(password, process.env.PASSWORD_PEPPER || sessionSecret, 64, (e,key)=>e?reject(e):resolve('scrypt$'+key.toString('hex'))));
   const verifyPassword = async (password, stored) => {
     if (!String(stored||'').startsWith('scrypt$')) return false;
@@ -44,6 +55,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   app.post('/api/account/register', async (req,res) => {
     const phone=normalizePhone(req.body.phone), password=String(req.body.password||'');
     if(!validPhone(phone))return fail(res,400,'شماره موبایل معتبر نیست.');
+    if(!rateAllowed(req,'register',phone,5,15*60*1000))return fail(res,429,'تعداد تلاش‌های ثبت‌نام زیاد است؛ ۱۵ دقیقه دیگر تلاش کنید.');
     if(password.length<10 || password.length>128)return fail(res,400,'رمز عبور باید حداقل ۱۰ و حداکثر ۱۲۸ کاراکتر باشد.');
     const [[link]]=await db.execute('SELECT l.telegram_user_id,l.chat_id FROM account_telegram_links l JOIN participants p ON p.telegram_user_id=l.telegram_user_id AND p.phone=? AND p.status=\'active\' LIMIT 1',[phone]);
     if(!link)return fail(res,403,'ابتدا با همان حساب تلگرام، ربات را Start کنید و مطمئن شوید شماره شما در پروفایل شرکت‌کننده ثبت شده است.');
@@ -61,6 +73,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   app.post('/api/account/login', async (req,res) => {
     const phone=normalizePhone(req.body.phone), password=String(req.body.password||'');
     if(!validPhone(phone)||!password)return fail(res,400,'شماره موبایل یا رمز عبور نامعتبر است.');
+    if(!rateAllowed(req,'login',phone,8,15*60*1000))return fail(res,429,'تعداد تلاش‌های ورود زیاد است؛ ۱۵ دقیقه دیگر تلاش کنید.');
     const [[row]]=await db.execute('SELECT id,phone,password_hash FROM web_accounts WHERE phone=? LIMIT 1',[phone]);
     if(!row || !await verifyPassword(password,row.password_hash))return fail(res,401,'شماره موبایل یا رمز عبور اشتباه است.');
     setSession(res,row); return res.json({ok:true,phone:row.phone});
@@ -75,6 +88,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   app.post('/api/account/forgot',async(req,res)=>{
     const phone=normalizePhone(req.body.phone);
     if(!validPhone(phone))return fail(res,400,'شماره موبایل معتبر نیست.');
+    if(!rateAllowed(req,'forgot',phone,3,15*60*1000))return fail(res,429,'درخواست‌های بازیابی زیاد است؛ ۱۵ دقیقه دیگر تلاش کنید.');
     const [[row]]=await db.execute('SELECT a.id,a.phone,a.telegram_user_id,l.chat_id FROM web_accounts a JOIN account_telegram_links l ON l.telegram_user_id=a.telegram_user_id WHERE a.phone=? LIMIT 1',[phone]);
     // Always return the same public response to avoid account enumeration.
     if(row) {
