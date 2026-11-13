@@ -15,7 +15,7 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ کد خطا: $rc"
 . /etc/os-release
 [[ "$ID" == ubuntu && "$(cut -d. -f1 <<< "$VERSION_ID")" == 24 ]] || die "فقط Ubuntu 24 پشتیبانی می‌شود."
 cat <<'NOTICE'
-نصب محیط آزمایشی: از دیتابیس بک‌آپ گرفته نمی‌شود. دیتابیس موجود حذف نمی‌شود و Migrationها روی آن اجرا می‌شوند. رمز دیتابیس و رمز پنل تصادفی تولید می‌شوند و فقط در فایل .env قرار می‌گیرند.
+نصب مجدد مخرب: دیتابیس istore_lottery و کاربر MySQL آن پس از تأیید صریح حذف و از صفر ساخته می‌شوند. هیچ بک‌آپی تهیه نمی‌شود. فایل‌های نسخه قبلی برنامه به پوشه زمان‌دار منتقل می‌شوند. رمز دیتابیس و پنل تصادفی تولید می‌شوند.
 NOTICE
 read -r -p "دامنه (مثلاً example.com): " DOMAIN
 read -r -p "ایمیل دریافت SSL: " EMAIL
@@ -52,16 +52,22 @@ DB_PASSWORD="$(openssl rand -hex 32)"
 ADMIN_PASSWORD="$(openssl rand -hex 32)"
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 SESSION_SECRET="$(openssl rand -hex 48)"
-log "بازسازی دیتابیس آزمایشی بدون تهیه بک‌آپ"
+log "توقف سرویس قبلی پیش از بازسازی دیتابیس"
+systemctl disable --now "$SERVICE" 2>/dev/null || true
+
+log "حذف قطعی دیتابیس و کاربر قبلی"
+read -r -p "برای تأیید حذف غیرقابل‌بازگشت دیتابیس istore_lottery عبارت DELETE istore_lottery را وارد کنید: " DB_DELETE_CONFIRM
+[[ "$DB_DELETE_CONFIRM" == "DELETE istore_lottery" ]] || die "تأیید حذف انجام نشد؛ هیچ دیتابیسی حذف نشد."
+unset DB_DELETE_CONFIRM
 mysql --protocol=socket -uroot <<SQL
-CREATE DATABASE IF NOT EXISTS istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
-ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+DROP DATABASE IF EXISTS istore_lottery;
+DROP USER IF EXISTS 'istore_lottery'@'localhost';
+CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO 'istore_lottery'@'localhost';
 FLUSH PRIVILEGES;
 SQL
-log "توقف سرویس آزمایشی قبلی و جایگزینی فایل‌های برنامه"
-systemctl disable --now "$SERVICE" 2>/dev/null || true
+log "جایگزینی فایل‌های برنامه در همان مسیر قبلی"
 if [[ -e "$APP_DIR" || -L "$APP_DIR" ]]; then
   [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر حذف نامعتبر است."
   mv "$APP_DIR" "/opt/istore-lottery-previous-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -145,6 +151,9 @@ ln -sfn "/etc/nginx/sites-available/$SERVICE" "/etc/nginx/sites-enabled/$SERVICE
 nginx -t
 systemctl reload nginx
 certbot --nginx --non-interactive --agree-tos --redirect -m "$EMAIL" -d "$DOMAIN"
+log "راه‌اندازی سرویس جدید پیش از ثبت Webhook"
+systemctl start "$SERVICE"
+
 log "ثبت Webhook تلگرام"
 WEBHOOK_URL="https://$DOMAIN/telegram/$WEBHOOK_SECRET"
 WH="$(curl -fsS --max-time 30 -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
@@ -152,7 +161,6 @@ WH="$(curl -fsS --max-time 30 -X POST "https://api.telegram.org/bot$BOT_TOKEN/se
   --data-urlencode "secret_token=$WEBHOOK_SECRET" \
   --data-urlencode 'allowed_updates=["message","business_message","business_connection","callback_query"]')"
 [[ "$(printf '%s' "$WH" | jq -r '.ok // false')" == true ]] || die "ثبت webhook ناموفق: $(printf '%s' "$WH" | jq -r '.description // "unknown"')"
-systemctl start "$SERVICE"
 for _ in $(seq 1 30); do
   curl -fsS --max-time 3 http://127.0.0.1:3000/health | jq -e '.ok == true and .database == "connected"' >/dev/null 2>&1 && break
   sleep 2
