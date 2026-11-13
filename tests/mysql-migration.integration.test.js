@@ -13,6 +13,19 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
   assert.ok(process.env.MYSQL_TEST_USER, 'MYSQL_TEST_USER is required');
   assert.ok(process.env.MYSQL_TEST_PASSWORD, 'MYSQL_TEST_PASSWORD is required');
 
+  const adminDb = await mysql.createConnection({
+    host: process.env.MYSQL_TEST_HOST,
+    port: Number(process.env.MYSQL_TEST_PORT || 3306),
+    user: process.env.MYSQL_TEST_USER,
+    password: process.env.MYSQL_TEST_PASSWORD
+  });
+  try {
+    await adminDb.query('DROP DATABASE IF EXISTS `' + database + '`');
+    await adminDb.query('CREATE DATABASE `' + database + '` CHARACTER SET utf8mb4');
+  } finally {
+    await adminDb.end();
+  }
+
   const db = await mysql.createConnection({
       host: process.env.MYSQL_TEST_HOST,
       port: Number(process.env.MYSQL_TEST_PORT || 3306),
