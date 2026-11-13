@@ -209,7 +209,7 @@ if(String(q.data||'').startsWith('campaign:join:')){
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
     if(campaign.payment_mode==='free'){
       const result=await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity:1});
-      return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد.\nکدهای شما:\n'+result.codes.join('\n'));
+      return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد. کدهای قرعه‌کشی در پیام جداگانه برایتان ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
     const card=String(process.env.PAYMENT_CARD_NUMBER||'').replace(/\s/g,'');
