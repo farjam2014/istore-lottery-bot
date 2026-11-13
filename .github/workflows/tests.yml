@@ -2,9 +2,9 @@ name: Staging Tests
 
 on:
   push:
-    branches: [main, feature/complete-telegram-lottery-system]
+    branches: [main, feature/complete-telegram-lottery-system, feature/multi-campaign-platform]
   pull_request:
-    branches: [main]
+    branches: [main, feature/multi-campaign-platform]
 
 permissions:
   contents: read
