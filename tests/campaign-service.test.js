@@ -193,8 +193,8 @@ test('replayed pending manual order returns the existing order without creating 
       if (sql.includes('SELECT * FROM campaigns')) return [[{ id: 3, status: 'open', payment_mode: 'manual' }]];
       if (sql.includes('SELECT id,label,bank_name,card_number')) return [[{ id: 8, status: 'active' }]];
       if (sql.includes('SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants')) return [[{ id: 9, status: 'active' }]];
-      if (sql.includes('SELECT id,order_ref,status,quantity,total_snapshot,currency FROM payment_orders')) {
-        return [[{ id: 77, order_ref: 'IS-ABC', status: 'pending_payment', quantity: 2, total_snapshot: 100000, currency: 'IRR' }]];
+      if (sql.includes('SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders')) {
+        return [[{ id: 77, order_ref: 'IS-ABC', status: 'pending_payment', quantity: 2, total_snapshot: 100000, currency: 'IRR', campaign_id: 3 }]];
       }
       throw new Error('Unexpected SQL: ' + sql);
     }
