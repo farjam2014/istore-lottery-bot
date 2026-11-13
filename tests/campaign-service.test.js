@@ -279,7 +279,7 @@ test('customer cancellation releases an unpaid order reservation and payment ses
   assert.ok(statements.some(sql => sql.includes("UPDATE payment_orders SET status='cancelled'")));
   assert.ok(statements.some(sql => sql.includes("UPDATE campaign_capacity_reservations SET status='released'")));
   assert.ok(statements.some(sql => sql.includes('DELETE FROM campaign_payment_sessions')));
-  assert.ok(statements.some(sql => sql.includes('customer_order_cancelled')));
+  assert.ok(statements.some(sql => sql.includes('INSERT INTO admin_audit_log')));
   assert.ok(calls.includes('COMMIT'));
   assert.ok(!calls.includes('ROLLBACK'));
 });
