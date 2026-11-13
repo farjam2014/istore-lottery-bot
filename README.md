@@ -31,7 +31,7 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 
 ## Mandatory Telegram contact-save gate
 
-- Before customer menus or campaign actions are available, the bot asks the user to add the configured store manager contact and confirm that they saved it.
+- Before customer menus or campaign actions are available, the bot sends the configured store manager contact card and asks the user to continue. The user may save the contact, but the bot cannot verify that action.
 - Set `CONTACT_PHONE` in `.env` to the manager's phone number (8–15 digits, optional leading +). The bot sends it as a Telegram contact card when the user taps **افزودن مخاطب**.
 - The **ذخیره کردم؛ ادامه** button records the user's confirmation in `telegram_contact_gate`. Telegram Bot API cannot verify that the contact was actually saved; this is an explicit user confirmation, not technical verification.
 - Run `npm run migrate` before deploying this feature so the `telegram_contact_gate` table exists. Without `CONTACT_PHONE`, customer access remains blocked and the bot displays a configuration warning.
