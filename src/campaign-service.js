@@ -57,9 +57,12 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
        WHERE p.telegram_user_id<>?
          AND e.status IN ('active','pending_payment')
          AND c.status='active'
-         AND (p.phone=? OR p.instagram=?)
+         AND p.phone=?
+       UNION
+       SELECT p.id FROM participants p
+       WHERE p.telegram_user_id<>? AND p.instagram=?
        LIMIT 1 FOR UPDATE`,
-      [String(telegramUserId), phone, instagram]
+      [String(telegramUserId), phone, String(telegramUserId), instagram]
     );
     if (duplicate) throw Object.assign(new Error('DUPLICATE_CONTACT'), { code: 'DUPLICATE_CONTACT' });
 
