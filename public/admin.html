@@ -21,8 +21,8 @@
   </div>
   <div class="tools" style="margin:12px 0">
     <input id="campaignCapacity" type="number" min="1" placeholder="ظرفیت (خالی = نامحدود)">
-    <select id="campaignPayment"><option value="free">رایگان</option><option value="manual_transfer">کارت‌به‌کارت با تأیید دستی</option></select>
-    <input id="campaignAmount" type="number" min="0" placeholder="مبلغ به واحد خرد ریال" value="0">
+    <select id="campaignPayment" disabled><option value="free">رایگان (فعلاً تنها روش فعال)</option></select>
+    <input id="campaignAmount" type="number" min="0" placeholder="مبلغ (کمپین رایگان: صفر)" value="0">
     <button onclick="createCampaign()">ساخت پیش‌نویس</button>
   </div>
   <div class="wrap"><table style="min-width:760px"><thead><tr><th>عنوان</th><th>شناسه</th><th>وضعیت</th><th>ظرفیت</th><th>ثبت‌نام‌ها</th><th>پرداخت</th><th>عملیات</th></tr></thead><tbody id="campaignRows"><tr><td colspan="7">در حال دریافت…</td></tr></tbody></table></div>
