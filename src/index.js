@@ -454,6 +454,7 @@ if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است�
 await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
 return tg("sendMessage",{chat_id:chat,text:"🔎 لطفاً اطلاعات پروفایل خود را بررسی و تأیید کنید:\\n\\nنام: "+s.full_name+"\\nموبایل: "+s.phone+"\\nاینستاگرام: @"+inst+"\\n\\nبا تأیید، پروفایل دائمی شما ساخته می‌شود.",reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:"reg:confirm"}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
 }
+}
 app.get("/",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","index.html")));
 app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,database:"connected"})}catch{r.status(503).json({ok:false,database:"unavailable"})}});
 app.get("/admin/login",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","login.html")));
