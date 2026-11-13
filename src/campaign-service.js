@@ -99,16 +99,22 @@ function createCampaignService({ db, adminId }) {
         'SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',
         [campaignId,participantId]
       );
-      if (entry?.status === 'active') throw new Error('این فرد قبلاً در کمپین شرکت کرده است.');
       const [[pending]] = await conn.execute(
         "SELECT id FROM campaign_capacity_reservations WHERE campaign_id=? AND participant_id=? AND status='held' AND expires_at>UTC_TIMESTAMP() LIMIT 1 FOR UPDATE",
         [campaignId,participantId]
       );
       if (pending) throw new Error('برای این فرد یک سفارش در انتظار پرداخت وجود دارد.');
+      const [[participantUsage]] = await conn.execute(
+        `SELECT
+          (SELECT COUNT(*) FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND status='active') +
+          (SELECT COALESCE(SUM(code_slots),0) FROM campaign_capacity_reservations WHERE campaign_id=? AND participant_id=? AND status='held' AND expires_at>UTC_TIMESTAMP()) AS codes_used`,
+        [campaignId,participantId,campaignId,participantId]
+      );
+      if (Number(participantUsage.codes_used) + qty > Number(campaign.max_codes_per_participant)) throw new Error('سقف تعداد کد مجاز برای این فرد در کمپین تکمیل می‌شود.');
       const [[capacity]] = await conn.execute(
         `SELECT
           (SELECT COUNT(DISTINCT participant_id) FROM campaign_entries WHERE campaign_id=? AND status='active') +
-          (SELECT COUNT(DISTINCT participant_id) FROM campaign_capacity_reservations WHERE campaign_id=? AND status='held' AND expires_at>UTC_TIMESTAMP()) AS participants_used,
+          (SELECT COUNT(DISTINCT r.participant_id) FROM campaign_capacity_reservations r WHERE r.campaign_id=? AND r.status='held' AND r.expires_at>UTC_TIMESTAMP() AND NOT EXISTS (SELECT 1 FROM campaign_entries e WHERE e.campaign_id=r.campaign_id AND e.participant_id=r.participant_id AND e.status='active')) AS participants_used,
           (SELECT COUNT(*) FROM campaign_codes WHERE campaign_id=? AND status='active') +
           (SELECT COALESCE(SUM(code_slots),0) FROM campaign_capacity_reservations WHERE campaign_id=? AND status='held' AND expires_at>UTC_TIMESTAMP()) AS codes_used`,
         [campaignId,campaignId,campaignId,campaignId]
@@ -132,8 +138,8 @@ function createCampaignService({ db, adminId }) {
         [orderRef,campaignId,participantId,entryId,qty,unitPrice,total,campaign.currency,JSON.stringify({terms_version:termsVersion,refund_policy:'no_refund_after_payment_confirmation'}),hold]
       );
       await conn.execute(
-        "INSERT INTO campaign_capacity_reservations(campaign_id,participant_id,order_id,participant_slots,code_slots,status,expires_at) VALUES(?,?,?,1,?,'held',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))",
-        [campaignId,participantId,order.insertId,qty,hold]
+        "INSERT INTO campaign_capacity_reservations(campaign_id,participant_id,order_id,participant_slots,code_slots,status,expires_at) VALUES(?,?,?,?,?,'held',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))",
+        [campaignId,participantId,order.insertId,entry?.status === 'active' ? 0 : 1,qty,hold]
       );
       await conn.commit();
       return { id: order.insertId, orderRef, quantity: qty, total, currency: campaign.currency };
