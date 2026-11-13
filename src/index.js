@@ -232,7 +232,7 @@ return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
 try{
 if(s.campaign_id){
-  const [[campaign]]=await db.execute("SELECT slug,title FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
+  const [[campaign]]=await db.execute("SELECT slug,title,payment_mode FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
   if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
   if(campaign.payment_mode==="manual_transfer"){
     await tg("answerCallbackQuery",{callback_query_id:q.id,text:"اطلاعات شما تأیید شد."});
