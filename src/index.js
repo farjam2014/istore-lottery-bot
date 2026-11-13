@@ -235,7 +235,6 @@ if(s.campaign_id){
   const [[campaign]]=await db.execute("SELECT slug,title,payment_mode FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
   if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
   if(campaign.payment_mode==="manual_transfer"){
-    await tg("answerCallbackQuery",{callback_query_id:q.id,text:"اطلاعات شما تأیید شد."});
     return requestPaidQuantity({uid,chat:s.chat_id,connection:s.business_connection_id,campaignId:s.campaign_id,fullName:s.full_name,phone:s.phone,instagram:s.instagram});
   }
   const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET,quantity:1});
