@@ -119,7 +119,8 @@ function createCampaignService({ db, adminId }) {
           (SELECT COALESCE(SUM(code_slots),0) FROM campaign_capacity_reservations WHERE campaign_id=? AND status='held' AND expires_at>UTC_TIMESTAMP()) AS codes_used`,
         [campaignId,campaignId,campaignId,campaignId]
       );
-      if (campaign.max_participants != null && Number(capacity.participants_used) + 1 > Number(campaign.max_participants)) throw new Error('ظرفیت شرکت‌کنندگان کمپین تکمیل شده است.');
+      const participantSlots = entry?.status === 'active' ? 0 : 1;
+      if (campaign.max_participants != null && Number(capacity.participants_used) + participantSlots > Number(campaign.max_participants)) throw new Error('ظرفیت شرکت‌کنندگان کمپین تکمیل شده است.');
       if (campaign.max_codes != null && Number(capacity.codes_used) + qty > Number(campaign.max_codes)) throw new Error('ظرفیت کدهای کمپین تکمیل شده است.');
       let entryId = entry?.id;
       if (!entryId) {
@@ -139,7 +140,7 @@ function createCampaignService({ db, adminId }) {
       );
       await conn.execute(
         "INSERT INTO campaign_capacity_reservations(campaign_id,participant_id,order_id,participant_slots,code_slots,status,expires_at) VALUES(?,?,?,?,?,'held',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))",
-        [campaignId,participantId,order.insertId,entry?.status === 'active' ? 0 : 1,qty,hold]
+        [campaignId,participantId,order.insertId,participantSlots,qty,hold]
       );
       await conn.commit();
       return { id: order.insertId, orderRef, quantity: qty, total, currency: campaign.currency };
