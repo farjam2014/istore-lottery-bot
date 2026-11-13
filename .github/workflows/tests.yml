@@ -3,7 +3,7 @@ name: Staging Tests
 
 on:
   push:
-    branches: [main, feature/complete-telegram-lottery-system, feature/multi-campaign-platform]
+    branches: [main, feature/complete-telegram-lottery-system, feature/multi-campaign-platform, feature/telegram-account-recovery]
   pull_request:
     branches: [main, feature/registration-inline-navigation, feature/multi-campaign-platform]
 
