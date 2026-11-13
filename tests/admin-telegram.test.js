@@ -201,7 +201,7 @@ test('campaign creation uses a step-by-step wizard and final review before savin
   const h=harness();
   const message={from:{id:12345},chat:{id:12345,type:'private'}};
   await h.admin.handleCallback({id:'wizard-start',data:'adm:campaign-create',from:message.from,message:{chat:message.chat}});
-  const answers=['کمپین پاییز','autumn-1405','free','0','-','-','1','1','0','system','per_code','-'];
+  const answers=['کمپین پاییز','autumn-1405','free','-','-','1','1','0','system','per_code','-'];
   for(const answer of answers) await h.admin.handleMessage({...message,text:answer});
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('بازبینی اطلاعات کمپین')), 'wizard did not reach review; messages: '+h.telegram.map(x=>x.payload.text).join(' | '));
   assert.equal(h.calls.some(x=>x.sql==='CREATE_CAMPAIGN'),false);
