@@ -238,7 +238,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   ];
   function cardWizardPrompt(state) {
     const f=cardWizardFields[state.step];
-    return '💳 '+(state.editingId?'ویرایش کارت':'افزودن کارت')+' · مرحله '+(state.step+1)+' از '+cardWizardFields.length+'\n\n'+f.label+'\n'+f.hint+'\n\nپاسخ را ارسال کن. /back مرحله قبل · /cancel لغو';
+    return '💳 '+(state.editingId?'ویرایش کارت':'افزودن کارت')+' · مرحله '+(state.step+1)+' از '+cardWizardFields.length+'\\n\\n'+f.label+'\\n'+f.hint+'\\n\\nپاسخ را ارسال کن.';
+  }
+  function cardWizardMarkup() {
+    return keyboard([[{text:'⬅️ بازگشت',callback_data:'adm:card-wizard-back'},{text:'✖️ انصراف',callback_data:'adm:card-wizard-cancel'}]]);
   }
   async function cardWizardReview(chat,state) {
     const v=state.values, cardDigits=digits(v.cardNumber);
@@ -324,15 +327,24 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   function campaignWizardValue(state,key) { return state.values[key] == null ? '-' : String(state.values[key]); }
   function campaignWizardPrompt(state) {
     const f=campaignWizardFields[state.step];
-    return '🧩 ساخت کمپین · مرحله '+(state.step+1)+' از '+campaignWizardFields.length+'\n\n'+f.label+'\n'+f.hint+
-      (state.editingId?'\nویرایش پیش‌نویس #'+state.editingId:'')+
-      '\n\nپاسخ را ارسال کن. /back مرحله قبل · /cancel لغو';
+    return '🧩 ساخت کمپین · مرحله '+(state.step+1)+' از '+campaignWizardFields.length+'\\n\\n'+f.label+'\\n'+f.hint+
+      (state.editingId?'\\nویرایش پیش‌نویس #'+state.editingId:'')+
+      (f.key==='payment_mode'?'\\n\\nنوع پرداخت را انتخاب کن.':'\\n\\nپاسخ را ارسال کن.');
+  }
+  function campaignWizardMarkup(state) {
+    if (campaignWizardFields[state.step].key==='payment_mode') {
+      return keyboard([
+        [{text:'🆓 رایگان',callback_data:'adm:campaign-wizard-payment:free'},{text:'💳 پولی',callback_data:'adm:campaign-wizard-payment:manual'}],
+        [{text:'⬅️ بازگشت',callback_data:'adm:campaign-wizard-back'},{text:'✖️ انصراف',callback_data:'adm:campaign-wizard-cancel'}]
+      ]);
+    }
+    return keyboard([[{text:'⬅️ بازگشت',callback_data:'adm:campaign-wizard-back'},{text:'✖️ انصراف',callback_data:'adm:campaign-wizard-cancel'}]]);
   }
   async function createCampaignPrompt(chat) {
     const cards=bankCardService?await bankCardService.listCards({includeInactive:false}):[];
     const cardHint=cards.length?'\nکارت‌های فعال: '+cards.map(c=>c.id+' = '+c.label+' · '+c.last4).join(' | '):'\nهنوز کارت فعالی ثبت نشده است؛ برای پرداخت دستی ابتدا کارت اضافه کن.';
     pending.set(String(adminId),{type:'campaign-wizard',step:0,values:{payment_mode:'free',price_per_code:'0',max_participants:'-',max_codes:'-',max_codes_per_participant:'1',winner_count:'1',alternate_count:'0',draw_method:'system',draw_basis:'per_code',payment_card_id:'-'},expires:Date.now()+1800000});
-    return adminMessage({chat_id:chat,text:campaignWizardPrompt(pending.get(String(adminId)))+cardHint});
+    return adminMessage({chat_id:chat,text:campaignWizardPrompt(pending.get(String(adminId)))+cardHint,reply_markup:campaignWizardMarkup(pending.get(String(adminId)))});
   }
   async function editDraftCampaign(chat,id) {
     if(!/^\\d+$/.test(String(id))) return adminMessage({chat_id:chat,text:'شناسه کمپین نامعتبر است.'});
@@ -341,7 +353,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const values={name:c.name,slug:c.slug,payment_mode:c.payment_mode,price_per_code:String(c.price_per_code),max_participants:c.max_participants==null?'-':String(c.max_participants),max_codes:c.max_codes==null?'-':String(c.max_codes),max_codes_per_participant:String(c.max_codes_per_participant),winner_count:String(c.winner_count),alternate_count:String(c.alternate_count),draw_method:c.draw_method,draw_basis:c.draw_basis,payment_card_id:c.current_payment_card_id==null?'-':String(c.current_payment_card_id)};
     pending.set(String(adminId),{type:'campaign-wizard',step:0,values,editingId:String(id),expires:Date.now()+1800000});
     const cards=bankCardService?await bankCardService.listCards({includeInactive:false}):[];const cardHint=cards.length?'\nکارت‌های فعال: '+cards.map(c=>c.id+' = '+c.label+' · '+c.last4).join(' | '):'\nهنوز کارت فعالی ثبت نشده است.';
-    return adminMessage({chat_id:chat,text:'✏️ ویرایش پیش‌نویس کمپین #'+id+'\nمقادیر فعلی بارگذاری شدند. مرحله‌به‌مرحله جلو برو؛ در پایان امکان بازبینی و اصلاح هر فیلد را داری.\n\n'+campaignWizardPrompt(pending.get(String(adminId)))+cardHint});
+    return adminMessage({chat_id:chat,text:'✏️ ویرایش پیش‌نویس کمپین #'+id+'\nمقادیر فعلی بارگذاری شدند. مرحله‌به‌مرحله جلو برو؛ در پایان امکان بازبینی و اصلاح هر فیلد را داری.\n\n'+campaignWizardPrompt(pending.get(String(adminId)))+cardHint,reply_markup:campaignWizardMarkup(pending.get(String(adminId)))});
   }
   async function campaignWizardReview(chat,state) {
     const v=state.values;
@@ -405,8 +417,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (q.message.message_id) uiMessageIds.set(String(chat), q.message.message_id);
     await tg('answerCallbackQuery',{callback_query_id:q.id});
     if(data==='adm:cards')return cardList(chat);
-    if(data==='adm:card-add'){const state={type:'card-wizard',step:0,values:{label:'',bankName:'',cardNumber:'',cardholderName:''},expires:Date.now()+1800000};pending.set(String(adminId),state);return adminMessage({chat_id:chat,text:cardWizardPrompt(state)});}
+    if(data==='adm:card-add'){const state={type:'card-wizard',step:0,values:{label:'',bankName:'',cardNumber:'',cardholderName:''},expires:Date.now()+1800000};pending.set(String(adminId),state);return adminMessage({chat_id:chat,text:cardWizardPrompt(state),reply_markup:cardWizardMarkup()});}
     if(data.startsWith('adm:card-wizard-edit:')){const p=pending.get(String(adminId));const n=Number(data.slice('adm:card-wizard-edit:'.length));if(!p||p.type!=='card-wizard'||!Number.isInteger(n)||n<0||n>=cardWizardFields.length)return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است.'});p.step=n;p.reviewEdit=true;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:'✏️ اصلاح '+cardWizardFields[n].label+'\nمقدار فعلی: '+(n===2?'•••• '+digits(p.values.cardNumber).slice(-4):p.values[cardWizardFields[n].key]||'-')+'\nمقدار جدید را بفرست. /back بازگشت به مرحله قبل'});}
+    if(data==='adm:card-wizard-back'){const p=pending.get(String(adminId));if(!p||p.type!=='card-wizard')return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است.'});p.step=Math.max(0,p.step-1);p.reviewEdit=false;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:cardWizardPrompt(p),reply_markup:cardWizardMarkup()});}
     if(data==='adm:card-wizard-cancel'){pending.delete(String(adminId));return cardList(chat);}
     if(data==='adm:card-wizard-save'){const p=pending.get(String(adminId));if(!p||p.type!=='card-wizard'||p.expires<Date.now())return adminMessage({chat_id:chat,text:'فرم کارت منقضی شده است؛ دوباره شروع کن.'});try{const v=p.values;let result;if(p.editingId){await bankCardService.updateCard({id:Number(p.editingId),label:v.label,bankName:v.bankName||null,cardNumber:digits(v.cardNumber),cardholderName:v.cardholderName});result={id:Number(p.editingId)};}else{result=await bankCardService.addCard({label:v.label,bankName:v.bankName||null,cardNumber:digits(v.cardNumber),cardholderName:v.cardholderName});}pending.delete(String(adminId));await audit(p.editingId?'edit_bank_card':'add_bank_card','bank_card',result.id,{last4:digits(v.cardNumber).slice(-4),source:'telegram'});return cardDetail(chat,result.id);}catch(e){return adminMessage({chat_id:chat,text:'ذخیره کارت انجام نشد: '+e.message+'\nاطلاعات فرم حفظ شده است.'});}}
     if(data.startsWith('adm:card:'))return cardDetail(chat,data.slice('adm:card:'.length));
@@ -438,7 +451,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:order-confirm:')) { const [, , id, action]=data.split(':'); if(!/^\d+$/.test(id)||!['approve','reject'].includes(action)) return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'order-review',id,action,expires:Date.now()+60000}); return adminMessage({chat_id:chat,text:(action==='approve'?'تأیید':'رد')+' پرداخت سفارش #'+id+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید نهایی',callback_data:'adm:order-apply:'+id+':'+action},{text:'بازگشت',callback_data:'adm:order:'+id}]])}); }
     if (data.startsWith('adm:order-apply:')) { const [, , id, action]=data.split(':'); const p=pending.get(String(adminId)); pending.delete(String(adminId)); if(!p||p.type!=='order-review'||p.id!==id||p.action!==action||p.expires<Date.now()) return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'}); try { await campaignService.reviewManualPayment({orderId:Number(id),approve:action==='approve',note:'Reviewed via Telegram admin panel'}); await audit(action==='approve'?'approve_payment':'reject_payment','payment_order',id,{source:'telegram'}); await adminMessage({chat_id:chat,text:action==='approve'?'✅ پرداخت تأیید و کدها صادر شدند.':'پرداخت رد شد.',reply_markup:keyboard([[{text:'سفارش‌های در انتظار',callback_data:'adm:orders'}]])}); return orderDetail(chat,id); } catch(e) { return adminMessage({chat_id:chat,text:'بررسی سفارش انجام نشد: '+e.message}); } }
 
-    if(data.startsWith('adm:campaign-wizard-edit:')){const p=pending.get(String(adminId));const n=Number(data.slice('adm:campaign-wizard-edit:'.length));if(!p||p.type!=='campaign-wizard'||!Number.isInteger(n)||n<0||n>=campaignWizardFields.length)return adminMessage({chat_id:chat,text:'فرم منقضی شده است.'});p.step=n;p.reviewEdit=true;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:'✏️ اصلاح '+campaignWizardFields[n].label+'\nمقدار فعلی: '+campaignWizardValue(p,campaignWizardFields[n].key)+'\nمقدار جدید را بفرست. /back بازگشت به مرحله قبل'});}
+    if(data==='adm:campaign-wizard-back'){const p=pending.get(String(adminId));if(!p||p.type!=='campaign-wizard')return adminMessage({chat_id:chat,text:'فرم منقضی شده است.'});p.step=Math.max(0,p.step-1);p.reviewEdit=false;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:campaignWizardPrompt(p),reply_markup:campaignWizardMarkup(p)});}
+    if(data.startsWith('adm:campaign-wizard-payment:')){const p=pending.get(String(adminId)),mode=data.slice('adm:campaign-wizard-payment:'.length);if(!p||p.type!=='campaign-wizard'||p.step!==2||!['free','manual'].includes(mode))return adminMessage({chat_id:chat,text:'انتخاب نوع پرداخت نامعتبر یا منقضی است.'});p.values.payment_mode=mode;if(mode==='free'){p.values.price_per_code='0';p.values.payment_card_id='-';p.step=4;}else{p.step=3;}p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:campaignWizardPrompt(p),reply_markup:campaignWizardMarkup(p)});}
+    if(data.startsWith('adm:campaign-wizard-edit:')){const p=pending.get(String(adminId));const n=Number(data.slice('adm:campaign-wizard-edit:'.length));if(!p||p.type!=='campaign-wizard'||!Number.isInteger(n)||n<0||n>=campaignWizardFields.length)return adminMessage({chat_id:chat,text:'فرم منقضی شده است.'});p.step=n;p.reviewEdit=true;p.expires=Date.now()+1800000;return adminMessage({chat_id:chat,text:'✏️ اصلاح '+campaignWizardFields[n].label+'\nمقدار فعلی: '+campaignWizardValue(p,campaignWizardFields[n].key)+'\nمقدار جدید را بفرست.',reply_markup:campaignWizardMarkup(p)});}
     if(data==='adm:campaign-wizard-cancel'){pending.delete(String(adminId));return home(chat,'ساخت/ویرایش کمپین لغو شد.');}
     if(data==='adm:campaign-wizard-save'){const p=pending.get(String(adminId));if(!p||p.type!=='campaign-wizard'||p.expires<Date.now())return adminMessage({chat_id:chat,text:'فرم منقضی شده است؛ دوباره شروع کن.'});const v=p.values;const input={...v,price_per_code:Number(digits(v.price_per_code)),max_participants:v.max_participants==='-'?null:Number(digits(v.max_participants)),max_codes:v.max_codes==='-'?null:Number(digits(v.max_codes)),max_codes_per_participant:Number(digits(v.max_codes_per_participant)),winner_count:Number(digits(v.winner_count)),alternate_count:Number(digits(v.alternate_count)),payment_card_id:v.payment_card_id==='-'?null:Number(digits(v.payment_card_id))};try{let result;if(p.editingId){result=await campaignService.updateDraftCampaign(Number(p.editingId),input);await audit('edit_campaign','campaign',p.editingId,{source:'telegram'});}else{result=await campaignService.createCampaign(input);await audit('create_campaign','campaign',result.id,{slug:result.slug,source:'telegram'});}pending.delete(String(adminId));return adminMessage({chat_id:chat,text:(p.editingId?'✅ پیش‌نویس ویرایش شد.':'✅ کمپین در وضعیت پیش‌نویس ساخته شد.')+'\nشناسه: '+(p.editingId||result.id)+'\nSlug: '+(result.slug||v.slug),reply_markup:keyboard([[{text:'مشاهده کمپین',callback_data:'adm:campaign-detail:'+(p.editingId||result.id)}],[{text:'فهرست کمپین‌ها',callback_data:'adm:campaigns'}]])});}catch(e){return adminMessage({chat_id:chat,text:'ذخیره انجام نشد: '+e.message+'\nفرم باز مانده؛ مقادیر را اصلاح کن و دوباره ذخیره بزن.'});}}
     if (data==='adm:campaign-create') return createCampaignPrompt(chat);
@@ -559,7 +574,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const cardMode=pending.get(String(adminId));
     if(cardMode?.type==='card-wizard' && text && (text.toLowerCase()==='/back'||!text.startsWith('/'))){
       if(cardMode.expires<Date.now()){pending.delete(String(adminId));return adminMessage({chat_id:m.chat.id,text:'مهلت فرم کارت تمام شده است؛ دوباره شروع کن.'});}
-      if(text.toLowerCase()==='/back'){cardMode.step=Math.max(0,cardMode.step-1);return adminMessage({chat_id:m.chat.id,text:cardWizardPrompt(cardMode)});}
+      if(text.toLowerCase()==='/back'){cardMode.step=Math.max(0,cardMode.step-1);return adminMessage({chat_id:m.chat.id,text:cardWizardPrompt(cardMode),reply_markup:cardWizardMarkup()});}
       const field=cardWizardFields[cardMode.step],value=text.trim();
       const normalized=field.key==='cardNumber'?digits(value).replace(/\s+/g,''):value;
       const valid={
@@ -577,7 +592,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const wizard=pending.get(String(adminId));
     if(wizard?.type==='campaign-wizard' && text && (text.toLowerCase()==='/back' || !text.startsWith('/'))){
       if(wizard.expires<Date.now()){pending.delete(String(adminId));return adminMessage({chat_id:m.chat.id,text:'مهلت فرم تمام شد؛ دوباره شروع کن.'});}
-      if(text.toLowerCase()==='/back'){wizard.step=Math.max(0,wizard.step-1);return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
+      if(text.toLowerCase()==='/back'){wizard.step=Math.max(0,wizard.step-1);return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       const field=campaignWizardFields[wizard.step],value=digits(text).trim();
       const valid={
         name:()=>value.length>=2&&value.length<=150,
