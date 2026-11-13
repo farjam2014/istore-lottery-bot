@@ -396,6 +396,91 @@ if(!equal(q.body.password||"",adminPass)){a.count++;a.until=a.count>=8?now+15*60
 loginAttempts.delete(ip);const p=Buffer.from(JSON.stringify({exp:Date.now()+4*3600000})).toString("base64url");r.setHeader("Set-Cookie",`istore_admin=${p}.${signed(p)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=14400`);r.redirect("/admin")});
 app.post("/admin/logout",(_q,r)=>{r.setHeader("Set-Cookie","istore_admin=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0");r.redirect("/admin/login")});
 app.get("/admin",(q,r)=>isAdmin(q)?r.sendFile(path.join(__dirname,"..","public","admin.html")):r.redirect("/admin/login"));
+const { approveManualPayment } = require("./campaign-service");
+app.get("/api/admin/campaigns",admin,async(_q,r)=>{
+  const [rows]=await db.query(`
+    SELECT c.id,c.slug,c.title,c.status,c.starts_at,c.ends_at,c.capacity,c.payment_mode,
+           c.amount_minor,c.currency,c.created_at,
+           COUNT(DISTINCT e.id) AS entries_count,
+           SUM(e.status='active') AS active_count,
+           SUM(e.status='pending_payment') AS pending_payment_count
+    FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id
+    GROUP BY c.id ORDER BY c.id DESC
+  `);
+  r.json({campaigns:rows});
+});
+app.post("/api/admin/campaigns",admin,async(q,r)=>{
+  const slug=String(q.body.slug||"").trim().toLowerCase();
+  const title=String(q.body.title||"").trim();
+  const capacity=q.body.capacity===null||q.body.capacity===""?null:Number(q.body.capacity);
+  const mode=q.body.payment_mode||"free";
+  const amount=Number(q.body.amount_minor||0);
+  const currency=String(q.body.currency||"IRR").toUpperCase();
+  if(!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)||title.length<3||title.length>160)
+    return r.status(400).json({error:"شناسه یا عنوان کمپین معتبر نیست."});
+  if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1||capacity>10000000))
+    return r.status(400).json({error:"ظرفیت باید عدد صحیح مثبت یا خالی باشد."});
+  if(!["free","manual_transfer"].includes(mode))
+    return r.status(400).json({error:"این روش پرداخت هنوز فعال و تأیید نشده است."});
+  if(!Number.isSafeInteger(amount)||amount<0||! /^[A-Z]{3}$/.test(currency)||(mode==="free"&&amount!==0)||(mode!=="free"&&amount<1))
+    return r.status(400).json({error:"مبلغ یا واحد پول نامعتبر است."});
+  try{
+    const [result]=await db.execute(
+      "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,currency) VALUES(?,?,'draft',?,?,?,?)",
+      [slug,title,capacity,mode,amount,currency]
+    );
+    await db.execute("INSERT IGNORE INTO campaign_sequences(campaign_id,last_value) VALUES(?,0)",[result.insertId]);
+    await audit(process.env.ADMIN_ID,"create_campaign","campaign",result.insertId,{slug,title,capacity,payment_mode:mode});
+    r.status(201).json({id:result.insertId,slug,status:"draft"});
+  }catch(e){
+    if(e.code==="ER_DUP_ENTRY")return r.status(409).json({error:"این شناسه کمپین قبلاً استفاده شده است."});
+    throw e;
+  }
+});
+app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
+  const status=String(q.body.status||"");
+  if(!["draft","active","paused","closed","archived"].includes(status))
+    return r.status(400).json({error:"وضعیت کمپین معتبر نیست."});
+  const conn=await db.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [[campaign]]=await conn.execute("SELECT id,status FROM campaigns WHERE id=? FOR UPDATE",[q.params.id]);
+    if(!campaign){await conn.rollback();return r.status(404).json({error:"کمپین پیدا نشد."})}
+    if(campaign.status==="archived"&&status!=="archived"){await conn.rollback();return r.status(409).json({error:"کمپین آرشیوشده قابل بازگردانی نیست."})}
+    if(status==="archived"){
+      const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[q.params.id]);
+      if(Number(pending.total)){await conn.rollback();return r.status(409).json({error:"تا تعیین تکلیف پرداخت‌های معلق، کمپین آرشیو نمی‌شود."})}
+    }
+    await conn.execute("UPDATE campaigns SET status=? WHERE id=?",[status,q.params.id]);
+    await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),"campaign_status","campaign",String(q.params.id),JSON.stringify({from:campaign.status,to:status})]);
+    await conn.commit();r.json({ok:true,status});
+  }catch(e){await conn.rollback();throw e}finally{conn.release()}
+});
+app.get("/api/admin/campaign-payments",admin,async(_q,r)=>{
+  const [rows]=await db.query(`
+    SELECT p.id AS payment_id,p.entry_id,p.mode,p.status,p.amount_minor,p.currency,p.created_at,
+           e.campaign_id,c.title AS campaign_title,pt.full_name,pt.phone,pt.instagram
+    FROM campaign_payments p
+    JOIN campaign_entries e ON e.id=p.entry_id
+    JOIN campaigns c ON c.id=e.campaign_id
+    JOIN participants pt ON pt.id=e.participant_id
+    WHERE p.status='pending' ORDER BY p.id ASC LIMIT 200
+  `);
+  r.json({payments:rows});
+});
+app.post("/api/admin/campaign-payments/:id/approve",admin,async(q,r)=>{
+  if(!process.env.CAMPAIGN_CODE_SECRET||process.env.CAMPAIGN_CODE_SECRET.length<32)
+    return r.status(503).json({error:"کلید امن صدور کد روی سرور تنظیم نشده است."});
+  try{
+    const result=await approveManualPayment({db,paymentId:q.params.id,reviewer:String(process.env.ADMIN_ID),codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+    await audit(process.env.ADMIN_ID,"approve_campaign_payment","campaign_payment",q.params.id,{entry_id:result.entryId,code:result.code});
+    r.json(result);
+  }catch(e){
+    if(["PAYMENT_NOT_REVIEWABLE","CAMPAIGN_NOT_OPEN","CAMPAIGN_FULL"].includes(e.code))
+      return r.status(409).json({error:e.code==="CAMPAIGN_FULL"?"ظرفیت کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"کمپین فعال نیست.":"این پرداخت قابل بررسی نیست."});
+    throw e;
+  }
+});
 app.get("/api/admin/stats",admin,async(_q,r)=>{const [[a]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active'");const [[b]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");const [[c]]=await db.query("SELECT COUNT(*) total FROM lottery_sessions");const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");const [[f]]=await db.execute("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");r.json({total:a.total,today:b.total,pending:c.total,failedUpdates:f.total,open:await registrationOpen(),drawn:d?.setting_value==='true'})});
 app.get("/api/admin/entries",admin,async(q,r)=>{const term=String(q.query.q||"").slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.min(1000000,Math.max(0,Number(q.query.offset)||0));const [rows]=await db.execute(`SELECT id,full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE status<>'deleted' AND (?='' OR full_name LIKE ? OR phone LIKE ? OR instagram LIKE ? OR raffle_code LIKE ?) ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}`,[term,like,like,like,like]);r.json({entries:rows,limit,offset})});
 async function audit(adminId,action,type,id,details={}){await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)])}
