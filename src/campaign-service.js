@@ -88,6 +88,20 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       'SELECT id,status,payment_status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',
       [campaign.id, participant.id]
     );
+    const [[pendingAcrossCampaigns]] = await conn.execute(
+      `SELECT cp.id,e.campaign_id FROM campaign_payments cp
+       JOIN campaign_entries e ON e.id=cp.entry_id
+       WHERE e.participant_id=? AND cp.status='pending' ORDER BY cp.id DESC LIMIT 1 FOR UPDATE`,
+      [participant.id]
+    );
+    if (pendingAcrossCampaigns) {
+      if (existing && existing.status === 'pending_payment' && Number(pendingAcrossCampaigns.campaign_id) === Number(campaign.id)) {
+        const [[pendingPayment]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1",[existing.id]);
+        await conn.commit();
+        return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: pendingPayment?.id || pendingAcrossCampaigns.id, code: null, codes: [] };
+      }
+      throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
+    }
     if (existing && existing.status === 'inactive' && existing.payment_status === 'rejected' && campaign.payment_mode === 'manual_transfer') {
       const [[priorCodes]] = await conn.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[existing.id]);
       const [[priorPending]] = await conn.execute("SELECT COALESCE(SUM(quantity),0) AS total FROM campaign_payments WHERE entry_id=? AND status='pending'",[existing.id]);
@@ -104,20 +118,6 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
     if (existing) {
-      const [[pendingAcrossCampaigns]] = await conn.execute(
-        `SELECT cp.id,e.campaign_id FROM campaign_payments cp
-         JOIN campaign_entries e ON e.id=cp.entry_id
-         WHERE e.participant_id=? AND cp.status='pending' ORDER BY cp.id DESC LIMIT 1 FOR UPDATE`,
-        [participant.id]
-      );
-      if (pendingAcrossCampaigns) {
-        if (existing.status === 'pending_payment' && Number(existing.id) > 0 && Number(pendingAcrossCampaigns.campaign_id) === Number(campaign.id)) {
-          const [[pendingPayment]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1",[existing.id]);
-          await conn.commit();
-          return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: pendingPayment?.id || pendingAcrossCampaigns.id, code: null, codes: [] };
-        }
-        throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
-      }
       const [existingCodes] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' ORDER BY sequence_no,id", [existing.id]
       );
