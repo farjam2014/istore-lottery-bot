@@ -53,6 +53,11 @@ async function main() {
       processed_at TIMESTAMP NULL, KEY idx_inbox_status_received(status,received_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    await db.query(`CREATE TABLE IF NOT EXISTS processed_updates (
+      update_id BIGINT NOT NULL PRIMARY KEY,
+      processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     const migrations = [
       ['bank-cards', require('./bank-cards')],
       ['account-auth', require('./account-auth')],
