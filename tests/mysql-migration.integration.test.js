@@ -88,6 +88,10 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       ]));
       const [campaignRows] = await verify.execute("SELECT id FROM campaigns WHERE slug='legacy-lottery' LIMIT 1");
       assert.equal(campaignRows.length, 1);
+      const [cardTables] = await verify.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('bank_cards','campaign_payment_card_history','payment_order_card_deliveries')");
+      assert.deepEqual(new Set(cardTables.map(x => x.TABLE_NAME)), new Set(['bank_cards','campaign_payment_card_history','payment_order_card_deliveries']));
+      const [campaignCardColumn] = await verify.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns' AND COLUMN_NAME='current_payment_card_id'");
+      assert.equal(campaignCardColumn.length, 1);
       const [mappingRows] = await verify.execute(
         "SELECT p.telegram_user_id,ce.status,cc.code FROM legacy_entry_mappings m JOIN participants p ON p.id=m.participant_id JOIN campaign_entries ce ON ce.id=m.campaign_entry_id JOIN campaign_codes cc ON cc.id=m.campaign_code_id WHERE p.telegram_user_id='7000000001'"
       );
