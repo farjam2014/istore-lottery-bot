@@ -147,7 +147,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
     } catch(e){await conn.rollback();throw e;} finally{conn.release();}
     if(notify)await tg('sendMessage',notify);
     await tg('editMessageReplyMarkup',{chat_id:String(q.message.chat.id),message_id:q.message.message_id,reply_markup:{inline_keyboard:[]}});
-    await tg('sendMessage',{chat_id:String(adminId),text:approve?'بازیابی #'+id تأیید شد.':'بازیابی #'+id رد شد.'});
+    await tg('sendMessage',{chat_id:String(adminId),text:approve?'بازیابی #'+id+' تأیید شد.':'بازیابی #'+id+' رد شد.'});
     return true;
   }
   return {handleMessage,handleCallback};
