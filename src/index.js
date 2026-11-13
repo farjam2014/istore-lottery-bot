@@ -32,6 +32,7 @@ if(!data.ok)throw new Error(data.description||method+" failed");
 return data.result;
 }
 async function tg(method,payload){
+if(payload&&typeof payload==="object"&&payload.business_connection_id===""){payload={...payload};delete payload.business_connection_id;}
 const controller=new AbortController();
 const timeout=setTimeout(()=>controller.abort(),15000);
 try{
@@ -174,6 +175,22 @@ if(q.data==="reg:cancel"){await delSession(uid);await tg("answerCallbackQuery",{
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ادامه ثبت‌نام"});
 const prompts={name:"لطفاً نام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو تایپ کنید.",instagram:"لطفاً آیدی اینستاگرام خود را ارسال کنید؛ مثال: @example",awaiting_contact:"برای ادامه، دکمه ارسال شماره موبایل را بزنید.",awaiting_confirmation:"برای تکمیل ثبت‌نام، دکمه تأیید را انتخاب کنید.",phone:"برای ادامه ثبت‌نام، شماره موبایل خود را از طریق ربات ارسال کنید."};
 return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
+}
+if(q.data==="reg:confirm"){
+const s=await session(uid),connection=String(q.message?.business_connection_id||"");
+if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection){
+return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
+}
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت پروفایل..."});
+try{
+await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,connection);
+await delSession(uid);
+return tg("sendMessage",{chat_id:chat,text:"✅ پروفایل شما با موفقیت ثبت شد. حالا می‌توانید کمپین موردنظرتان را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"🧩 نمایش کمپین‌های فعال",callback_data:"campaign:list"}]]}});
+}catch(e){
+console.error("Campaign profile confirmation error:",e.message);
+const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است.":e.code==="REGISTRATION_CLOSED"?"❌ در حال حاضر ثبت‌نام بسته است.":"❌ ثبت پروفایل انجام نشد. اطلاعات واردشده حفظ شده است؛ لطفاً دوباره تلاش کنید.";
+return tg("sendMessage",{chat_id:chat,text:msg});
+}
 }
 if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
@@ -394,7 +411,7 @@ if(s.step==="instagram"){
 const inst=normalizeInstagram(t);
 if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است؛ فقط حروف انگلیسی، عدد، نقطه و زیرخط مجاز است.");
 await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
-return tg("sendMessage",{chat_id:chat,text:"🔎 لطفاً اطلاعات پروفایل خود را بررسی و تأیید کنید:\\n\\nنام: "+s.full_name+"\\nموبایل: "+s.phone+"\\nاینستاگرام: @"+inst+"\\n\\nبا تأیید، پروفایل دائمی شما ساخته می‌شود.",reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:makeConfirmationPayload(uid,chat,conn)}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
+return tg("sendMessage",{chat_id:chat,text:"🔎 لطفاً اطلاعات پروفایل خود را بررسی و تأیید کنید:\\n\\nنام: "+s.full_name+"\\nموبایل: "+s.phone+"\\nاینستاگرام: @"+inst+"\\n\\nبا تأیید، پروفایل دائمی شما ساخته می‌شود.",reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:"reg:confirm"}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
 }
 app.get("/",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","index.html")));
 app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,database:"connected"})}catch{r.status(503).json({ok:false,database:"unavailable"})}});
