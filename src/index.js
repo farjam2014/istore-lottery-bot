@@ -324,6 +324,7 @@ if(m.photo?.length||m.document){
     const mime=String(document?.mime_type||"").toLowerCase();
     if(document&&(Number(document.file_size||0)>10*1024*1024||!["application/pdf","image/jpeg","image/png","image/webp"].includes(mime)))return reply(chat,conn,"فایل رسید باید PDF یا تصویر JPG/PNG/WEBP و حداکثر ۱۰ مگابایت باشد.");
     const file=photo||document;
+    if(Number(file.file_size||0)>10*1024*1024)return reply(chat,conn,"حجم رسید نباید بیشتر از ۱۰ مگابایت باشد.");
     await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:file.file_id,fileUniqueId:file.file_unique_id,trackingReference:m.caption||null});
     await db.execute('DELETE FROM campaign_payment_sessions WHERE telegram_user_id=?',[uid]);
     return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. وضعیت آن را از بخش «سفارش‌های من» پیگیری کنید.');
