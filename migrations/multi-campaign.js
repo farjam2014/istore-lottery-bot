@@ -5,6 +5,7 @@ const CAMPAIGN_SCHEMA = [
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     telegram_user_id BIGINT NOT NULL,
     chat_id BIGINT NULL,
+    business_connection_id VARCHAR(128) NULL,
     full_name VARCHAR(150) NOT NULL,
     phone VARCHAR(25) NOT NULL,
     instagram VARCHAR(40) NOT NULL,
@@ -266,6 +267,11 @@ const CAMPAIGN_SCHEMA = [
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
 ];
 
+async function ensureParticipantBusinessColumn(db) {
+  const [rows] = await db.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME='business_connection_id'");
+  if (!rows.length) await db.query('ALTER TABLE participants ADD COLUMN business_connection_id VARCHAR(128) NULL AFTER chat_id');
+}
+
 async function tableExists(db, table) {
   const [rows] = await db.execute(
     'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? LIMIT 1',
@@ -362,8 +368,9 @@ async function up(db) {
     throw new Error('Cannot migrate multi-campaign schema: lottery_entries is missing.');
   }
   for (const sql of CAMPAIGN_SCHEMA) await db.query(sql);
+  await ensureParticipantBusinessColumn(db);
   const result = await migrateLegacyEntries(db);
   return result;
 }
 
-module.exports = { up, CAMPAIGN_SCHEMA, migrateLegacyEntries };
+module.exports = { up, CAMPAIGN_SCHEMA, migrateLegacyEntries, ensureParticipantBusinessColumn };
