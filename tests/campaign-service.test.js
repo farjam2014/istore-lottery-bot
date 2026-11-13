@@ -66,5 +66,7 @@ test('expires held capacity reservations and their pending payment orders transa
   assert.equal(statements.at(-2), 'COMMIT');
   assert.equal(statements.at(-1), 'RELEASE');
   assert.match(statements[1], /expires_at<=UTC_TIMESTAMP/);
-  assert.match(statements[2], /receipt_submitted/);
+  assert.match(statements[1], /NOT EXISTS .*status='receipt_submitted'/);
+  assert.match(statements[2], /o\.status='pending_payment'/);
+  assert.doesNotMatch(statements[2], /receipt_submitted/);
 });
