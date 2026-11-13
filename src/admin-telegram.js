@@ -167,11 +167,20 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return tgDocument(chat,'istore-lottery.csv',csv,'text/csv;charset=utf-8');
   }
   async function exportMenu(chat) {
-    return adminMessage({chat_id:chat,text:'فیلتر خروجی CSV را انتخاب کنید:',reply_markup:keyboard([
+    return adminMessage({chat_id:chat,text:'ابتدا وضعیت شرکت‌کننده را برای خروجی CSV انتخاب کنید:',reply_markup:keyboard([
       [{text:'همه وضعیت‌ها',callback_data:'adm:export:all'},{text:'فعال‌ها',callback_data:'adm:export:active'}],
       [{text:'غیرفعال‌ها',callback_data:'adm:export:inactive'}],
-      [{text:'راهنما و بازه زمانی',callback_data:'adm:export:help'}],
+      [{text:'راهنما',callback_data:'adm:export:help'}],
       [{text:'منوی اصلی',callback_data:'adm:home'}]
+    ])});
+  }
+  async function exportPeriodMenu(chat,status) {
+    if(!['all','active','inactive'].includes(status))return adminMessage({chat_id:chat,text:'فیلتر وضعیت خروجی نامعتبر است.'});
+    return adminMessage({chat_id:chat,text:'بازه زمانی خروجی CSV را انتخاب کنید:',reply_markup:keyboard([
+      [{text:'همه تاریخ‌ها',callback_data:'adm:export-run:'+status+':all'}],
+      [{text:'امروز',callback_data:'adm:export-run:'+status+':today'},{text:'۷ روز اخیر',callback_data:'adm:export-run:'+status+':7d'}],
+      [{text:'۳۰ روز اخیر',callback_data:'adm:export-run:'+status+':30d'}],
+      [{text:'↩️ بازگشت',callback_data:'adm:export'}]
     ])});
   }
   async function campaignReports(chat) {
@@ -537,8 +546,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:campaign-confirm:')) { const [, , id, next]=data.split(':'); if(!/^\d+$/.test(id)||!['open','paused','closed','archived'].includes(next)) return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'campaign-status',id,next,expires:Date.now()+60000}); return adminMessage({chat_id:chat,text:'تغییر وضعیت کمپین #'+id+' به '+next+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:campaign-apply:'+id+':'+next},{text:'لغو',callback_data:'adm:campaign-detail:'+id}]])}); }
     if (data.startsWith('adm:campaign-apply:')) { const [, , id, next]=data.split(':'); const p=pending.get(String(adminId)); pending.delete(String(adminId)); if(!p||p.type!=='campaign-status'||p.id!==id||p.next!==next||p.expires<Date.now()) return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'}); try { await campaignService.setCampaignStatus(Number(id),next,'telegram admin confirmation'); return campaignDetail(chat,id); } catch(e) { return adminMessage({chat_id:chat,text:'تغییر وضعیت انجام نشد: '+e.message}); } }
     if (data==='adm:export') return exportMenu(chat);
-    if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی فیلترشده از دستورهای زیر استفاده کن:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
-    if (data.startsWith('adm:export:')) return exportCsv(chat,data.slice('adm:export:'.length),'all');
+    if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی مستقیم می‌توانی از دستورهای زیر هم استفاده کنی:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
+    if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
+    if (data.startsWith('adm:export:')) return exportPeriodMenu(chat,data.slice('adm:export:'.length));
     if (data==='adm:audit') return auditLog(chat);
     if (data==='adm:search') { searchModes.set(String(adminId),'search'); return adminMessage({chat_id:chat,text:'🔎 نام، شماره، آیدی اینستاگرام یا کد را ارسال کنید. برای لغو /cancel را بفرستید.'}); }
     if (data.startsWith('adm:entries:')) { const [, , page, status='all', period='all'] = data.split(':'); return entries(chat,page,status,period); }
