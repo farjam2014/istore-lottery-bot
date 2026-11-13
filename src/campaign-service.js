@@ -138,12 +138,18 @@ function createCampaignService({ db, adminId }) {
       const [[participant]] = await conn.execute("SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE", [participantId]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل شرکت‌کننده فعال نیست.');
       const [[openOrder]] = await conn.execute(
-        "SELECT id,order_ref,status,quantity,total_snapshot,currency FROM payment_orders WHERE participant_id=? AND status IN ('pending_payment','receipt_submitted') ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        "SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders WHERE participant_id=? AND status IN ('pending_payment','receipt_submitted') ORDER BY id DESC LIMIT 1 FOR UPDATE",
         [participantId]
       );
       if (openOrder?.status === 'pending_payment') {
-        // Telegram may retry the same callback after the DB commit. Reuse the
-        // already-created order and its durable instruction notification.
+        // Reuse only the exact logical order. Never return another campaign's
+        // order or silently accept a different quantity.
+        if (Number(openOrder.campaign_id) !== Number(campaignId)) {
+          throw new Error('برای شما سفارش پرداخت‌نشده دیگری در کمپین «'+openOrder.order_ref+'» وجود دارد. ابتدا همان سفارش را تکمیل یا از پشتیبانی پیگیری کنید.');
+        }
+        if (Number(openOrder.quantity) !== qty) {
+          throw new Error('برای این کمپین سفارش '+openOrder.order_ref+' با تعداد '+openOrder.quantity+' کد باز دارید. ابتدا همان سفارش را تکمیل کنید یا با پشتیبانی تماس بگیرید.');
+        }
         await conn.commit();
         return { id: openOrder.id, orderRef: openOrder.order_ref, quantity: Number(openOrder.quantity), total: Number(openOrder.total_snapshot), currency: openOrder.currency, duplicate: true };
       }
