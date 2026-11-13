@@ -490,6 +490,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       }
       p.values[expected]=selected;
       if(p.reviewEdit){p.reviewEdit=false;return campaignWizardReview(chat,p);}
+      if(p.step>=campaignWizardFields.length-1)return campaignWizardReview(chat,p);
       p.step++;
       p.expires=Date.now()+1800000;
       return adminMessage({chat_id:chat,text:campaignWizardPrompt(p),reply_markup:campaignWizardMarkup(p)});
