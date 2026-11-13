@@ -417,7 +417,7 @@ async function handleUpdate(update){const m=update.business_message;if(!m?.from|
 const uid=String(m.from.id),chat=String(m.chat.id),conn=m.business_connection_id,t=String(m.text||"").trim(),lower=t.toLowerCase();
 if(Array.isArray(m.photo)&&m.photo.length){
 const [[pending]]=await db.execute(
-"SELECT cp.id,cp.amount_minor,cp.currency,c.title,pt.full_name,pt.phone,pt.instagram FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants pt ON pt.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE pt.telegram_user_id=? AND cp.status='pending' AND cp.mode='manual_transfer' ORDER BY cp.id DESC LIMIT 1",
+"SELECT cp.id,cp.amount_minor,cp.currency,cp.quantity,c.title,pt.full_name,pt.phone,pt.instagram FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants pt ON pt.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE pt.telegram_user_id=? AND cp.status='pending' AND cp.mode='manual_transfer' ORDER BY cp.id DESC LIMIT 1",
 [uid]);
 if(!pending)return reply(chat,conn,"برای شما پرداخت کارت‌به‌کارتِ در انتظار رسید پیدا نشد. ابتدا از فهرست کمپین‌ها ثبت‌نام کنید.");
 const photo=m.photo[m.photo.length-1];
@@ -425,7 +425,7 @@ const [proofResult]=await db.execute(
 "INSERT IGNORE INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
 [pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),null,photo.file_id,photo.file_unique_id||null]);
 if(!proofResult.affectedRows)console.info("Duplicate receipt update; retrying admin delivery for payment",pending.id);
-await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\nکمپین: "+pending.title+"\nنام: "+pending.full_name+"\nموبایل: "+pending.phone+"\nاینستاگرام: @"+pending.instagram+"\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
+await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\nکمپین: "+pending.title+"\nنام: "+pending.full_name+"\nموبایل: "+pending.phone+"\nاینستاگرام: @"+pending.instagram+"\nتعداد کد: "+pending.quantity+"\nمبلغ کل: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
 return reply(chat,conn,"📨 تصویر رسید دریافت شد و برای مدیر ارسال شد. پس از بررسی نتیجه به شما اطلاع داده می‌شود. تا قبل از تأیید، کدی صادر نخواهد شد.");
 }
 if(!m.text)return;
@@ -582,9 +582,9 @@ app.get("/api/admin/campaigns/:id/entries.csv",admin,async(q,r)=>{
   if(!campaign)return r.status(404).json({error:"کمپین پیدا نشد."});
   const [rows]=await db.execute(
     `SELECT pt.full_name,pt.phone,pt.instagram,e.status,e.payment_status,ic.code,e.created_at
-     FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
-     LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active'
-     WHERE e.campaign_id=? ORDER BY e.id`,[id]
+     FROM issued_codes ic JOIN campaign_entries e ON e.id=ic.entry_id
+     JOIN participants pt ON pt.id=e.participant_id
+     WHERE e.campaign_id=? AND ic.status='active' ORDER BY e.id,ic.sequence_no`,[id]
   );
   if(rows.length>100000)return r.status(413).json({error:"تعداد رکوردها برای خروجی مستقیم زیاد است؛ از فیلتر و صفحه‌بندی استفاده کنید."});
   const csv=[["نام","موبایل","اینستاگرام","وضعیت","وضعیت پرداخت","کد","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,x.instagram,x.status,x.payment_status,x.code,x.created_at])].map(row=>row.map(csvCell).join(",")).join("\r\n");
@@ -642,7 +642,7 @@ app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
     if(!campaign){await conn.rollback();return r.status(404).json({error:"کمپین پیدا نشد."})}
     if(campaign.status==="archived"&&status!=="archived"){await conn.rollback();return r.status(409).json({error:"کمپین آرشیوشده قابل بازگردانی نیست."})}
     if(status==="archived"){
-      const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[q.params.id]);
+      const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_payments p JOIN campaign_entries e ON e.id=p.entry_id WHERE e.campaign_id=? AND p.status='pending'",[q.params.id]);
       if(Number(pending.total)){await conn.rollback();return r.status(409).json({error:"تا تعیین تکلیف پرداخت‌های معلق، کمپین آرشیو نمی‌شود."})}
     }
     await conn.execute("UPDATE campaigns SET status=? WHERE id=?",[status,q.params.id]);
@@ -659,7 +659,7 @@ app.post("/api/admin/campaigns/:id/draw",admin,async(q,r)=>{
     if(!["closed","paused"].includes(campaign.status)){await conn.rollback();return r.status(409).json({error:"برای قرعه‌کشی ابتدا کمپین را ببندید یا متوقف کنید."})}
     const [[already]]=await conn.execute("SELECT id FROM campaign_draws WHERE campaign_id=? LIMIT 1",[campaign.id]);
     if(already){await conn.rollback();return r.status(409).json({error:"قرعه‌کشی این کمپین قبلاً انجام شده است."})}
-    const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[campaign.id]);
+    const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_payments p JOIN campaign_entries e ON e.id=p.entry_id WHERE e.campaign_id=? AND p.status='pending'",[campaign.id]);
     if(Number(pending.total)){await conn.rollback();return r.status(409).json({error:"ابتدا پرداخت‌های معلق را تعیین تکلیف کنید."})}
     const [people]=await conn.execute(
       `SELECT e.id AS entry_id,pt.full_name,pt.instagram,ic.code
