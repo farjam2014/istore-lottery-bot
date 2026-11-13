@@ -71,7 +71,10 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       if (Number(count.total) >= Number(campaign.capacity)) throw Object.assign(new Error('CAMPAIGN_FULL'), { code: 'CAMPAIGN_FULL' });
     }
 
-    const requiresApproval = campaign.payment_mode !== 'free';
+    if (campaign.payment_mode !== 'free') {
+      throw Object.assign(new Error('PAYMENT_MODE_UNAVAILABLE'), { code: 'PAYMENT_MODE_UNAVAILABLE' });
+    }
+    const requiresApproval = false;
     const [entryResult] = await conn.execute(
       `INSERT INTO campaign_entries(campaign_id,participant_id,status,payment_status)
        VALUES(?,?,?,?)`,
