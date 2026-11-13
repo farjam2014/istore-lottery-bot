@@ -141,9 +141,9 @@ test('contact-card delivery failure does not strand registration in confirmation
 test('multi-campaign Business flow supports campaign listing, joins, and payment receipt photos', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'\)/);
+  assert.match(source, /lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'/);
   assert.match(source, /campaignService\.joinFreeCampaign\(\{campaignId:Number\(campaignId\),telegramUserId:uid,chatId:chat,businessConnectionId:connection/);
-  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity:1\}\)/);
+  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity\}\)/);
   assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:photo\.file_id/);
   assert.match(source, /business_connection_id=\? LIMIT 1/);
 });
@@ -163,4 +163,35 @@ test('campaign-only profile onboarding is allowed while legacy registration is c
   assert.match(source, /if\(!legacyRegistrationOpen\)\{\s*const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);
   assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
   assert.match(source, /if\(!await registrationOpen\(\)\)\{const \[\[campaignOpen\]\]=await db\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+});
+
+
+test('customer can create a persistent profile without an open campaign', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /if\(q\.data==="profile:create"\)/);
+  assert.match(source, /async function saveParticipantProfile\(/);
+  assert.match(source, /if\(q\.data==="profile:confirm"\)/);
+  assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
+});
+
+test('customer profile edits, codes and support have interactive routes', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /profile:edit:name/);
+  assert.match(source, /profile:edit:phone/);
+  assert.match(source, /profile:edit:instagram/);
+  assert.match(source, /if\(q\.data==='participant:codes'\)/);
+  assert.match(source, /customer_support_tickets/);
+  assert.match(source, /\/reply/);
+});
+
+test('customer flow migration adds the required session states and support tickets', () => {
+  const migration = require('../migrations/customer-flow');
+  assert.equal(typeof migration.up, 'function');
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../migrations/customer-flow'), 'utf8');
+  assert.match(source, /profile_confirmation/);
+  assert.match(source, /support_message/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS customer_support_tickets/);
 });
