@@ -188,7 +188,8 @@ if(String(q.data||"").startsWith("order:cancel:")){
   try{
     const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
     if(!participant)throw new Error("پروفایل فعال پیدا نشد.");
-    await campaignService.cancelManualOrder({orderId:Number(orderId),participantId:participant.id});
+    const result=await campaignService.cancelManualOrder({orderId:Number(orderId),participantId:participant.id});
+    if(result.duplicate)return reply(chat,String(q.message?.business_connection_id||""),"این سفارش قبلاً لغو شده است.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}]]}});
     return reply(chat,String(q.message?.business_connection_id||""),"سفارش لغو شد و ظرفیت رزروشده آزاد شد.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}],[{text:"🧩 کمپین‌ها",callback_data:"campaign:list"}]]}});
   }catch(e){return reply(chat,String(q.message?.business_connection_id||""),"لغو سفارش انجام نشد: "+e.message);}
 }
