@@ -148,6 +148,21 @@ await putSession(uid,chat,"quantity",fullName,phone,connection,instagram,campaig
 const limit=campaign.max_codes_per_participant==null?"بدون سقف":Number(campaign.max_codes_per_participant).toLocaleString("fa-IR")+" کد";
 return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎟 کمپین «"+campaign.title+"»\nقیمت هر کد: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" ریال\nسقف مجاز برای هر نفر: "+limit+"\n\nچند کد می‌خواهید؟ فقط عدد را ارسال کنید. پس از پرداخت و تأیید مدیر، همان تعداد کد صادر می‌شود."});
 }
+async function sendCodeDelivery(chatId, connectionId, campaignTitle, codes) {
+const list=Array.isArray(codes)?codes:[];
+if(!list.length)return;
+if(list.length<=80){
+return tg("sendMessage",{chat_id:chatId,...(connectionId?{business_connection_id:connectionId}:{}),text:"✅ پرداخت کمپین «"+campaignTitle+"» تأیید شد.\n🎟 کدهای شما ("+list.length+"):\n"+list.join("\n")});
+}
+const csv="\\uFEFF"+[["ردیف","کد"],...list.map((code,index)=>[index+1,code])].map(row=>row.map(csvCell).join(",")).join("\\r\\n");
+const form=new FormData();
+form.append("chat_id",String(chatId));
+if(connectionId)form.append("business_connection_id",String(connectionId));
+form.append("document",new Blob([csv],{type:"text/csv;charset=utf-8"}),"campaign-codes.csv");
+const response=await fetch("https://api.telegram.org/bot"+token+"/sendDocument",{method:"POST",body:form});
+const result=await response.json();
+if(!result.ok)throw new Error(result.description||"ارسال فایل کدها ناموفق بود");
+}
 async function manualPaymentInstructions(campaignId, paymentId) {
 const [[campaign]]=await db.execute("SELECT title,amount_minor,currency,settings FROM campaigns WHERE id=?",[campaignId]);
 const [[payment]]=await db.execute("SELECT id,amount_minor,quantity FROM campaign_payments WHERE id=?",[paymentId]);
@@ -173,7 +188,7 @@ try{
 if(action==="approve"){
 const result=await approveManualPayment({db,paymentId:id,reviewer:uid,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
 const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
-if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کدهای اختصاصی شما ("+result.quantity+"):\n"+result.codes.join("\n")})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
+if(recipient)try{await sendCodeDelivery(recipient.telegram_chat_id||recipient.telegram_user_id,recipient.business_connection_id,recipient.title,result.codes)}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
 try{await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\n\n✅ تأیید شد · کد: "+result.code,reply_markup:{inline_keyboard:[]}})}catch(editError){console.error("Receipt message update failed:",editError.message)}
 await audit(uid,"approve_campaign_payment","campaign_payment",id,{entry_id:result.entryId,code:result.code});
 }else{
