@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-REPO="https://github.com/farjam2014/istore-lottery-bot.git"
+REPO="git@github.com:farjam2014/istore-lottery-bot.git"
 BRANCH="feature/telegram-account-recovery"
 APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
@@ -35,7 +35,7 @@ DNS_IP="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')"
 log "نصب پیش‌نیازها"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git nginx mysql-server certbot python3-certbot-nginx jq openssl
+apt-get install -y ca-certificates curl git openssh-client nginx mysql-server certbot python3-certbot-nginx jq openssl
 if ! command -v node >/dev/null || [[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
@@ -48,7 +48,8 @@ ME="$(curl -fsS --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" || 
 BOT_USERNAME="$(printf '%s' "$ME" | jq -r '.result.username')"
 log "دریافت نسخه و آزمون کامل پیش از هر تغییر مخرب"
 [[ ! -e "$STAGE_DIR" ]] || die "مسیر پیش‌آزمون از قبل وجود دارد: $STAGE_DIR"
-git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR"
+GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" git ls-remote "$REPO" "refs/heads/$BRANCH" >/dev/null 2>&1 || die "دسترسی SSH فقط‌خواندنی به مخزن خصوصی GitHub آماده نیست. ابتدا Deploy Key فقط‌خواندنی و کلید میزبان github.com را برای کاربر root تنظیم کنید."
+GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR"
 cd "$STAGE_DIR"
 npm ci --omit=dev
 env -u MYSQL_TEST_HOST -u MYSQL_TEST_USER -u MYSQL_TEST_PASSWORD -u MYSQL_TEST_PORT npm test
