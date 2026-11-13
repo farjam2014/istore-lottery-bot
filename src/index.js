@@ -84,10 +84,16 @@ const [[registrationState]]=await conn.execute("SELECT setting_value FROM lotter
 const legacyRegistrationOpen=registrationState?.setting_value==="true";
 const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
 if(openCampaign){
-
+  const [[existingParticipant]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
+  if(existingParticipant){
+    if(existingParticipant.status!=="active")throw new Error("پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.");
+    await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,existingParticipant.id]);
+    await conn.commit();
+    return null;
+  }
   const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
   if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-  await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active') ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id)",[String(uid),String(chat),String(businessConnection||''),name,phone,inst]);
+  await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
   const userText="✅ پروفایل شما برای شرکت در کمپین‌ها ثبت شد.\nبرای مشاهده کمپین‌های فعال، همین‌جا «کمپین‌ها» را ارسال کنید.";
   const profileUserPayload={chat_id:String(chat),text:userText};
   if(businessConnection)profileUserPayload.business_connection_id=String(businessConnection);
@@ -124,6 +130,8 @@ return assignedCode;
 }catch(e){
 await conn.rollback();
 if(e.code==="ER_DUP_ENTRY"){
+const [sameParticipant]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
+if(sameParticipant[0]?.status==="active")return null;
 const [sameUser]=await db.execute("SELECT raffle_code,status FROM lottery_entries WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
 if(sameUser[0]?.status==="active")return sameUser[0].raffle_code;
 throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
