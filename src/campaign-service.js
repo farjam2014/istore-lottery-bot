@@ -214,10 +214,27 @@ function createCampaignService({ db, adminId }) {
           [String(adminId),String(note).slice(0,255),orderId]
         );
         await conn.execute("UPDATE payment_orders SET status='approved',reviewed_by=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?", [String(adminId),orderId]);
-        await conn.execute(
-          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
-          ['payment-approved:'+orderId,'payment_approved',JSON.stringify({order_id:orderId,participant_id:order.participant_id})]
+        const [[recipient]] = await conn.execute(
+          'SELECT chat_id FROM participants WHERE id=? LIMIT 1',
+          [order.participant_id]
         );
+        if (recipient?.chat_id) {
+          const codeRows = await conn.execute(
+            "SELECT code FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND issued_at >= (SELECT reviewed_at FROM payment_orders WHERE id=?) ORDER BY id",
+            [order.campaign_id,order.participant_id,orderId]
+          );
+          const issuedCodes = codeRows[0].map(row => row.code);
+          await conn.execute(
+            "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+            ['payment-approved:'+orderId,'payment_approved',JSON.stringify({
+              method:'sendMessage',
+              payload:{
+                chat_id:String(recipient.chat_id),
+                text:'✅ پرداخت شما تأیید شد.\n\n🎟 کدهای قرعه‌کشی:\n'+issuedCodes.join('\n')+'\n\nاین کدها را تا پایان کمپین نگه دارید.'
+              }
+            })]
+          );
+        }
       } else {
         await conn.execute("UPDATE campaign_capacity_reservations SET status='released' WHERE id=?", [reservation.id]);
         await conn.execute("UPDATE campaign_entries SET status='cancelled' WHERE id=? AND status='pending'", [order.entry_id]);
@@ -301,7 +318,19 @@ function createCampaignService({ db, adminId }) {
         }
       }
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', ['system','free_campaign_entry','campaign_entry',String(entryId),JSON.stringify({campaign_id:campaignId,participant_id:participantId,codes:issued})]);
-      await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)", ['free-entry:'+campaignId+':'+participantId+':'+issued.join('-'),'campaign_codes_issued',JSON.stringify({campaign_id:campaignId,participant_id:participantId,codes:issued})]);
+      const [[recipient]] = await conn.execute('SELECT chat_id FROM participants WHERE id=? LIMIT 1',[participantId]);
+      if (recipient?.chat_id) {
+        await conn.execute(
+          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+          ['free-entry:'+campaignId+':'+participantId+':'+issued.join('-'),'campaign_codes_issued',JSON.stringify({
+            method:'sendMessage',
+            payload:{
+              chat_id:String(recipient.chat_id),
+              text:'🎉 ثبت‌نام شما در کمپین با موفقیت انجام شد.\n\n🎟 کدهای شما:\n'+issued.join('\n')+'\n\nموفق باشید!'
+            }
+          })]
+        );
+      }
       await conn.commit();
       return { participantId, entryId, codes: issued };
     } catch (error) {
