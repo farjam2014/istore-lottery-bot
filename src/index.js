@@ -472,7 +472,7 @@ const [rows]=await db.execute("SELECT o.id,o.order_ref,o.campaign_id,c.name AS c
 r.json({orders:rows});
 });
 app.get("/api/admin/payment-orders/:id/receipt",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
 const [rows]=await db.execute("SELECT telegram_file_id FROM payment_receipts WHERE order_id=? ORDER BY submitted_at DESC LIMIT 1",[q.params.id]);
 if(!rows.length)return r.status(404).json({error:"رسیدی برای این سفارش ثبت نشده است."});
 try{
