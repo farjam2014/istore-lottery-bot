@@ -113,6 +113,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
   });
   async function handleMessage(message) {
     if(!message?.from||message.from.is_bot||message.chat?.type!=='private')return false;
+    if(String(message.from.id)===String(adminId))return false;
     const text=String(message.text||'').trim();
     const start=text.match(/^\/start(?:@[A-Za-z0-9_]+)?(?:\s+(.+))?$/i);
     if(start) {
