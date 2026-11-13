@@ -195,6 +195,22 @@ const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا 
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
+if(String(q.data||'').startsWith('campaign:details:')){
+  const campaignId=String(q.data.split(':')[2]||'');
+  if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
+  await tg('answerCallbackQuery',{callback_query_id:q.id});
+  const [[campaign]]=await db.execute("SELECT id,name,description,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+  if(!campaign)return reply(chat,String(q.message?.business_connection_id||''),'این کمپین دیگر فعال نیست.');
+  const price=campaign.payment_mode==='free'?'رایگان':Number(campaign.price_per_code).toLocaleString('en-US')+' '+campaign.currency+' برای هر کد';
+  const body='🧩 '+campaign.name+'\\n\\n'+(campaign.description||'توضیحات تکمیلی برای این کمپین ثبت نشده است.')+'\\n\\n💳 شیوه شرکت: '+price+'\\n🎟 حداکثر کد برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nبرای ادامه، دکمه زیر را بزنید.';
+  return tg('sendMessage',{chat_id:chat,text:body,reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
+}
+if(q.data==='campaign:list'){
+  await tg('answerCallbackQuery',{callback_query_id:q.id});
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
+  const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
+  return tg('sendMessage',{chat_id:chat,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.',reply_markup:{inline_keyboard:buttons}});
+}
 if(String(q.data||'').startsWith('campaign:join:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
   if(!uid||!chat||!/^\d+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
@@ -268,122 +284,9 @@ return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق
 async function handlePrivateUpdate(update){
 const m=update.message;
 if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
-const uid=String(m.from.id),chat=String(m.chat.id);
-
-const adminHandled=await adminTelegram.handleMessage(m);if(adminHandled!==false)return adminHandled;
+const adminHandled=await adminTelegram.handleMessage(m);
+if(adminHandled!==false)return adminHandled;
 return handleUpdate({business_message:{...m,business_connection_id:""}});
-
-if(m.text?.trim()==="پنل" || m.text?.trim().toLowerCase()==="/panel"){
-if(uid!==String(process.env.ADMIN_ID))return;
-adminSearchModes.delete(uid);
-return tg("sendMessage",{chat_id:chat,text:"🛠 پنل مدیریت iStore\n\nیکی از گزینه‌های زیر را انتخاب کنید:",reply_markup:{inline_keyboard:[
-[{text:"📊 آمار لاتاری",callback_data:"admin:stats"}],
-[{text:"📥 خروجی شرکت‌کنندگان",callback_data:"admin:export"}],
-[{text:"🔎 جستجوی شرکت‌کننده",callback_data:"admin:search"}]
-]}});
-}
-
-if(uid===String(process.env.ADMIN_ID)&&adminSearchModes.has(uid)&&typeof m.text==="string"){
-const mode=adminSearchModes.get(uid);
-adminSearchModes.delete(uid);
-let value=m.text.trim();
-value=value.replace(/[۰-۹٠-٩]/g,c=>String("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩".indexOf(c)%10));
-let column=mode;
-if(mode==="phone")value=normalizePhone(value);
-if(mode==="instagram")value=normalizeInstagram(value);
-if(mode==="raffle_code")value=value.toUpperCase();
-if(!value||value.length>100){
-return tg("sendMessage",{chat_id:chat,text:"❌ مقدار جستجو نامعتبر است. دوباره از پنل اقدام کنید."});
-}
-if(mode==="phone"&&!validPhone(value)){
-return tg("sendMessage",{chat_id:chat,text:"❌ شماره موبایل معتبر نیست. دوباره از پنل اقدام کنید."});
-}
-if(mode==="instagram"&&!validInstagram(value)){
-return tg("sendMessage",{chat_id:chat,text:"❌ آیدی اینستاگرام معتبر نیست. دوباره از پنل اقدام کنید."});
-}
-try{
-const [rows]=await db.execute(
-"SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' AND "+column+" = ? ORDER BY created_at DESC LIMIT 10",
-[mode==="instagram"?value:value]
-);
-if(!rows.length)return tg("sendMessage",{chat_id:chat,text:"🔍 هیچ شرکت‌کننده‌ای با این مشخصات پیدا نشد."});
-const messages=rows.map((x,i)=>[
-"👤 شرکت‌کننده "+(i+1),
-"نام: "+(x.full_name||"-"),
-"📱 موبایل: "+(x.phone||"-"),
-"📸 اینستاگرام: @"+String(x.instagram||"").replace(/^@/,""),
-"🎟️ کد قرعه‌کشی: "+(x.raffle_code||"-"),
-"🕒 زمان ثبت: "+(x.created_at||"-")
-].join("\n"));
-const result="✅ تعداد نتایج نمایش‌داده‌شده: "+rows.length+"\n\n"+messages.join("\n\n──────────\n\n")+(rows.length===10?"\n\n⚠️ حداکثر ۱۰ نتیجه نمایش داده شد.":"");
-return tg("sendMessage",{chat_id:chat,text:result});
-}catch(e){
-console.error("Admin search error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"❌ خطا در جستجو. گزارش خطا در سرور ثبت شد."});
-}
-}
-
-if(m.text?.trim().toLowerCase()==="/stats"){
-if(uid!==String(process.env.ADMIN_ID))return;
-try{
-const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS codes, COUNT(DISTINCT raffle_code) AS unique_codes FROM lottery_entries WHERE status='active'");
-const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-return tg("sendMessage",{chat_id:chat,text:"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today});
-}catch(e){
-console.error("Stats error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"خطا در دریافت آمار. گزارش خطا در سرور ثبت شد."});
-}
-}
-
-
-if(typeof m.text==="string" && /^\/export(?:@\w+)?$/i.test(m.text.trim())){
-if(uid!==String(process.env.ADMIN_ID))return;
-try{
-const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-const cell=csvCell;
-const csv="\uFEFF"+[["نام و نام خانوادگی","موبایل","اینستاگرام","کد قرعه‌کشی","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,"@"+String(x.instagram||"").replace(/^@/,""),x.raffle_code,x.created_at])].map(row=>row.map(cell).join(",")).join("\r\n");
-await tgDocument(chat,"istore-lottery.csv",csv,"text/csv;charset=utf-8");
-}catch(e){
-console.error("Private export error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق بود. گزارش خطا در سرور ثبت شد."});
-}
-return;
-}
-
-if(m.contact){
-if(!m.contact.user_id||String(m.contact.user_id)!==uid){
-return tg("sendMessage",{chat_id:chat,text:"❌ لطفاً فقط شماره خودتان را با دکمه ارسال کنید.",reply_markup:{remove_keyboard:true}});
-}
-const s=await session(uid);
-if(!s||s.step!=="awaiting_contact"){
-return tg("sendMessage",{chat_id:chat,text:"درخواست ثبت شماره معتبر یا فعال نیست. به پی‌وی فروشگاه برگردید و دوباره «لاتاری» را ارسال کنید.",reply_markup:{remove_keyboard:true}});
-}
-const phone=normalizePhone(m.contact.phone_number||"");
-if(!validPhone(phone)){
-return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده معتبر نیست. دوباره شماره خودتان را ارسال کنید."});
-}
-await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id);
-await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example",{reply_markup:registrationKeyboard()});
-await tg("sendMessage",{chat_id:chat,text:"✅ شماره موبایل شما با موفقیت دریافت شد.",reply_markup:{remove_keyboard:true}});const back=storeReturnButton();if(back)return tg("sendMessage",{chat_id:chat,text:"برای ادامه ثبت‌نام، به پی‌وی فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{inline_keyboard:[[back]]}});return tg("sendMessage",{chat_id:chat,text:"برای ادامه ثبت‌نام، به گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید."});
-}
-
-if(typeof m.text==="string"){
-const match=m.text.trim().match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]{1,64}))?$/);
-if(match&&match[1]){
-if(!verifyContactPayload(match[1],uid)){
-return tg("sendMessage",{chat_id:chat,text:"❌ لینک نامعتبر یا منقضی شده است. از پی‌وی فروشگاه لینک جدید بگیرید."});
-}
-const s=await session(uid);
-if(!s||s.step!=="awaiting_contact"){
-return tg("sendMessage",{chat_id:chat,text:"درخواست ثبت شماره فعال نیست. به پی‌وی فروشگاه برگردید و دوباره «لاتاری» را ارسال کنید."});
-}
-return tg("sendMessage",{
-chat_id:chat,
-text:"برای ثبت شماره، دکمه زیر را بزنید و مخاطب خودتان را ارسال کنید:",
-reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}
-});
-}
-}
 }
 
 async function handleUpdate(update){
@@ -403,7 +306,7 @@ if(m.photo?.length){
 if(lower==='/start'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
-  const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:join:'+c.id}]);
+  const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
   return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:'🧩 کمپین فعال موردنظرتان را انتخاب کنید:',reply_markup:{inline_keyboard:buttons}});
 }
 
