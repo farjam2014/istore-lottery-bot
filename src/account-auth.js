@@ -137,7 +137,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
     return false;
   }
   async function deliverResetLink(requestId, request, token) {
-    const url=siteUrl.replace(/\\/$/,'')+'/account.html?token='+encodeURIComponent(token);
+    const url=siteUrl.replace(/\/$/,'')+'/account.html?token='+encodeURIComponent(token);
     try {
       await tg('sendMessage',{chat_id:String(request.chat_id),text:'✅ درخواست بازیابی رمز شما تأیید شد. لینک امن و یک‌بارمصرف (۱۵ دقیقه):\\n'+url});
       await db.execute("UPDATE password_reset_requests SET delivery_status='sent',delivery_error=NULL WHERE id=? AND status='approved'",[requestId]);
