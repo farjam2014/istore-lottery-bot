@@ -50,6 +50,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     if (!campaign) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
     const requestedQuantity = Number(quantity);
     if (!Number.isSafeInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 10000) throw Object.assign(new Error('INVALID_CODE_QUANTITY'), { code: 'INVALID_CODE_QUANTITY' });
+    if (campaign.payment_mode === 'free' && requestedQuantity !== 1) throw Object.assign(new Error('FREE_CAMPAIGN_SINGLE_CODE'), { code: 'FREE_CAMPAIGN_SINGLE_CODE' });
     const normalizedInstagram = normalizeInstagram(instagram);
     if (!validFullName(fullName) || !validPhone(phone) || !validInstagram(normalizedInstagram)) {
       throw Object.assign(new Error('INVALID_PARTICIPANT_PROFILE'), { code: 'INVALID_PARTICIPANT_PROFILE' });
