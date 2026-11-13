@@ -17,10 +17,18 @@ The installer is non-destructive. It creates the database when missing and proce
 
 The installer currently targets the development branch used for this initial build:
 
+The repository is private. Before installation, configure a **read-only GitHub Deploy Key** for the repository under `/root/.ssh`, and add GitHub's verified SSH host key to `known_hosts`. Do not use a personal account token with broad permissions.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/telegram-account-recovery/install.sh -o /root/istore-install.sh
-sudo bash /root/istore-install.sh
+sudo install -d -m 700 /root/.ssh
+# Install the private deploy key as /root/.ssh/id_ed25519 (mode 600)
+# Add the verified github.com host key to /root/.ssh/known_hosts (mode 600)
+sudo chmod 600 /root/.ssh/id_ed25519 /root/.ssh/known_hosts
+sudo GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" git clone --depth 1 --branch feature/telegram-account-recovery git@github.com:farjam2014/istore-lottery-bot.git /root/istore-bootstrap
+sudo bash /root/istore-bootstrap/install.sh
 ```
+
+The installer verifies read-only access to the private branch before cloning its staged copy. It does not copy the private key into the application directory.
 
 It validates the domain and Telegram bot token, runs the test suite in a staging directory before replacing the application, creates a fresh empty database, generates credentials and secrets, runs migrations, configures systemd/Nginx/HTTPS and registers the webhook.
 
@@ -34,7 +42,6 @@ The installer asks for:
 - Telegram BotFather token
 - Numeric Telegram admin ID
 - Optional `CONTACT_PHONE`
-- Optional store Telegram URL
 
 The generated `.env` contains `BOT_TOKEN`, `WEBHOOK_SECRET`, `SESSION_SECRET`, database credentials, `ADMIN_ID`, `CONTACT_PHONE`, and `PUBLIC_SITE_URL`.
 
