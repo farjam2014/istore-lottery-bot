@@ -15,6 +15,7 @@ function harness() {
       if (sql.includes('SELECT id,status,raffle_code FROM lottery_entries')) return [[{ id: 42, status: 'active', raffle_code: 'LOT-ABCDEFGH' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
       if (sql.includes("SELECT id FROM lottery_entries WHERE status='active'")) return [[]];
+      if (sql.includes("FROM lottery_settings")) return [[{ setting_value: 'false' }]];
       return [{ affectedRows: 1, insertId: 77 }];
     },
     async query() { return [[]]; }
@@ -53,7 +54,8 @@ function harness() {
   const tg = async (method, payload) => { telegram.push({ method, payload }); return { ok: true }; };
   const admin = createAdminTelegram({
     db, tg, tgDocument: async () => ({ ok: true }),
-    adminId: '12345', registrationOpen: async () => false
+    adminId: '12345', registrationOpen: async () => false,
+    campaignService: {}
   });
   return { admin, calls, telegram };
 }
@@ -77,7 +79,7 @@ test('campaign management supports validated status filters and pagination', asy
   assert.ok(query);
   assert.match(query.sql,/WHERE c\.status=\?/);
   assert.deepEqual(query.params,['open',20]);
-  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه ۳ · open')));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه 3 · open')));
   await h.admin.handleCallback({id:'camp2',data:'adm:campaigns:unknown:0',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('فیلتر وضعیت کمپین نامعتبر')));
 });
@@ -89,7 +91,7 @@ test('order management supports action queue, status filters and pagination', as
   assert.ok(query);
   assert.match(query.sql,/WHERE o\.status=\?/);
   assert.deepEqual(query.params,['approved',10]);
-  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه ۲ · approved')));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه 2 · approved')));
   await h.admin.handleCallback({id:'ord2',data:'adm:orders:bad:0',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('فیلتر سفارش نامعتبر')));
 });
