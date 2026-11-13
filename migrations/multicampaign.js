@@ -115,8 +115,8 @@ async function migrateMultiCampaign(db) {
       draw_id BIGINT UNSIGNED NOT NULL,
       entry_id BIGINT UNSIGNED NOT NULL,
       code VARCHAR(32) NOT NULL,
-      PRIMARY KEY(draw_id,entry_id),
-      UNIQUE KEY uq_campaign_draw_code(draw_id,code),
+      PRIMARY KEY(draw_id,code),
+      KEY idx_campaign_draw_entry(draw_id,entry_id),
       CONSTRAINT fk_campaign_draw_participants_draw FOREIGN KEY(draw_id) REFERENCES campaign_draws(id),
       CONSTRAINT fk_campaign_draw_participants_entry FOREIGN KEY(entry_id) REFERENCES campaign_entries(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
@@ -144,6 +144,13 @@ async function migrateMultiCampaign(db) {
     "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='issued_codes' AND INDEX_NAME='uq_issued_codes_entry'"
   );
   if (codeIndexes.length) await db.query('ALTER TABLE issued_codes DROP INDEX uq_issued_codes_entry');
+
+  const [drawParticipantIndexes] = await db.execute(
+    "SELECT INDEX_NAME,SEQ_IN_INDEX,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draw_participants' AND INDEX_NAME='PRIMARY' ORDER BY SEQ_IN_INDEX"
+  );
+  if (drawParticipantIndexes.length === 2 && drawParticipantIndexes[1].COLUMN_NAME === 'entry_id') {
+    await db.query('ALTER TABLE campaign_draw_participants DROP PRIMARY KEY, DROP INDEX uq_campaign_draw_code, ADD PRIMARY KEY(draw_id,code), ADD KEY idx_campaign_draw_entry(draw_id,entry_id)');
+  }
 
   const [sessionColumns] = await db.execute(
     "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_sessions'"
