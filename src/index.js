@@ -546,16 +546,21 @@ app.post("/api/admin/campaigns",admin,async(q,r)=>{
     return r.status(400).json({error:"شناسه یا عنوان کمپین معتبر نیست."});
   if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1||capacity>10000000))
     return r.status(400).json({error:"ظرفیت باید عدد صحیح مثبت یا خالی باشد."});
-  if(mode!=="free")
-    return r.status(400).json({error:"فعلاً فقط کمپین رایگان فعال است؛ پرداخت تا تکمیل رسید و گردش تأیید غیرفعال مانده است."});
-  if(!Number.isSafeInteger(amount)||amount<0||! /^[A-Z]{3}$/.test(currency)||(mode==="free"&&amount!==0)||(mode!=="free"&&amount<1))
+  if(!["free","manual_transfer"].includes(mode))
+    return r.status(400).json({error:"روش پرداخت نامعتبر است."});
+  const cardNumber=String(q.body.card_number||"").replace(/\s+/g,"");
+  const cardHolder=String(q.body.card_holder||"").trim();
+  const bankName=String(q.body.bank_name||"").trim();
+  if(mode==="manual_transfer"&&(!/^\d{16}$/.test(cardNumber)||cardHolder.length<3||cardHolder.length>100))
+    return r.status(400).json({error:"برای کارت‌به‌کارت، شماره کارت ۱۶ رقمی و نام صاحب کارت الزامی است."});
+  if(!Number.isSafeInteger(amount)||amount<0||! /^[A-Z]{3}$/.test(currency)||(mode==="free"&&amount!==0)||(mode==="manual_transfer"&&amount<1))
     return r.status(400).json({error:"مبلغ یا واحد پول نامعتبر است."});
   try{
     const [result]=await db.execute(
-      "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,currency) VALUES(?,?,'draft',?,?,?,?)",
-      [slug,title,capacity,mode,amount,currency]
+      "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,currency,settings) VALUES(?,?,'draft',?,?,?,?,?)",
+      [slug,title,capacity,mode,amount,currency,JSON.stringify(mode==="manual_transfer"?{card_number:cardNumber,card_holder:cardHolder,bank_name:bankName}:{})]
     );
-    await db.execute("INSERT IGNORE INTO campaign_sequences(campaign_id,last_value) VALUES(?,0)",[result.insertId]);
+    await db.execute("INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)",[result.insertId]);
     await audit(process.env.ADMIN_ID,"create_campaign","campaign",result.insertId,{slug,title,capacity,payment_mode:mode});
     r.status(201).json({id:result.insertId,slug,status:"draft"});
   }catch(e){
