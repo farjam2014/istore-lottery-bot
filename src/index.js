@@ -235,11 +235,7 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity});
-    const card=order.card;
-    await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
-    const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nتعداد کد: '+quantity+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card.card_number+'\nبه نام: '+card.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
-    if(sent){try{await bankCardService.recordDelivery({orderId:order.id,card});}catch(deliveryError){console.error('Payment card delivery audit failed for order '+order.id+':',deliveryError.message);}}
-    return sent;
+    return reply(chat,connection,'✅ سفارش '+order.orderRef+' ثبت شد. دستور پرداخت و اطلاعات کارت از طریق پیام جداگانه ارسال می‌شود.');
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
