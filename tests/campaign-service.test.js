@@ -251,3 +251,56 @@ test('pending manual order is not reused for a different campaign or quantity', 
     assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_orders')), false);
   }
 });
+
+
+test('customer cancellation releases an unpaid order reservation and payment session atomically', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const calls = [];
+  const conn = {
+    async beginTransaction() { calls.push('BEGIN'); },
+    async commit() { calls.push('COMMIT'); },
+    async rollback() { calls.push('ROLLBACK'); },
+    release() { calls.push('RELEASE'); },
+    async execute(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT id,campaign_id,entry_id,status FROM payment_orders')) {
+        return [[{ id: 51, campaign_id: 3, entry_id: 12, status: 'pending_payment' }]];
+      }
+      if (sql.includes('SELECT chat_id,business_connection_id,order_ref')) {
+        return [[{ chat_id: '12345', business_connection_id: '', order_ref: 'IS-XYZ' }]];
+      }
+      return [{ affectedRows: 1 }];
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.cancelManualOrder({ orderId: 51, participantId: 9 });
+  assert.deepEqual(result, { id: 51, status: 'cancelled' });
+  const statements = calls.filter(x => typeof x === 'object').map(x => x.sql);
+  assert.ok(statements.some(sql => sql.includes("UPDATE payment_orders SET status='cancelled'")));
+  assert.ok(statements.some(sql => sql.includes("UPDATE campaign_capacity_reservations SET status='released'")));
+  assert.ok(statements.some(sql => sql.includes('DELETE FROM campaign_payment_sessions')));
+  assert.ok(statements.some(sql => sql.includes('customer_order_cancelled')));
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
+
+test('customer cannot cancel a paid or receipt-submitted order', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const conn = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async execute(sql) {
+      if (sql.includes('SELECT id,campaign_id,entry_id,status FROM payment_orders')) {
+        return [[{ id: 52, campaign_id: 3, entry_id: 12, status: 'receipt_submitted' }]];
+      }
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  await assert.rejects(
+    service.cancelManualOrder({ orderId: 52, participantId: 9 }),
+    /فقط سفارش در انتظار پرداخت قابل لغو است/
+  );
+});
