@@ -499,6 +499,36 @@ app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
     await conn.commit();r.json({ok:true,status});
   }catch(e){await conn.rollback();throw e}finally{conn.release()}
 });
+app.post("/api/admin/campaigns/:id/draw",admin,async(q,r)=>{
+  const conn=await db.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [[campaign]]=await conn.execute("SELECT id,title,status FROM campaigns WHERE id=? FOR UPDATE",[q.params.id]);
+    if(!campaign){await conn.rollback();return r.status(404).json({error:"کمپین پیدا نشد."})}
+    if(!["closed","paused"].includes(campaign.status)){await conn.rollback();return r.status(409).json({error:"برای قرعه‌کشی ابتدا کمپین را ببندید یا متوقف کنید."})}
+    const [[already]]=await conn.execute("SELECT id FROM campaign_draws WHERE campaign_id=? LIMIT 1",[campaign.id]);
+    if(already){await conn.rollback();return r.status(409).json({error:"قرعه‌کشی این کمپین قبلاً انجام شده است."})}
+    const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[campaign.id]);
+    if(Number(pending.total)){await conn.rollback();return r.status(409).json({error:"ابتدا پرداخت‌های معلق را تعیین تکلیف کنید."})}
+    const [people]=await conn.execute(
+      `SELECT e.id,pt.full_name,pt.instagram,ic.code
+       FROM campaign_entries e
+       JOIN participants pt ON pt.id=e.participant_id
+       JOIN issued_codes ic ON ic.entry_id=e.id AND ic.campaign_id=e.campaign_id AND ic.status='active'
+       WHERE e.campaign_id=? AND e.status='active' AND e.payment_status IN ('not_required','approved')
+       ORDER BY e.id FOR UPDATE`,[campaign.id]
+    );
+    if(!people.length){await conn.rollback();return r.status(400).json({error:"شرکت‌کننده واجد شرایطی در این کمپین وجود ندارد."})}
+    const winner=people[crypto.randomInt(people.length)];
+    const seed=crypto.randomBytes(32).toString("hex");
+    const [draw]=await conn.execute("INSERT INTO campaign_draws(campaign_id,winner_entry_id,winner_code,drawn_by,draw_seed) VALUES(?,?,?,?,?)",[campaign.id,winner.id,winner.code,String(process.env.ADMIN_ID),seed]);
+    for(const person of people)await conn.execute("INSERT INTO campaign_draw_participants(draw_id,entry_id,code) VALUES(?,?,?)",[draw.insertId,person.id,person.code]);
+    await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),"campaign_draw","campaign",String(campaign.id),JSON.stringify({draw_id:draw.insertId,eligible_count:people.length,winner_entry_id:winner.id})]);
+    await conn.commit();
+    r.json({drawId:draw.insertId,total:people.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.code}});
+  }catch(e){await conn.rollback();console.error("Campaign draw error:",e.message);r.status(500).json({error:"قرعه‌کشی کمپین انجام نشد."})}
+  finally{conn.release()}
+});
 app.get("/api/admin/campaign-payments",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT p.id AS payment_id,p.entry_id,p.mode,p.status,p.amount_minor,p.currency,p.created_at,
