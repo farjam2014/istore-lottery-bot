@@ -55,7 +55,7 @@ function harness() {
   const admin = createAdminTelegram({
     db, tg, tgDocument: async () => ({ ok: true }),
     adminId: '12345', registrationOpen: async () => false,
-    campaignService: {}
+    campaignService: { async createCampaign(input) { calls.push({ sql: 'CREATE_CAMPAIGN', input }); return { id: 88, slug: input.slug }; }, async updateDraftCampaign(id,input) { calls.push({ sql: 'UPDATE_DRAFT_CAMPAIGN', id, input }); return { id, slug: input.slug }; } }
   });
   return { admin, calls, telegram };
 }
@@ -194,4 +194,22 @@ test('filtered CSV export uses parameterized status and valid date windows', asy
   assert.match(query.sql,/status = \?/);
   assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 30 DAY\)/);
   assert.deepEqual(query.params,['inactive']);
+});
+
+
+test('campaign creation uses a step-by-step wizard and final review before saving', async () => {
+  const h=harness();
+  const message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleMessage({...message,text:'/newcampaign'});
+  const answers=['کمپین پاییز','autumn-1405','free','0','-','-','1','1','0','system','per_code','-'];
+  for(const answer of answers) await h.admin.handleMessage({...message,text:answer});
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('بازبینی اطلاعات کمپین')));
+  assert.equal(h.calls.some(x=>x.sql==='CREATE_CAMPAIGN'),false);
+  await h.admin.handleCallback({id:'wizard-save',data:'adm:campaign-wizard-save',from:message.from,message:{chat:message.chat}});
+  const created=h.calls.find(x=>x.sql==='CREATE_CAMPAIGN');
+  assert.ok(created);
+  assert.equal(created.input.slug,'autumn-1405');
+  assert.equal(created.input.payment_mode,'free');
+  assert.equal(created.input.payment_card_id,null);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('کمپین در وضعیت پیش‌نویس ساخته شد')));
 });
