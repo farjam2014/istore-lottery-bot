@@ -89,7 +89,6 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       assert.deepEqual(new Set(audit.map(x => x.COLUMN_NAME)), new Set([
         'id', 'admin_id', 'action', 'entity_type', 'entity_id', 'details', 'created_at'
       ]));
-      await verify.end();
       const secondRun = spawnSync(process.execPath, [path.join(__dirname, '..', 'migrations', 'run.js')], {
         encoding: 'utf8',
         env: {
