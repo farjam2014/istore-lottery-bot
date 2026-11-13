@@ -2,7 +2,29 @@
 const crypto = require('node:crypto');
 const { normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
-function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) {
+function createAdminTelegram({ db, tg: sendTelegram, tgDocument, adminId, registrationOpen }) {
+  const { AsyncLocalStorage } = require('node:async_hooks');
+  const callbackMessage = new AsyncLocalStorage();
+  async function tg(method, payload) {
+    const target = callbackMessage.getStore();
+    if (method === 'sendMessage' && target && String(payload.chat_id) === String(target.chatId)) {
+      try {
+        return await sendTelegram('editMessageText', {
+          chat_id: target.chatId,
+          message_id: target.messageId,
+          text: payload.text,
+          ...(payload.reply_markup ? { reply_markup: payload.reply_markup } : {}),
+          ...(payload.parse_mode ? { parse_mode: payload.parse_mode } : {}),
+          ...(payload.link_preview_options ? { link_preview_options: payload.link_preview_options } : {})
+        });
+      } catch (error) {
+        const message = String(error?.description || error?.message || '');
+        if (/message is not modified/i.test(message)) return { ok: true, result: { message_id: target.messageId } };
+        if (!/message to edit not found|message can't be edited|message_id_invalid|there is no text in the message/i.test(message)) throw error;
+      }
+    }
+    return sendTelegram(method, payload);
+  }
   const searchModes = new Map();
   const editModes = new Map();
   const pending = new Map();
@@ -195,6 +217,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (!isAdmin(q) || !String(q.data||'').startsWith('adm:')) return false;
     const chat = q.message.chat.id, data = q.data;
     await tg('answerCallbackQuery',{callback_query_id:q.id});
+    return callbackMessage.run({ chatId: chat, messageId: q.message.message_id }, async () => {
     if (data==='adm:home') return home(chat);
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:campaign') return campaign(chat);
@@ -302,6 +325,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
     if (data.startsWith('adm:draw-detail:')) return drawDetail(chat,data.slice('adm:draw-detail:'.length));
     if (data==='adm:confirm-draw') return performDraw(chat);
     return tg('sendMessage',{chat_id:chat,text:'عملیات ناشناخته است.'});
+    });
   }
   async function handleMessage(m) {
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
