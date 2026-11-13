@@ -319,7 +319,7 @@ function createCampaignService({ db, adminId }) {
     };
     if (!fields[field]) throw new Error('فیلد قابل اصلاح نیست.');
     const nextValue = fields[field](value);
-    const [[participant]] = await db.execute('SELECT id,?? AS old_value FROM participants WHERE id=? AND status=\'active\' LIMIT 1', [field,participantId]);
+    const [[participant]] = await db.execute(`SELECT id,${field} AS old_value FROM participants WHERE id=? AND status='active' LIMIT 1`, [participantId]);
     if (!participant) throw new Error('پروفایل فعال پیدا نشد.');
     if (String(participant.old_value) === nextValue) throw new Error('مقدار جدید با مقدار فعلی یکسان است.');
     const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,status) VALUES(?,?,?,?,'pending')", [participantId,field,String(participant.old_value),nextValue]);
@@ -337,7 +337,7 @@ function createCampaignService({ db, adminId }) {
       if (approve) {
         const allowed = new Set(['full_name','phone','instagram']);
         if (!allowed.has(request.field_name)) throw new Error('فیلد درخواست نامعتبر است.');
-        await conn.execute('UPDATE participants SET ??=? WHERE id=?', [request.field_name,request.requested_value,request.participant_id]);
+        await conn.execute(`UPDATE participants SET ${request.field_name}=? WHERE id=?`, [request.requested_value,request.participant_id]);
       }
       await conn.execute("UPDATE profile_change_requests SET status=?,reviewed_by=?,reviewed_at=UTC_TIMESTAMP(),review_note=? WHERE id=?", [approve?'approved':'rejected',String(adminId),String(note).slice(0,255),requestId]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),approve?'approve_profile_change':'reject_profile_change','profile_change_request',String(requestId),JSON.stringify({participant_id:request.participant_id,field:request.field_name,old_value:request.old_value,new_value:request.requested_value,note})]);
