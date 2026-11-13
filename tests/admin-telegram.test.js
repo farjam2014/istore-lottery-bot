@@ -4,57 +4,41 @@ const assert = require('node:assert/strict');
 const { createAdminTelegram } = require('../src/admin-telegram');
 
 function harness() {
-  const calls = [];
-  const conn = {
-    async beginTransaction() { calls.push({ sql: 'BEGIN' }); },
-    async commit() { calls.push({ sql: 'COMMIT' }); },
-    async rollback() { calls.push({ sql: 'ROLLBACK' }); },
-    release() { calls.push({ sql: 'RELEASE' }); },
-    async execute(sql, params = []) {
-      calls.push({ sql, params });
-      if (sql.includes('SELECT id,status,raffle_code FROM lottery_entries')) return [[{ id: 42, status: 'active', raffle_code: 'LOT-ABCDEFGH' }]];
-      if (sql.includes('SELECT id,status,phone,instagram FROM lottery_entries')) return [[{ id: 42, status: 'inactive', phone: '09120000000', instagram: 'ali.old' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
-      if (sql.includes("SELECT id FROM lottery_entries WHERE status='active'")) return [[]];
-      return [{ affectedRows: 1, insertId: 77 }];
-    },
-    async query() { return [[]]; }
+  const calls=[];
+  const conn={
+    async beginTransaction(){calls.push({sql:'BEGIN'});},
+    async commit(){calls.push({sql:'COMMIT'});},
+    async rollback(){calls.push({sql:'ROLLBACK'});},
+    release(){calls.push({sql:'RELEASE'});},
+    async execute(sql,params=[]){calls.push({sql,params});return [{affectedRows:1,insertId:77}];},
+    async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
-  const db = {
-    async execute(sql, params = []) {
-      calls.push({ sql, params });
-      if (sql.includes("FROM lottery_settings")) return [[{ setting_value: 'false' }]];
-      if (sql.includes('FROM campaigns c') || sql.includes('FROM payment_orders o JOIN campaigns')) return [[]];
-      if (sql.includes('SELECT id,full_name,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
-      if (sql.includes('SELECT id,status FROM lottery_entries')) return [[{ id: 42, status: 'active' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deletion_reason')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09121111111', instagram: 'ali.new', raffle_code: 'LOT-ABCDEFGH', status: 'active', created_at: 'now' }]];
-      if (sql.includes('SELECT raffle_code,action,actor,created_at FROM lottery_code_history')) return [[]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
-      if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[{full_name:'=HYPERLINK("https://bad.example")',phone:'09120000000',instagram:'safe.user',raffle_code:'LOT-CSVTEST',status:'inactive',created_at:'2026-11-14 10:00:00'}]];
-      if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
-      return [{ affectedRows: 1 }];
+  const db={
+    async execute(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('FROM campaigns c')||sql.includes('FROM payment_orders o JOIN campaigns'))return [[]];
+      if(sql.includes('FROM bank_cards'))return [[]];
+      if(sql.includes('FROM participants p'))return [[]];
+      return [{affectedRows:1,insertId:77}];
     },
-    async query(sql) {
-      if (sql.includes('FROM lottery_entries')) return [[{ total: 0, active: 0, inactive: 0, deleted: 0 }]];
-      if (sql.includes('FROM lottery_sessions')) return [[{ pending: 0 }]];
-      if (sql.includes('FROM webhook_inbox')) return [[{ failed: 0 }]];
-      if (sql.includes('FROM telegram_notification_outbox')) return [[{ failed: 0 }]];
-      if (sql.includes('FROM campaigns')) return [[{ total: 0, open: 0, draft: 0, paused: 0, closed: 0 }]];
-      if (sql.includes('FROM participants')) return [[{ total: 0, active: 0 }]];
-      if (sql.includes('FROM campaign_entries')) return [[{ total: 10, completed: 6, pending: 2, inactive: 1, excluded: 1 }]];
-      if (sql.includes('FROM campaign_codes')) return [[{ total: 0 }]];
-      if (sql.includes('FROM payment_orders')) return [[{ total: 0, pending: 0, receipts: 0, approved: 0, rejected: 0 }]];
-      if (sql.includes('FROM payment_transactions')) return [[]];
-      if (sql.includes('FROM profile_change_requests')) return [[{ pending: 0 }]];
-      if (sql.includes('FROM lottery_settings')) return [[{ setting_value: 'false' }]];
+    async query(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('FROM telegram_sessions'))return [[{pending:0}]];
+      if(sql.includes('FROM webhook_inbox'))return [[{failed:0}]];
+      if(sql.includes('FROM telegram_notification_outbox'))return [[{failed:0}]];
+      if(sql.includes('FROM campaigns'))return [[{total:0,open:0,draft:0,paused:0,closed:0}]];
+      if(sql.includes('FROM participants'))return [[{total:0,active:0}]];
+      if(sql.includes('FROM campaign_entries'))return [[{total:0,active:0,pending:0}]];
+      if(sql.includes('FROM campaign_codes'))return [[{total:0}]];
+      if(sql.includes('FROM payment_orders'))return [[{total:0,pending:0,receipts:0,approved:0,rejected:0}]];
+      if(sql.includes('FROM payment_transactions'))return [[]];
+      if(sql.includes('FROM profile_change_requests'))return [[{pending:0}]];
       return [[]];
     },
-    async getConnection() { return conn; }
+    async getConnection(){return conn;}
   };
-  const telegram = [];
-  const documents = [];
-  const tg = async (method, payload) => { telegram.push({ method, payload }); return { ok: true }; };
+  const telegram=[],documents=[];
+  const tg=async(method,payload)=>{telegram.push({method,payload});return {ok:true};};
   const cardRows=new Map();
   const bankCardService={
     async listCards(){return [...cardRows.values()];},
@@ -64,14 +48,23 @@ function harness() {
     async setCardStatus(){},
     async deleteCard(id){calls.push({sql:'DELETE_BANK_CARD',id});if(!cardRows.has(Number(id)))throw new Error('کارت پیدا نشد.');cardRows.delete(Number(id));}
   };
-  const admin = createAdminTelegram({
-    db, tg, tgDocument: async (...args) => { documents.push(args); return { ok: true }; }, bankCardService,
-    adminId: '12345', registrationOpen: async () => false,
-    campaignService: { async createCampaign(input) { calls.push({ sql: 'CREATE_CAMPAIGN', input }); return { id: 88, slug: input.slug }; }, async updateDraftCampaign(id,input) { calls.push({ sql: 'UPDATE_DRAFT_CAMPAIGN', id, input }); return { id, slug: input.slug }; } }
+  const campaignService={
+    async createCampaign(input){calls.push({sql:'CREATE_CAMPAIGN',input});return {id:88,slug:input.slug};},
+    async updateDraftCampaign(id,input){calls.push({sql:'UPDATE_DRAFT_CAMPAIGN',id,input});return {id,slug:input.slug};},
+    async setCampaignStatus(id,status){calls.push({sql:'SET_CAMPAIGN_STATUS',id,status});return {id,status};},
+    async reviewProfileChange(input){calls.push({sql:'REVIEW_PROFILE_CHANGE',input});}
+  };
+  const drawService={
+    async prepareDraw(){return {drawId:55,drawNumber:1,candidates:12,snapshotHash:'snapshot-hash',method:'system'};},
+    async runSystemDraw(){return {drawId:55};},
+    async approveDraw(){return {drawId:55,status:'completed'};}
+  };
+  const admin=createAdminTelegram({
+    db,tg,tgDocument:async(...args)=>{documents.push(args);return {ok:true};},
+    bankCardService,campaignService,drawService,adminId:'12345',registrationOpen:async()=>false
   });
-  return { admin, calls, telegram, documents };
+  return {admin,calls,telegram,documents,cardRows};
 }
-
 
 test('management dashboard reports multi-campaign, payment and reliability metrics', async () => {
   const h=harness();
@@ -105,9 +98,9 @@ test('admin callback query IDs are processed only once', async () => {
   const h=harness();
   const q={id:'same-callback-id',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}};
   await h.admin.handleCallback(q);
-  const before=h.calls.filter(x=>x.sql.includes('FROM lottery_entries')).length;
+  const before=h.calls.filter(x=>x.sql.includes('FROM participants')).length;
   await h.admin.handleCallback(q);
-  const after=h.calls.filter(x=>x.sql.includes('FROM lottery_entries')).length;
+  const after=h.calls.filter(x=>x.sql.includes('FROM participants')).length;
   assert.equal(after,before);
   assert.equal(h.telegram.filter(x=>x.method==='answerCallbackQuery').length,1);
 });
