@@ -200,10 +200,10 @@ test('filtered CSV export uses parameterized status and valid date windows', asy
 test('campaign creation uses a step-by-step wizard and final review before saving', async () => {
   const h=harness();
   const message={from:{id:12345},chat:{id:12345,type:'private'}};
-  await h.admin.handleMessage({...message,text:'/newcampaign'});
+  await h.admin.handleCallback({id:'wizard-start',data:'adm:campaign-create',from:message.from,message:{chat:message.chat}});
   const answers=['کمپین پاییز','autumn-1405','free','0','-','-','1','1','0','system','per_code','-'];
   for(const answer of answers) await h.admin.handleMessage({...message,text:answer});
-  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('بازبینی اطلاعات کمپین')));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('بازبینی اطلاعات کمپین')), 'wizard did not reach review; messages: '+h.telegram.map(x=>x.payload.text).join(' | '));
   assert.equal(h.calls.some(x=>x.sql==='CREATE_CAMPAIGN'),false);
   await h.admin.handleCallback({id:'wizard-save',data:'adm:campaign-wizard-save',from:message.from,message:{chat:message.chat}});
   const created=h.calls.find(x=>x.sql==='CREATE_CAMPAIGN');
