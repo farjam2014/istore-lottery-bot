@@ -289,8 +289,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       '\\n\\nپاسخ را ارسال کن. /back مرحله قبل · /cancel لغو';
   }
   async function createCampaignPrompt(chat) {
+    const cards=bankCardService?await bankCardService.listCards({includeInactive:false}):[];
+    const cardHint=cards.length?'\\nکارت‌های فعال: '+cards.map(c=>c.id+' = '+c.label+' · '+c.last4).join(' | '):'\\nهنوز کارت فعالی ثبت نشده است؛ برای پرداخت دستی ابتدا کارت اضافه کن.';
     pending.set(String(adminId),{type:'campaign-wizard',step:0,values:{payment_mode:'free',price_per_code:'0',max_participants:'-',max_codes:'-',max_codes_per_participant:'1',winner_count:'1',alternate_count:'0',draw_method:'system',draw_basis:'per_code',payment_card_id:'-'},expires:Date.now()+1800000});
-    return tg('sendMessage',{chat_id:chat,text:campaignWizardPrompt(pending.get(String(adminId)))});
+    return tg('sendMessage',{chat_id:chat,text:campaignWizardPrompt(pending.get(String(adminId)))+cardHint});
   }
   async function editDraftCampaign(chat,id) {
     if(!/^\\d+$/.test(String(id))) return tg('sendMessage',{chat_id:chat,text:'شناسه کمپین نامعتبر است.'});
@@ -298,7 +300,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!c)return tg('sendMessage',{chat_id:chat,text:'فقط کمپین پیش‌نویس قابل ویرایش است.'});
     const values={name:c.name,slug:c.slug,payment_mode:c.payment_mode,price_per_code:String(c.price_per_code),max_participants:c.max_participants==null?'-':String(c.max_participants),max_codes:c.max_codes==null?'-':String(c.max_codes),max_codes_per_participant:String(c.max_codes_per_participant),winner_count:String(c.winner_count),alternate_count:String(c.alternate_count),draw_method:c.draw_method,draw_basis:c.draw_basis,payment_card_id:c.current_payment_card_id==null?'-':String(c.current_payment_card_id)};
     pending.set(String(adminId),{type:'campaign-wizard',step:0,values,editingId:String(id),expires:Date.now()+1800000});
-    return tg('sendMessage',{chat_id:chat,text:'✏️ ویرایش پیش‌نویس کمپین #'+id+'\\nمقادیر فعلی بارگذاری شدند. مرحله‌به‌مرحله جلو برو؛ در پایان امکان بازبینی و اصلاح هر فیلد را داری.\\n\\n'+campaignWizardPrompt(pending.get(String(adminId)))});
+    const cards=bankCardService?await bankCardService.listCards({includeInactive:false}):[];const cardHint=cards.length?'\\nکارت‌های فعال: '+cards.map(c=>c.id+' = '+c.label+' · '+c.last4).join(' | '):'\\nهنوز کارت فعالی ثبت نشده است.';
+    return tg('sendMessage',{chat_id:chat,text:'✏️ ویرایش پیش‌نویس کمپین #'+id+'\\nمقادیر فعلی بارگذاری شدند. مرحله‌به‌مرحله جلو برو؛ در پایان امکان بازبینی و اصلاح هر فیلد را داری.\\n\\n'+campaignWizardPrompt(pending.get(String(adminId)))+cardHint});
   }
   async function campaignWizardReview(chat,state) {
     const v=state.values;
