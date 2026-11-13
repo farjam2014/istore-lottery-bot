@@ -117,6 +117,13 @@ async function migrateMultiCampaign(db) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ];
   for (const sql of ddl) await db.query(sql);
+  const [sessionColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_sessions'"
+  );
+  if (!sessionColumns.some(column => column.COLUMN_NAME === 'campaign_id')) {
+    await db.query('ALTER TABLE lottery_sessions ADD COLUMN campaign_id BIGINT UNSIGNED NULL AFTER telegram_user_id');
+    await db.query('ALTER TABLE lottery_sessions ADD KEY idx_lottery_sessions_campaign(campaign_id)');
+  }
 
   await db.execute(
     `INSERT IGNORE INTO campaigns(slug,title,status,payment_mode)
