@@ -136,6 +136,13 @@ async function migrateMultiCampaign(db) {
   );
   if (!participantIndexes.length) await db.query('ALTER TABLE participants ADD UNIQUE KEY uq_participants_instagram(instagram)');
 
+  const [paymentColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payments'"
+  );
+  if (!paymentColumns.some(column => column.COLUMN_NAME === 'telegram_chat_id')) {
+    await db.query('ALTER TABLE campaign_payments ADD COLUMN telegram_chat_id VARCHAR(80) NULL AFTER reviewed_at');
+    await db.query('ALTER TABLE campaign_payments ADD COLUMN business_connection_id VARCHAR(255) NULL AFTER telegram_chat_id');
+  }
   const [proofColumns] = await db.execute(
     "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs'"
   );
