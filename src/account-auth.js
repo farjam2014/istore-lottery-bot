@@ -181,7 +181,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
       if(!delivered)await tg('sendMessage',{chat_id:String(adminId),text:'⚠️ درخواست #'+id+' تأیید شده، اما ارسال لینک ناموفق بود. از دکمه «ارسال مجدد لینک» استفاده کنید.',reply_markup:{inline_keyboard:[[{text:'↻ ارسال مجدد لینک',callback_data:'acct:s:'+id}]]}});
     }
     await tg('editMessageReplyMarkup',{chat_id:String(q.message.chat.id),message_id:q.message.message_id,reply_markup:{inline_keyboard:[]}});
-    await tg('sendMessage',{chat_id:String(adminId),text:action==='r'?'بازیابی #'+id+' رد شد.':(action==='s'?'لینک بازیابی #'+id+' دوباره ارسال شد.':'بازیابی #'+id+' تأیید شد.')});
+    await tg('sendMessage',{chat_id:String(adminId),text:action==='r'?'بازیابی #'+id+' رد شد.':(action==='s'?(delivered?'لینک بازیابی #'+id+' دوباره ارسال شد.':'ارسال مجدد لینک بازیابی #'+id+' ناموفق بود؛ درخواست برای تلاش دوباره باز است.'):(delivered?'بازیابی #'+id+' تأیید و لینک ارسال شد.':'بازیابی #'+id+' تأیید شد اما ارسال لینک ناموفق بود؛ از دکمه ارسال مجدد استفاده کنید.'))});
     return true;
   }
   return {handleMessage,handleCallback};
