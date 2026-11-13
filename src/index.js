@@ -452,6 +452,40 @@ app.get("/api/admin/campaigns",admin,async(_q,r)=>{
   `);
   r.json({campaigns:rows});
 });
+app.get("/api/admin/campaigns/:id/entries",admin,async(q,r)=>{
+  const id=Number(q.params.id),limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.max(0,Number(q.query.offset)||0);
+  const term=String(q.query.q||"").trim().slice(0,80);
+  if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(offset))return r.status(400).json({error:"شناسه یا صفحه‌بندی نامعتبر است."});
+  const params=[id],where=["e.campaign_id=?"];
+  if(term){where.push("(pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR ic.code LIKE ?)");const like="%"+term+"%";params.push(like,like,like,like)}
+  const filter=where.join(" AND ");
+  const [[count]]=await db.execute(`SELECT COUNT(*) total FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active' WHERE ${filter}`,params);
+  const [rows]=await db.execute(
+    `SELECT e.id,e.status,e.payment_status,e.created_at,pt.full_name,pt.phone,pt.instagram,ic.code
+     FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
+     LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active'
+     WHERE ${filter} ORDER BY e.id DESC LIMIT ? OFFSET ?`,
+    [...params,limit,offset]
+  );
+  r.json({total:Number(count.total),entries:rows,limit,offset});
+});
+app.get("/api/admin/campaigns/:id/entries.csv",admin,async(q,r)=>{
+  const id=Number(q.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+  const [[campaign]]=await db.execute("SELECT slug FROM campaigns WHERE id=?",[id]);
+  if(!campaign)return r.status(404).json({error:"کمپین پیدا نشد."});
+  const [rows]=await db.execute(
+    `SELECT pt.full_name,pt.phone,pt.instagram,e.status,e.payment_status,ic.code,e.created_at
+     FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
+     LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active'
+     WHERE e.campaign_id=? ORDER BY e.id`,[id]
+  );
+  if(rows.length>100000)return r.status(413).json({error:"تعداد رکوردها برای خروجی مستقیم زیاد است؛ از فیلتر و صفحه‌بندی استفاده کنید."});
+  const csv=[["نام","موبایل","اینستاگرام","وضعیت","وضعیت پرداخت","کد","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,x.instagram,x.status,x.payment_status,x.code,x.created_at])].map(row=>row.map(csvCell).join(",")).join("\r\n");
+  r.setHeader("Content-Type","text/csv; charset=utf-8");
+  r.setHeader("Content-Disposition",`attachment; filename="campaign-${id}-entries.csv"`);
+  r.send("\uFEFF"+csv);
+});
 app.post("/api/admin/campaigns",admin,async(q,r)=>{
   const slug=String(q.body.slug||"").trim().toLowerCase();
   const title=String(q.body.title||"").trim();
