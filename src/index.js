@@ -142,11 +142,11 @@ return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection==
 async function manualPaymentInstructions(campaignId) {
 const [[campaign]]=await db.execute("SELECT title,amount_minor,currency,settings FROM campaigns WHERE id=?",[campaignId]);
 let settings=campaign?.settings||{};if(typeof settings==="string"){try{settings=JSON.parse(settings)}catch{settings={}}}
-return "🧾 پرداخت کارت‌به‌کارت کمپین «"+campaign.title+"»\\n\\nمبلغ: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" "+campaign.currency+
-"\\nشماره کارت: "+String(settings.card_number||"ثبت نشده")+
-"\\nبه نام: "+String(settings.card_holder||"ثبت نشده")+
-(settings.bank_name?"\\nبانک: "+settings.bank_name:"")+
-"\\n\\nپس از واریز، تصویر واضح رسید را همین‌جا در همین گفت‌وگو ارسال کنید. تا بررسی و تأیید مدیر، کدی صادر نمی‌شود.";
+return "🧾 پرداخت کارت‌به‌کارت کمپین «"+campaign.title+"»\n\nمبلغ: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" "+campaign.currency+
+"\nشماره کارت: "+String(settings.card_number||"ثبت نشده")+
+"\nبه نام: "+String(settings.card_holder||"ثبت نشده")+
+(settings.bank_name?"\nبانک: "+settings.bank_name:"")+
+"\n\nپس از واریز، تصویر واضح رسید را همین‌جا در همین گفت‌وگو ارسال کنید. تا بررسی و تأیید مدیر، کدی صادر نمی‌شود.";
 }
 async function handleCallbackQuery(q){
 if(!q?.id)return;
@@ -164,13 +164,13 @@ if(action==="approve"){
 const result=await approveManualPayment({db,paymentId:id,reviewer:uid,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
 const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
 if(recipient)await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\\n🎟 کد اختصاصی شما: "+result.code});
-await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\\n\\n✅ تأیید شد · کد: "+result.code,reply_markup:{inline_keyboard:[]}});
+await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\n\n✅ تأیید شد · کد: "+result.code,reply_markup:{inline_keyboard:[]}});
 await audit(uid,"approve_campaign_payment","campaign_payment",id,{entry_id:result.entryId,code:result.code});
 }else{
 await rejectManualPayment({db,paymentId:id,reviewer:uid});
 const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
 if(recipient)await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"❌ رسید پرداخت کمپین «"+recipient.title+"» تأیید نشد. اگر فکر می‌کنید اشتباهی رخ داده، با پشتیبانی تماس بگیرید."});
-await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\\n\\n❌ رد شد",reply_markup:{inline_keyboard:[]}});
+await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\n\n❌ رد شد",reply_markup:{inline_keyboard:[]}});
 await audit(uid,"reject_campaign_payment","campaign_payment",id,{});
 }
 return;
@@ -191,7 +191,7 @@ if(String(q.data||"").startsWith("camp:select:")){
     try{
       const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,businessConnectionId:connection,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
       const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
-        result.status==="pending_payment"?"🧾 درخواست شما برای «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+        result.status==="pending_payment"?await manualPaymentInstructions(campaign.id):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
     }catch(e){
       const message=e.code==="CAMPAIGN_FULL"?"ظرفیت این کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"این کمپین دیگر قابل ثبت‌نام نیست.":"ثبت‌نام انجام نشد؛ لطفاً بعداً تلاش کنید.";
@@ -218,7 +218,7 @@ if(s.campaign_id){
   const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
   await delSession(uid);
   const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
-    result.status==="pending_payment"?"🧾 درخواست شما در «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+    result.status==="pending_payment"?await manualPaymentInstructions(s.campaign_id):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
   return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text});
 }
 await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
@@ -402,7 +402,7 @@ const photo=m.photo[m.photo.length-1];
 await db.execute(
 "INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
 [pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),crypto.createHash("sha256").update(String(photo.file_unique_id||photo.file_id)).digest("hex"),photo.file_id,photo.file_unique_id||null]);
-await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\\nکمپین: "+pending.title+"\\nنام: "+pending.full_name+"\\nموبایل: "+pending.phone+"\\nاینستاگرام: @"+pending.instagram+"\\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
+await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\\nکمپین: "+pending.title+"\nنام: "+pending.full_name+"\nموبایل: "+pending.phone+"\\nاینستاگرام: @"+pending.instagram+"\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
 return reply(chat,conn,"📨 تصویر رسید دریافت شد و برای مدیر ارسال شد. پس از بررسی نتیجه به شما اطلاع داده می‌شود. تا قبل از تأیید، کدی صادر نخواهد شد.");
 }
 if(!m.text)return;
@@ -488,7 +488,6 @@ if(!equal(q.body.password||"",adminPass)){a.count++;a.until=a.count>=8?now+15*60
 loginAttempts.delete(ip);const p=Buffer.from(JSON.stringify({exp:Date.now()+4*3600000})).toString("base64url");r.setHeader("Set-Cookie",`istore_admin=${p}.${signed(p)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=14400`);r.redirect("/admin")});
 app.post("/admin/logout",(_q,r)=>{r.setHeader("Set-Cookie","istore_admin=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0");r.redirect("/admin/login")});
 app.get("/admin",(q,r)=>isAdmin(q)?r.sendFile(path.join(__dirname,"..","public","admin.html")):r.redirect("/admin/login"));
-const { approveManualPayment } = require("./campaign-service");
 app.get("/api/admin/campaigns",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT c.id,c.slug,c.title,c.status,c.starts_at,c.ends_at,c.capacity,c.payment_mode,
