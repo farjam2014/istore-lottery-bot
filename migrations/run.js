@@ -4,118 +4,69 @@ require('dotenv').config();
 const { acquireMigrationLock } = require('../src/migration-lock');
 
 async function main() {
+  for (const key of ['DB_HOST', 'DB_USER', 'DB_NAME']) {
+    if (!String(process.env[key] || '').trim()) throw new Error(key + ' is required');
+  }
   const db = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    charset: 'utf8mb4',
+    host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306),
+    user: process.env.DB_USER, password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME, charset: 'utf8mb4'
   });
   let releaseMigrationLock;
   try {
-    releaseMigrationLock = await acquireMigrationLock(db, 'istore_lottery_migrations', 30);
-    const [tables] = await db.query(
-      "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
-    );
-    const existingTables = new Set(tables.map(x => x.TABLE_NAME));
-    if (!existingTables.has('lottery_entries') || !existingTables.has('lottery_sessions')) {
-      throw new Error('Base tables are missing. Import the corrected schema.sql first.');
-    }
-
-    async function columns(table) {
-      const [rows] = await db.execute(
-        'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',
-        [table]
-      );
-      return new Set(rows.map(x => x.COLUMN_NAME));
-    }
-    let c = await columns('lottery_sessions');
-    if (!c.has('instagram')) await db.query('ALTER TABLE lottery_sessions ADD COLUMN instagram VARCHAR(40) NULL AFTER phone');
-    await db.query('ALTER TABLE lottery_sessions MODIFY instagram VARCHAR(40) NULL');
-    await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation','profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL");
-
-    c = await columns('lottery_entries');
-    if (!c.has('status')) {
-      await db.query("ALTER TABLE lottery_entries ADD COLUMN status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active'");
-    } else {
-      const [[statusColumn]] = await db.execute(
-        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_entries' AND COLUMN_NAME='status'"
-      );
-      if (statusColumn && statusColumn.COLUMN_TYPE.toLowerCase().startsWith('enum(') && !statusColumn.COLUMN_TYPE.includes("'deleted'")) {
-        const [invalidStatuses] = await db.query("SELECT status FROM lottery_entries WHERE status NOT IN ('active','inactive','deleted') LIMIT 1");
-        if (invalidStatuses.length) throw new Error('Unknown lottery_entries.status value; resolve it before extending the status enum.');
-        await db.query("ALTER TABLE lottery_entries MODIFY status ENUM('active','inactive','deleted') NOT NULL DEFAULT 'active'");
-      }
-    }
-    if (!c.has('updated_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
-    if (!c.has('deleted_at')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deleted_at TIMESTAMP NULL');
-    if (!c.has('deletion_reason')) await db.query('ALTER TABLE lottery_entries ADD COLUMN deletion_reason VARCHAR(255) NULL');
-
-    // Abort before adding unique indexes if existing active records collide.
-    const [phoneDuplicates] = await db.query("SELECT phone, COUNT(*) AS n FROM lottery_entries WHERE status='active' GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1");
-    if (phoneDuplicates.length) throw new Error('Duplicate active phone numbers exist; resolve them before migration.');
-    const [instagramDuplicates] = await db.query("SELECT LOWER(instagram) AS normalized_instagram, COUNT(*) AS n FROM lottery_entries WHERE status='active' GROUP BY LOWER(instagram) HAVING COUNT(*) > 1 LIMIT 1");
-    if (instagramDuplicates.length) throw new Error('Duplicate active Instagram handles (case-insensitive) exist; resolve them before migration.');
-
-    c = await columns('lottery_entries');
-    if (!c.has('active_phone')) await db.query("ALTER TABLE lottery_entries ADD COLUMN active_phone VARCHAR(25) GENERATED ALWAYS AS (CASE WHEN status='active' THEN phone ELSE NULL END) STORED");
-    c = await columns('lottery_entries');
-    if (!c.has('active_instagram')) await db.query("ALTER TABLE lottery_entries ADD COLUMN active_instagram VARCHAR(40) GENERATED ALWAYS AS (CASE WHEN status='active' THEN LOWER(instagram) ELSE NULL END) STORED");
-    const [entryIndexes] = await db.query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_entries'");
-    const indexNames = new Set(entryIndexes.map(x => x.INDEX_NAME));
-    if (!indexNames.has('uq_entries_active_phone')) await db.query('ALTER TABLE lottery_entries ADD UNIQUE KEY uq_entries_active_phone(active_phone)');
-    if (!indexNames.has('uq_entries_active_instagram')) await db.query('ALTER TABLE lottery_entries ADD UNIQUE KEY uq_entries_active_instagram(active_instagram)');
-
-    await db.query("CREATE TABLE IF NOT EXISTS telegram_notification_outbox (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, dedupe_key VARCHAR(128) NOT NULL UNIQUE, notification_type VARCHAR(64) NOT NULL, payload JSON NOT NULL, status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending', attempts INT UNSIGNED NOT NULL DEFAULT 0, next_attempt_at TIMESTAMP NULL DEFAULT NULL, processing_started_at TIMESTAMP NULL DEFAULT NULL, processing_token CHAR(36) NULL DEFAULT NULL, last_error VARCHAR(500) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, sent_at TIMESTAMP NULL, KEY idx_notification_status_created(status,created_at,next_attempt_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    const outboxColumns = await columns('telegram_notification_outbox');
-    if (!outboxColumns.has('next_attempt_at')) await db.query('ALTER TABLE telegram_notification_outbox ADD COLUMN next_attempt_at TIMESTAMP NULL DEFAULT NULL AFTER attempts');
-    await db.query('CREATE TABLE IF NOT EXISTS admin_audit_log (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, admin_id VARCHAR(64) NOT NULL, action VARCHAR(64) NOT NULL, entity_type VARCHAR(64) NOT NULL, entity_id VARCHAR(64) NULL, details JSON NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_audit_created(created_at), KEY idx_audit_entity(entity_type,entity_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    await db.query("CREATE TABLE IF NOT EXISTS webhook_inbox (update_id BIGINT NOT NULL PRIMARY KEY, payload JSON NOT NULL, status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending', attempts INT UNSIGNED NOT NULL DEFAULT 0, last_error VARCHAR(500) NULL, received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP NULL, KEY idx_inbox_status_received(status,received_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    c = await columns('webhook_inbox');
-    if (!c.has('processing_started_at')) await db.query('ALTER TABLE webhook_inbox ADD COLUMN processing_started_at TIMESTAMP NULL DEFAULT NULL AFTER received_at');
-    if (!c.has('processing_token')) await db.query('ALTER TABLE webhook_inbox ADD COLUMN processing_token CHAR(36) NULL DEFAULT NULL AFTER processing_started_at');
-    await db.query('CREATE TABLE IF NOT EXISTS released_codes (raffle_code VARCHAR(20) PRIMARY KEY, source_entry_id BIGINT UNSIGNED NOT NULL, released_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_released_at(released_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    await db.query("CREATE TABLE IF NOT EXISTS lottery_code_history (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, entry_id BIGINT UNSIGNED NOT NULL, raffle_code VARCHAR(20) NOT NULL, action ENUM('assigned','released') NOT NULL, actor VARCHAR(80) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_code_history_entry(entry_id,created_at), KEY idx_code_history_code(raffle_code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    await db.query('CREATE TABLE IF NOT EXISTS lottery_draw_participants (draw_id BIGINT UNSIGNED NOT NULL, entry_id BIGINT UNSIGNED NOT NULL, raffle_code VARCHAR(20) NOT NULL, PRIMARY KEY(draw_id,entry_id), UNIQUE KEY uq_draw_code(draw_id,raffle_code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    await db.query("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false')");
-    await db.query("UPDATE lottery_settings SET setting_value='true' WHERE setting_key='draw_completed' AND EXISTS (SELECT 1 FROM lottery_draws)");
-    await db.query(`
-  INSERT INTO lottery_code_history(entry_id, raffle_code, action, actor)
-  SELECT e.id, e.raffle_code, 'assigned', 'migration'
-  FROM lottery_entries e
-  WHERE e.status = 'active'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM lottery_code_history h
-      WHERE h.entry_id = e.id
-        AND h.raffle_code = e.raffle_code
-        AND h.action = 'assigned'
-        AND h.actor = 'migration'
-    )
-`);
+    releaseMigrationLock = await acquireMigrationLock(db, 'ustore_fresh_migrations', 30);
     const { up: migrateMultiCampaign } = require('./multi-campaign');
-    const multiCampaignResult = await migrateMultiCampaign(db);
-    console.log('MULTI_CAMPAIGN_MIGRATION', JSON.stringify(multiCampaignResult));
-    const { up: migrateBankCards } = require('./bank-cards');
-    const bankCardResult = await migrateBankCards(db);
-    console.log('BANK_CARD_MIGRATION', JSON.stringify(bankCardResult));
-    const { up: migrateAccountAuth } = require('./account-auth');
-    const accountAuthResult = await migrateAccountAuth(db);
-    console.log('ACCOUNT_AUTH_MIGRATION', JSON.stringify(accountAuthResult));
-    const { up: migrateContactGate } = require('./contact-gate');
-    const contactGateResult = await migrateContactGate(db);
-    console.log('CONTACT_GATE_MIGRATION', JSON.stringify(contactGateResult));
-    const { up: migrateCustomerFlow } = require('./customer-flow');
-    const customerFlowResult = await migrateCustomerFlow(db);
-    console.log('CUSTOMER_FLOW_MIGRATION', JSON.stringify(customerFlowResult));
+    const campaignResult = await migrateMultiCampaign(db);
+    console.log('MULTI_CAMPAIGN_SCHEMA', JSON.stringify(campaignResult));
+
+    await db.query(`CREATE TABLE IF NOT EXISTS telegram_sessions (
+      telegram_user_id BIGINT NOT NULL PRIMARY KEY, chat_id BIGINT NOT NULL,
+      step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation','profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL,
+      full_name VARCHAR(150) NULL, phone VARCHAR(25) NULL, instagram VARCHAR(40) NULL,
+      business_connection_id VARCHAR(128) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_telegram_sessions_updated(updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db.query(`CREATE TABLE IF NOT EXISTS telegram_notification_outbox (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, dedupe_key VARCHAR(128) NOT NULL UNIQUE,
+      notification_type VARCHAR(64) NOT NULL, payload JSON NOT NULL,
+      status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
+      attempts INT UNSIGNED NOT NULL DEFAULT 0, next_attempt_at TIMESTAMP NULL DEFAULT NULL,
+      processing_started_at TIMESTAMP NULL DEFAULT NULL, processing_token CHAR(36) NULL DEFAULT NULL,
+      last_error VARCHAR(500) NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      sent_at TIMESTAMP NULL, KEY idx_notification_status_created(status,created_at,next_attempt_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db.query(`CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, admin_id VARCHAR(64) NOT NULL,
+      action VARCHAR(64) NOT NULL, entity_type VARCHAR(64) NOT NULL, entity_id VARCHAR(64) NULL,
+      details JSON NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_audit_created(created_at), KEY idx_audit_entity(entity_type,entity_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db.query(`CREATE TABLE IF NOT EXISTS webhook_inbox (
+      update_id BIGINT NOT NULL PRIMARY KEY, payload JSON NOT NULL,
+      status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
+      attempts INT UNSIGNED NOT NULL DEFAULT 0, last_error VARCHAR(500) NULL,
+      received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      processing_started_at TIMESTAMP NULL DEFAULT NULL, processing_token CHAR(36) NULL DEFAULT NULL,
+      processed_at TIMESTAMP NULL, KEY idx_inbox_status_received(status,received_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    const migrations = [
+      ['bank-cards', require('./bank-cards')],
+      ['account-auth', require('./account-auth')],
+      ['contact-gate', require('./contact-gate')],
+      ['customer-flow', require('./customer-flow')]
+    ];
+    for (const [name, migration] of migrations) {
+      const result = await migration.up(db);
+      console.log(name.toUpperCase().replace(/-/g, '_') + '_MIGRATION', JSON.stringify(result));
+    }
     console.log('MIGRATIONS_OK');
   } finally {
-    try {
-      if (releaseMigrationLock) await releaseMigrationLock();
-    } finally {
-      await db.end();
-    }
+    try { if (releaseMigrationLock) await releaseMigrationLock(); }
+    finally { await db.end(); }
   }
 }
-main().catch(err => { console.error('Migration failed:', err.message); process.exit(1); });
+main().catch(err => { console.error('Migration failed:', err.stack || err.message); process.exit(1); });
