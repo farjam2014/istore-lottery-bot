@@ -64,7 +64,7 @@ async function loadCampaigns(){
       cell(tr,c.title);cell(tr,c.slug);cell(tr,c.status);
       cell(tr,c.capacity===null?'نامحدود':c.capacity);
       cell(tr,String(c.active_count||0)+' فعال / '+String(c.pending_payment_count||0)+' معلق');
-      cell(tr,c.payment_mode==='free'?'رایگان':'تأیید دستی');
+      cell(tr,c.payment_mode==='free'?'رایگان · ۱ کد':('کارت‌به‌کارت · هر کد '+Number(c.amount_minor).toLocaleString('fa-IR')+' ریال · سقف '+(c.max_codes_per_participant==null?'نامحدود':c.max_codes_per_participant)));
       const td=cell(tr,'');const actions=document.createElement('div');actions.className='actions';
       const choices=c.status==='draft'?[['فعال‌سازی','active']]:c.status==='active'?[['توقف','paused'],['بستن','closed']]:c.status==='paused'?[['ادامه','active'],['بستن','closed']]:c.status==='closed'?[['آرشیو','archived']]:[];
       for(const [label,status] of choices){const b=document.createElement('button');b.className=status==='closed'||status==='archived'?'danger':'secondary';b.textContent=label;b.onclick=()=>changeCampaignStatus(c,status);actions.appendChild(b)}
