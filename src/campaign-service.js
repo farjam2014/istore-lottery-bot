@@ -223,8 +223,13 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[order]] = await conn.execute('SELECT * FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
       if (!order || order.status !== 'receipt_submitted') throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
-      const [[reservation]] = await conn.execute('SELECT *, (expires_at > UTC_TIMESTAMP()) AS is_valid FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
-      if (!reservation || reservation.status !== 'held' || !reservation.is_valid) throw new Error('رزرو سفارش منقضی شده است.');
+      const [[reservation]] = await conn.execute('SELECT * FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
+      if (!reservation || reservation.status !== 'held') throw new Error('رزرو سفارش دیگر معتبر نیست.');
+      const [[receipt]] = await conn.execute(
+        "SELECT id, (submitted_at <= ?) AS submitted_in_time FROM payment_receipts WHERE order_id=? AND review_status='pending' ORDER BY submitted_at DESC LIMIT 1 FOR UPDATE",
+        [order.expires_at,orderId]
+      );
+      if (!receipt || !receipt.submitted_in_time) throw new Error('رسید پس از پایان مهلت سفارش ارسال شده یا رسید معتبری برای بررسی وجود ندارد.');
       const [[campaign]] = await conn.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE', [order.campaign_id]);
       if (approve) {
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
@@ -393,10 +398,10 @@ function createCampaignService({ db, adminId }) {
     try {
       await conn.beginTransaction();
       const [reservations] = await conn.execute(
-        "UPDATE campaign_capacity_reservations SET status='expired' WHERE status='held' AND expires_at<=UTC_TIMESTAMP()"
+        "UPDATE campaign_capacity_reservations r SET r.status='expired' WHERE r.status='held' AND r.expires_at<=UTC_TIMESTAMP() AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.id=r.order_id AND o.status='receipt_submitted')"
       );
       const [orders] = await conn.execute(
-        "UPDATE payment_orders o JOIN campaign_capacity_reservations r ON r.order_id=o.id SET o.status='expired' WHERE r.status='expired' AND o.status IN ('pending_payment','receipt_submitted') AND o.expires_at<=UTC_TIMESTAMP()"
+        "UPDATE payment_orders o JOIN campaign_capacity_reservations r ON r.order_id=o.id SET o.status='expired' WHERE r.status='expired' AND o.status='pending_payment' AND o.expires_at<=UTC_TIMESTAMP()"
       );
       await conn.execute(
         "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')"
