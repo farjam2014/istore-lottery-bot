@@ -456,7 +456,7 @@ function createCampaignService({ db, adminId }) {
             payload:{
               chat_id:String(participant.chat_id),
               ...(participant.business_connection_id ? {business_connection_id:String(participant.business_connection_id)} : {}),
-              text:'📋 نتیجه درخواست اصلاح پروفایل #'+requestId+'\\n'+statusText
+              text:'📋 نتیجه درخواست اصلاح پروفایل #'+requestId+'\n'+statusText
             }
           })]
         );
