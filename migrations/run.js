@@ -94,6 +94,8 @@ async function main() {
         AND h.actor = 'migration'
     )
 `);
+    const { migrateMultiCampaign } = require('./multicampaign');
+    await migrateMultiCampaign(db);
     console.log('MIGRATIONS_OK');
   } finally {
     try {
