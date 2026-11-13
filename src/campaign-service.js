@@ -49,22 +49,22 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
 
     // One real person must not enter an active campaign through multiple Telegram accounts.
     // Check before the profile upsert so a rejected update cannot overwrite an existing profile.
-    const [[duplicate]] = await conn.execute(
-      `SELECT p.id
-       FROM participants p
+    const [[duplicatePhone]] = await conn.execute(
+      `SELECT p.id FROM participants p
        JOIN campaign_entries e ON e.participant_id=p.id
        JOIN campaigns c ON c.id=e.campaign_id
        WHERE p.telegram_user_id<>?
          AND e.status IN ('active','pending_payment')
-         AND c.status='active'
-         AND p.phone=?
-       UNION
-       SELECT p.id FROM participants p
-       WHERE p.telegram_user_id<>? AND p.instagram=?
+         AND c.status='active' AND p.phone=?
        LIMIT 1 FOR UPDATE`,
-      [String(telegramUserId), phone, String(telegramUserId), instagram]
+      [String(telegramUserId), phone]
     );
-    if (duplicate) throw Object.assign(new Error('DUPLICATE_CONTACT'), { code: 'DUPLICATE_CONTACT' });
+    const [[duplicateInstagram]] = await conn.execute(
+      'SELECT id FROM participants WHERE telegram_user_id<>? AND instagram=? LIMIT 1 FOR UPDATE',
+      [String(telegramUserId), instagram]
+    );
+    const duplicate = duplicatePhone || duplicateInstagram;
+
 
     await conn.execute(
       `INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
