@@ -638,8 +638,8 @@ app.post("/api/admin/campaign-payments/:id/approve",admin,async(q,r)=>{
     await audit(process.env.ADMIN_ID,"approve_campaign_payment","campaign_payment",q.params.id,{entry_id:result.entryId,code:result.code});
     r.json(result);
   }catch(e){
-    if(["PAYMENT_NOT_REVIEWABLE","CAMPAIGN_NOT_OPEN","CAMPAIGN_FULL"].includes(e.code))
-      return r.status(409).json({error:e.code==="CAMPAIGN_FULL"?"ظرفیت کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"کمپین فعال نیست.":"این پرداخت قابل بررسی نیست."});
+    if(["PAYMENT_NOT_REVIEWABLE","PAYMENT_PROOF_REQUIRED","CAMPAIGN_NOT_OPEN","CAMPAIGN_FULL"].includes(e.code))
+      return r.status(409).json({error:e.code==="CAMPAIGN_FULL"?"ظرفیت کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"کمپین فعال نیست.":e.code==="PAYMENT_PROOF_REQUIRED"?"ابتدا تصویر رسید باید دریافت شود.":"این پرداخت قابل بررسی نیست."});
     throw e;
   }
 });
