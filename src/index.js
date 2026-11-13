@@ -274,6 +274,7 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
+}
 
 async function handlePrivateUpdate(update){
 const m=update.message;
