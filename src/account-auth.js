@@ -141,7 +141,7 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
         token=randomToken();
         await conn.execute('INSERT INTO account_reset_tokens(request_id,account_id,token_hash,expires_at) VALUES(?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[id,request.account_id,hash(token)]);
         await conn.execute("UPDATE password_reset_requests SET status='approved',reviewed_at=NOW(),reviewed_by=? WHERE id=?",[String(adminId),id]);
-        notify={chat_id:String(request.chat_id),text:'✅ درخواست بازیابی رمز شما تأیید شد. لینک امن و یک‌بارمصرف (۱۵ دقیقه):\n'+siteUrl.replace(/\/$/,'')+'/reset-password?token='+encodeURIComponent(token)};
+        notify={chat_id:String(request.chat_id),text:'✅ درخواست بازیابی رمز شما تأیید شد. لینک امن و یک‌بارمصرف (۱۵ دقیقه):\n'+siteUrl.replace(/\/$/,'')+'/account.html?token='+encodeURIComponent(token)};
       }
       await conn.commit();
     } catch(e){await conn.rollback();throw e;} finally{conn.release();}
