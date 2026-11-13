@@ -1,7 +1,6 @@
 'use strict';
 
 async function up(db) {
-  await db.query("ALTER TABLE lottery_sessions MODIFY step ENUM('name','phone','instagram','awaiting_contact','awaiting_confirmation','profile_name','profile_awaiting_contact','profile_instagram','profile_confirmation','profile_change_full_name','profile_change_instagram','profile_change_phone_contact','support_message') NOT NULL");
   await db.query(`CREATE TABLE IF NOT EXISTS customer_support_tickets (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     telegram_user_id BIGINT NOT NULL,
