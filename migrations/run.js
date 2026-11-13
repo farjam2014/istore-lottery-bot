@@ -106,6 +106,9 @@ async function main() {
     const { up: migrateContactGate } = require('./contact-gate');
     const contactGateResult = await migrateContactGate(db);
     console.log('CONTACT_GATE_MIGRATION', JSON.stringify(contactGateResult));
+    const { up: migrateCustomerFlow } = require('./customer-flow');
+    const customerFlowResult = await migrateCustomerFlow(db);
+    console.log('CUSTOMER_FLOW_MIGRATION', JSON.stringify(customerFlowResult));
     console.log('MIGRATIONS_OK');
   } finally {
     try {
