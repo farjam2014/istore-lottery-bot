@@ -208,3 +208,41 @@ test('replayed pending manual order returns the existing order without creating 
   assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_orders')), false);
   assert.ok(statements.includes('COMMIT'));
 });
+
+
+test('pending manual order is not reused for a different campaign or quantity', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  for (const scenario of [
+    { campaignId: 4, quantity: 2, expected: /سفارش پرداخت‌نشده دیگری/ },
+    { campaignId: 3, quantity: 1, expected: /با تعداد 2 کد باز دارید/ }
+  ]) {
+    const statements = [];
+    const conn = {
+      async beginTransaction() {},
+      async commit() { statements.push('COMMIT'); },
+      async rollback() { statements.push('ROLLBACK'); },
+      release() {},
+      async execute(sql) {
+        statements.push(sql);
+        if (sql.includes('SELECT * FROM campaigns')) return [[{
+          id: scenario.campaignId, status: 'open', payment_mode: 'manual',
+          current_payment_card_id: 8, max_codes_per_participant: 5
+        }]];
+        if (sql.includes('SELECT id,label,bank_name,card_number')) return [[{ id: 8, status: 'active' }]];
+        if (sql.includes('SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants')) return [[{ id: 9, status: 'active' }]];
+        if (sql.includes('SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders')) {
+          return [[{ id: 77, order_ref: 'IS-ABC', status: 'pending_payment', quantity: 2, total_snapshot: 100000, currency: 'IRR', campaign_id: 3 }]];
+        }
+        throw new Error('Unexpected SQL: ' + sql);
+      }
+    };
+    const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+    await assert.rejects(
+      service.reserveManualOrder({ campaignId: scenario.campaignId, participantId: 9, quantity: scenario.quantity }),
+      scenario.expected
+    );
+    assert.ok(statements.includes('ROLLBACK'));
+    assert.equal(statements.includes('COMMIT'), false);
+    assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_orders')), false);
+  }
+});
