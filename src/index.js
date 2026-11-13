@@ -168,6 +168,18 @@ return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection==
 }catch{return false}
 }
 
+function campaignQuantityKeyboard(campaignId,max,page=0){
+  const pageSize=80,totalPages=Math.max(1,Math.ceil(max/pageSize));
+  const current=Math.max(0,Math.min(totalPages-1,Number(page)||0));
+  const start=current*pageSize+1,end=Math.min(max,start+pageSize-1),rows=[];
+  for(let n=start;n<=end;n+=4)rows.push(Array.from({length:Math.min(4,end-n+1)},(_,i)=>({text:String(n+i)+' کد',callback_data:'campaign:quantity:'+campaignId+':'+(n+i)})));
+  const nav=[];
+  if(current>0)nav.push({text:'⬅️ قبلی',callback_data:'campaign:quantity-page:'+campaignId+':'+(current-1)});
+  if(current<totalPages-1)nav.push({text:'بعدی ➡️',callback_data:'campaign:quantity-page:'+campaignId+':'+(current+1)});
+  if(nav.length)rows.push(nav);
+  return {inline_keyboard:rows};
+}
+
 async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
@@ -248,17 +260,25 @@ if(String(q.data||'').startsWith('campaign:join:')){
     }
     const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
-    const max=Math.max(1,Math.min(80,Number(campaign.max_codes_per_participant)||1));
-    const rows=[];
-    for(let n=1;n<=max;n+=4)rows.push(Array.from({length:Math.min(4,max-n+1)},(_,i)=>({text:String(n+i)+' کد',callback_data:'campaign:quantity:'+campaign.id+':'+(n+i)})));
+    const max=Math.max(1,Math.min(1000,Number(campaign.max_codes_per_participant)||1));
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
-    return tg('sendMessage',{chat_id:chat,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:{inline_keyboard:rows}});
+    return tg('sendMessage',{chat_id:chat,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+max+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:campaignQuantityKeyboard(campaign.id,max,0)});
   }catch(e){return reply(chat,connection,'❌ امکان ادامه ثبت‌نام وجود ندارد: '+e.message);}
+}
+if(String(q.data||'').startsWith('campaign:quantity-page:')){
+  const parts=String(q.data).split(':'),campaignId=parts[3]||'',page=Number(parts[4]);
+  if(!uid||!chat||!/^[0-9]+$/.test(campaignId)||!Number.isInteger(page)||page<0)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
+  const [[campaign]]=await db.execute("SELECT id,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+  if(!campaign)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'این کمپین دیگر فعال نیست.',show_alert:true});
+  const max=Math.max(1,Math.min(1000,Number(campaign.max_codes_per_participant)||1)),totalPages=Math.ceil(max/80);
+  if(page>=totalPages)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'این صفحه معتبر نیست.',show_alert:true});
+  await tg('answerCallbackQuery',{callback_query_id:q.id});
+  return tg('editMessageReplyMarkup',{chat_id:chat,message_id:q.message.message_id,reply_markup:campaignQuantityKeyboard(campaign.id,max,page)});
 }
 if(String(q.data||'').startsWith('campaign:quantity:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||'');
   const parts=String(q.data).split(':'),campaignId=parts[2]||'',quantity=Number(parts[3]);
-  if(!uid||!chat||!/^[0-9]+$/.test(campaignId)||!Number.isInteger(quantity)||quantity<1||quantity>80)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'تعداد انتخابی نامعتبر است.',show_alert:true});
+  if(!uid||!chat||!/^[0-9]+$/.test(campaignId)||!Number.isInteger(quantity)||quantity<1||quantity>1000)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'تعداد انتخابی نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال ثبت درخواست...'});
   try{
     const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
