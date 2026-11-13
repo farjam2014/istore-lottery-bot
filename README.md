@@ -50,3 +50,13 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 - Instagram JSON import and some advanced participant conversation flows are not implemented.
 - Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
 - Complete real Telegram Business and admin acceptance tests before opening registration.
+
+
+## Telegram customer experience
+
+- The customer menu exposes active campaigns, account/profile, issued codes, profile creation and support.
+- A participant can create a persistent profile even when no campaign is currently open. The profile flow verifies phone ownership through Telegram's own contact-sharing button and asks the customer to confirm their Instagram handle before saving.
+- Profile edits are submitted as review requests; administrators approve or reject them from the management panel.
+- Support messages are stored as tickets and delivered to the admin. Reply from the admin's private bot chat with `/reply TICKET_ID message`.
+- The contact gate records an explicit user confirmation only. Telegram does not let the bot prove that a phone number was saved in the device contacts or that the user can view the store's stories.
+- Apply the additive schema changes with `npm run migrate`; this migration does not drop existing participant or campaign data.
