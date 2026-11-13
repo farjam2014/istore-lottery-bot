@@ -137,3 +137,50 @@ test('contact-card delivery failure does not strand registration in confirmation
   assert.ok(contact >= 0 && confirm > failure);
   assert.match(source, /if\(s\.step==="awaiting_confirmation"\)\{\s*return tg\("sendMessage"/);
 });
+
+
+test('inline admin navigation edits the existing Telegram message', async () => {
+  const { createAdminTelegram } = require('../src/admin-telegram');
+  const calls = [];
+  const admin = createAdminTelegram({
+    db: {},
+    tg: async (method, payload) => { calls.push({ method, payload }); return { ok: true }; },
+    tgDocument: async () => {},
+    adminId: '42',
+    registrationOpen: async () => false
+  });
+  await admin.handleCallback({
+    id: 'callback-1', from: { id: 42 }, data: 'adm:home',
+    message: { message_id: 987, chat: { id: 42, type: 'private' } }
+  });
+  assert.equal(calls[0].method, 'answerCallbackQuery');
+  assert.equal(calls[1].method, 'editMessageText');
+  assert.equal(calls[1].payload.chat_id, 42);
+  assert.equal(calls[1].payload.message_id, 987);
+  assert.match(calls[1].payload.text, /مدیریت iStore/);
+});
+
+test('unchanged Telegram message edits do not create duplicate messages', async () => {
+  const { createAdminTelegram } = require('../src/admin-telegram');
+  const calls = [];
+  const admin = createAdminTelegram({
+    db: {},
+    tg: async method => {
+      calls.push(method);
+      if (method === 'editMessageText') {
+        const error = new Error('Bad Request: message is not modified');
+        error.description = error.message;
+        throw error;
+      }
+      return { ok: true };
+    },
+    tgDocument: async () => {},
+    adminId: '42',
+    registrationOpen: async () => false
+  });
+  await assert.doesNotReject(admin.handleCallback({
+    id: 'callback-2', from: { id: 42 }, data: 'adm:home',
+    message: { message_id: 987, chat: { id: 42, type: 'private' } }
+  }));
+  assert.deepEqual(calls, ['answerCallbackQuery', 'editMessageText']);
+});
