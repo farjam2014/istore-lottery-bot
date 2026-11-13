@@ -197,7 +197,7 @@ return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_con
 }
 if(String(q.data||'').startsWith('campaign:join:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
-  if(!uid||!chat||!connection||!/^\d+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
+  if(!uid||!chat||!/^\d+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال بررسی کمپین...'});
   try{
     let [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
@@ -400,7 +400,7 @@ if(m.photo?.length){
     return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.');
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
-if(lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
+if(lower==='/start'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
   const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:join:'+c.id}]);
