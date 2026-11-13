@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const { normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
-function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, campaignService }) {
+function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, campaignService, bankCardService }) {
   const searchModes = new Map();
   const editModes = new Map();
   const pending = new Map();
@@ -11,6 +11,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 شرکت‌کنندگان', callback_data: 'adm:entries:0' }],
     [{ text: '🎟 کدها و خروجی', callback_data: 'adm:export' }, { text: '⚙️ کمپین قدیمی', callback_data: 'adm:campaign' }],
     [{ text: '🧩 مدیریت کمپین‌ها', callback_data: 'adm:campaigns' }],
+    [{ text: '💳 مدیریت کارت‌های بانکی', callback_data: 'adm:cards' }],
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
     [{ text: '🏆 قرعه‌کشی', callback_data: 'adm:draw' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
@@ -194,6 +195,24 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       return tg('sendMessage',{chat_id:chat,text:'❌ قرعه‌کشی انجام نشد: '+e.message});
     } finally { conn.release(); }
   }
+  async function cardList(chat) {
+    const rows=await bankCardService.listCards();
+    const buttons=rows.map(c=>[{text:(c.status==='active'?'🟢 ':'⚪ ')+c.label+' · '+c.last4,callback_data:'adm:card:'+c.id}]);
+    buttons.push([{text:'➕ افزودن کارت',callback_data:'adm:card-add'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
+    return tg('sendMessage',{chat_id:chat,text:rows.length?'💳 کارت‌های ثبت‌شده\\nبرای مدیریت یک کارت را انتخاب کنید.':'هنوز کارتی ثبت نشده است.',reply_markup:keyboard(buttons)});
+  }
+  async function cardDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه کارت نامعتبر است.'});
+    const c=await bankCardService.getCard(Number(id));
+    return tg('sendMessage',{chat_id:chat,text:'💳 '+c.label+'\\nبانک: '+(c.bank_name||'-')+'\\nشماره کارت: '+c.card_number+'\\nدارنده: '+c.cardholder_name+'\\nوضعیت: '+c.status,reply_markup:keyboard([[{text:'✏️ ویرایش کارت',callback_data:'adm:card-edit:'+id}],[{text:c.status==='active'?'⏸ غیرفعال‌سازی':'✅ فعال‌سازی',callback_data:'adm:card-status:'+id+':'+(c.status==='active'?'inactive':'active')}],[{text:'↩️ فهرست کارت‌ها',callback_data:'adm:cards'}]])});
+  }
+  async function campaignCardPicker(chat,campaignId) {
+    const cards=await bankCardService.listCards({includeInactive:false});
+    if(!cards.length)return tg('sendMessage',{chat_id:chat,text:'ابتدا یک کارت فعال اضافه کنید.',reply_markup:keyboard([[{text:'مدیریت کارت‌ها',callback_data:'adm:cards'}],[{text:'بازگشت',callback_data:'adm:campaign-detail:'+campaignId}]])});
+    const rows=cards.map(c=>[{text:c.label+' · '+c.last4,callback_data:'adm:campaign-card-confirm:'+campaignId+':'+c.id}]);
+    rows.push([{text:'لغو',callback_data:'adm:campaign-detail:'+campaignId}]);
+    return tg('sendMessage',{chat_id:chat,text:'کارت مقصد جدید را انتخاب کنید:',reply_markup:keyboard(rows)});
+  }
   async function campaignList(chat) {
     if (!campaignService) return tg('sendMessage',{chat_id:chat,text:'سرویس کمپین پیکربندی نشده است.'});
     const [rows]=await db.query(`SELECT c.id,c.name,c.slug,c.status,c.payment_mode,(SELECT COUNT(*) FROM campaign_entries e WHERE e.campaign_id=c.id AND e.status='active') participants,(SELECT COUNT(*) FROM campaign_codes k WHERE k.campaign_id=c.id AND k.status='active') codes FROM campaigns c ORDER BY c.id DESC LIMIT 20`);
@@ -249,6 +268,15 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (!isAdmin(q) || !String(q.data||'').startsWith('adm:')) return false;
     const chat = q.message.chat.id, data = q.data;
     await tg('answerCallbackQuery',{callback_query_id:q.id});
+    if(data==='adm:cards')return cardList(chat);
+    if(data==='adm:card-add'){pending.set(String(adminId),{type:'card-add',expires:Date.now()+300000});return tg('sendMessage',{chat_id:chat,text:'عنوان کارت | نام بانک | شماره ۱۶ رقمی | نام دارنده کارت\\nبرای لغو /cancel'});}
+    if(data.startsWith('adm:card:'))return cardDetail(chat,data.slice('adm:card:'.length));
+    if(data.startsWith('adm:card-edit:')){const id=data.slice('adm:card-edit:'.length),c=await bankCardService.getCard(Number(id));pending.set(String(adminId),{type:'card-edit',id,expires:Date.now()+300000});return tg('sendMessage',{chat_id:chat,text:'عنوان | بانک | شماره کارت | نام دارنده\\nمقادیر فعلی: '+c.label+' | '+(c.bank_name||'')+' | '+c.card_number+' | '+c.cardholder_name});}
+    if(data.startsWith('adm:card-status:')){const [, ,id,status]=data.split(':');if(!/^\\d+$/.test(id)||!['active','inactive'].includes(status))return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'});pending.set(String(adminId),{type:'card-status',id,status,expires:Date.now()+60000});return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت کارت را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:card-status-apply:'+id+':'+status},{text:'لغو',callback_data:'adm:card:'+id}]])});}
+    if(data.startsWith('adm:card-status-apply:')){const [, , ,id,status]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='card-status'||p.id!==id||p.status!==status||p.expires<Date.now())return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.setCardStatus(Number(id),status);await audit(status==='active'?'activate_bank_card':'deactivate_bank_card','bank_card',id,{source:'telegram'});return cardDetail(chat,id);}
+    if(data.startsWith('adm:campaign-card:'))return campaignCardPicker(chat,data.slice('adm:campaign-card:'.length));
+    if(data.startsWith('adm:campaign-card-confirm:')){const [, ,campaignId,cardId]=data.split(':');if(!/^\\d+$/.test(campaignId)||!/^\\d+$/.test(cardId))return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'});pending.set(String(adminId),{type:'campaign-card',campaignId,cardId,expires:Date.now()+60000});const card=await bankCardService.getCard(Number(cardId),{activeOnly:true});return tg('sendMessage',{chat_id:chat,text:'تغییر کارت کمپین به «'+card.label+' · '+card.card_number.slice(-4)+'» را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید تغییر',callback_data:'adm:campaign-card-apply:'+campaignId+':'+cardId},{text:'لغو',callback_data:'adm:campaign-detail:'+campaignId}]])});}
+    if(data.startsWith('adm:campaign-card-apply:')){const [, ,campaignId,cardId]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='campaign-card'||p.campaignId!==campaignId||p.cardId!==cardId||p.expires<Date.now())return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.assignCampaignCard(Number(campaignId),Number(cardId),'changed via Telegram admin panel');return campaignDetail(chat,campaignId);}
     if (data==='adm:home') return home(chat);
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:campaign') return campaign(chat);
@@ -376,6 +404,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
 
+    const cardMode=pending.get(String(adminId));
+    if(cardMode && ['card-add','card-edit'].includes(cardMode.type) && text){
+      pending.delete(String(adminId));if(cardMode.expires<Date.now())return tg('sendMessage',{chat_id:m.chat.id,text:'مهلت عملیات کارت تمام شده است.'});
+      const v=text.split('|').map(x=>x.trim());if(v.length!==4)return tg('sendMessage',{chat_id:m.chat.id,text:'چهار بخش لازم است: عنوان | بانک | شماره کارت | نام دارنده'});
+      try{if(cardMode.type==='card-add'){const result=await bankCardService.addCard({label:v[0],bankName:v[1]||null,cardNumber:digits(v[2]),cardholderName:v[3]});await audit('add_bank_card','bank_card',result.id,{last4:digits(v[2]).slice(-4),source:'telegram'});return cardDetail(m.chat.id,result.id);}await bankCardService.updateCard({id:Number(cardMode.id),label:v[0],bankName:v[1]||null,cardNumber:digits(v[2]),cardholderName:v[3]});await audit('edit_bank_card','bank_card',cardMode.id,{last4:digits(v[2]).slice(-4),source:'telegram'});return cardDetail(m.chat.id,cardMode.id);}catch(e){return tg('sendMessage',{chat_id:m.chat.id,text:'ذخیره کارت انجام نشد: '+e.message});}
+    }
     if (pending.get(String(adminId))?.type==='create-campaign' && text) {
       const mode=pending.get(String(adminId)); pending.delete(String(adminId));
       if(mode.expires<Date.now()) return tg('sendMessage',{chat_id:m.chat.id,text:'مهلت ساخت کمپین تمام شده است.'});
