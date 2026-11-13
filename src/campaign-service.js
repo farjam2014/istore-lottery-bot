@@ -15,22 +15,27 @@ function makeCampaignCode(campaignId, sequence, secret) {
  * Manual/provider payments deliberately remain pending and receive no code.
  * Provider payment confirmation must be implemented as a separately authenticated webhook.
  */
-async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret) {
+async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret, quantity = 1) {
   await conn.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)', [campaignId]);
   const [[sequenceRow]] = await conn.execute(
     'SELECT last_sequence FROM campaign_sequences WHERE campaign_id=? FOR UPDATE', [campaignId]
   );
   const sequence = Number(sequenceRow.last_sequence) + 1;
-  await conn.execute('UPDATE campaign_sequences SET last_sequence=? WHERE campaign_id=?', [sequence, campaignId]);
-  const code = makeCampaignCode(campaignId, sequence, codeSecret);
-  await conn.execute(
-    "INSERT INTO issued_codes(campaign_id,entry_id,sequence_no,code,status) VALUES(?,?,?,?, 'active')",
-    [campaignId, entryId, sequence, code]
-  );
-  return code;
+  const codes = [];
+  for (let i = 0; i < quantity; i++) {
+    const nextSequence = sequence + i;
+    const code = makeCampaignCode(campaignId, nextSequence, codeSecret);
+    await conn.execute(
+      "INSERT INTO issued_codes(campaign_id,entry_id,sequence_no,code,status) VALUES(?,?,?,?, 'active')",
+      [campaignId, entryId, nextSequence, code]
+    );
+    codes.push(code);
+  }
+  await conn.execute('UPDATE campaign_sequences SET last_sequence=? WHERE campaign_id=?', [sequence + quantity - 1, campaignId]);
+  return codes;
 }
 
-async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, chatId, businessConnectionId, campaignSlug, codeSecret }) {
+async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, chatId, businessConnectionId, campaignSlug, codeSecret, quantity = 1 }) {
   if (!telegramUserId || !campaignSlug) throw new Error('telegramUserId and campaignSlug are required');
   const conn = await db.getConnection();
   try {
@@ -43,6 +48,8 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
        FOR UPDATE`, [campaignSlug]
     );
     if (!campaign) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
+    const requestedQuantity = Number(quantity);
+    if (!Number.isSafeInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 10000) throw Object.assign(new Error('INVALID_CODE_QUANTITY'), { code: 'INVALID_CODE_QUANTITY' });
     const normalizedInstagram = normalizeInstagram(instagram);
     if (!validFullName(fullName) || !validPhone(phone) || !validInstagram(normalizedInstagram)) {
       throw Object.assign(new Error('INVALID_PARTICIPANT_PROFILE'), { code: 'INVALID_PARTICIPANT_PROFILE' });
@@ -81,25 +88,36 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       [campaign.id, participant.id]
     );
     if (existing && existing.status === 'inactive' && existing.payment_status === 'rejected' && campaign.payment_mode === 'manual_transfer') {
+      const unitPrice = Number(campaign.amount_minor);
       const [retryPayment] = await conn.execute(
-        "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?)",
-        [existing.id, 'manual_transfer', 'pending', campaign.amount_minor, campaign.currency, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+        "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)",
+        [existing.id, 'manual_transfer', 'pending', unitPrice * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
       await conn.execute("UPDATE campaign_entries SET status='pending_payment',payment_status='pending' WHERE id=?", [existing.id]);
       await conn.commit();
-      return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, code: null };
+      return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
     if (existing) {
-      const [[existingCode]] = await conn.execute(
-        "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' LIMIT 1", [existing.id]
+      const [[existingCodes]] = await conn.execute(
+        "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' ORDER BY sequence_no,id", [existing.id]
       );
-      let existingPayment = null;
-      if (existing.status === 'pending_payment') {
-        const [[pendingPayment]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id]);
-        existingPayment = pendingPayment || null;
+      if (campaign.payment_mode === 'free' || existing.status === 'pending_payment') {
+        const [[pendingPayment]] = existing.status === 'pending_payment'
+          ? await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id])
+          : [null];
+        await conn.commit();
+        return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, paymentId: pendingPayment?.id || null, code: existingCodes?.[0]?.code || null, codes: existingCodes.map(x => x.code) };
       }
+      if (campaign.payment_mode !== 'manual_transfer') throw Object.assign(new Error('PAYMENT_MODE_UNAVAILABLE'), { code: 'PAYMENT_MODE_UNAVAILABLE' });
+      const currentCount = existingCodes.length;
+      const maxCodes = campaign.max_codes_per_participant == null ? null : Number(campaign.max_codes_per_participant);
+      if (maxCodes !== null && currentCount + requestedQuantity > maxCodes) throw Object.assign(new Error('CODE_LIMIT_EXCEEDED'), { code: 'CODE_LIMIT_EXCEEDED' });
+      const [paymentResult] = await conn.execute(
+        "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)",
+        [existing.id, 'manual_transfer', 'pending', Number(campaign.amount_minor) * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+      );
       await conn.commit();
-      return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, paymentId: existingPayment?.id || null, code: existingCode?.code || null };
+      return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: paymentResult.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
 
     if (campaign.capacity !== null) {
@@ -114,6 +132,9 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       throw Object.assign(new Error('PAYMENT_MODE_UNAVAILABLE'), { code: 'PAYMENT_MODE_UNAVAILABLE' });
     }
     const requiresApproval = campaign.payment_mode === 'manual_transfer';
+    if (campaign.payment_mode === 'free' && requestedQuantity !== 1) throw Object.assign(new Error('FREE_CAMPAIGN_SINGLE_CODE'), { code: 'FREE_CAMPAIGN_SINGLE_CODE' });
+    const maxCodes = campaign.payment_mode === 'free' ? 1 : (campaign.max_codes_per_participant == null ? null : Number(campaign.max_codes_per_participant));
+    if (maxCodes !== null && requestedQuantity > maxCodes) throw Object.assign(new Error('CODE_LIMIT_EXCEEDED'), { code: 'CODE_LIMIT_EXCEEDED' });
     const [entryResult] = await conn.execute(
       `INSERT INTO campaign_entries(campaign_id,participant_id,status,payment_status)
        VALUES(?,?,?,?)`,
@@ -122,17 +143,17 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     const entryId = entryResult.insertId;
     if (requiresApproval) {
       await conn.execute(
-        'INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?)',
-        [entryId, campaign.payment_mode, 'pending', campaign.amount_minor, campaign.currency, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+        'INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)',
+        [entryId, campaign.payment_mode, 'pending', Number(campaign.amount_minor) * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
       const paymentId = (await conn.execute("SELECT LAST_INSERT_ID() AS id"))[0][0].id;
       await conn.commit();
-      return { entryId, existing: false, status: 'pending_payment', paymentStatus: 'pending', paymentId, code: null };
+      return { entryId, existing: false, status: 'pending_payment', paymentStatus: 'pending', paymentId, quantity: requestedQuantity, code: null, codes: [] };
     }
 
-    const code = await issueCodeInTransaction(conn, campaign.id, entryId, codeSecret);
+    const codes = await issueCodeInTransaction(conn, campaign.id, entryId, codeSecret, 1);
     await conn.commit();
-    return { entryId, existing: false, status: 'active', paymentStatus: 'not_required', code };
+    return { entryId, existing: false, status: 'active', paymentStatus: 'not_required', code: codes[0], codes };
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -166,11 +187,11 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
     if (payment.capacity !== null && Number(count.total) >= Number(payment.capacity)) {
       throw Object.assign(new Error('CAMPAIGN_FULL'), { code: 'CAMPAIGN_FULL' });
     }
-    const [[existingCode]] = await conn.execute(
-      "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' LIMIT 1", [payment.entry_id]
-    );
-    let code = existingCode?.code || null;
-    if (!code) code = await issueCodeInTransaction(conn, payment.campaign_id, payment.entry_id, codeSecret);
+    const [[entry]] = await conn.execute("SELECT id FROM campaign_entries WHERE id=? FOR UPDATE",[payment.entry_id]);
+    const [[alreadyPaid]] = await conn.execute("SELECT COALESCE(SUM(quantity),0) AS total FROM campaign_payments WHERE entry_id=? AND status='approved'",[payment.entry_id]);
+    const [[thisPayment]] = await conn.execute("SELECT quantity FROM campaign_payments WHERE id=?",[paymentId]);
+    const quantity = Number(thisPayment.quantity || 1);
+    const codes = await issueCodeInTransaction(conn, payment.campaign_id, payment.entry_id, codeSecret, quantity);
     await conn.execute(
       "UPDATE campaign_payments SET status='approved',reviewed_by=?,reviewed_at=NOW() WHERE id=?",
       [String(reviewer), paymentId]
@@ -180,7 +201,7 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
       [payment.entry_id]
     );
     await conn.commit();
-    return { entryId: payment.entry_id, approved: true, code };
+    return { entryId: payment.entry_id, approved: true, quantity, codes, code: codes[0] };
   } catch (error) {
     await conn.rollback();
     throw error;
