@@ -140,7 +140,15 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           assert.equal(repeatJoin.existing, true);
           assert.equal(repeatJoin.code, firstJoin.code);
           await assert.rejects(
-            joinCampaign({ ...args, telegramUserId: '987654323', fullName: 'Second Participant', phone: '09123456781', instagram: 'second_user', chatId: '987654323' }),
+            joinCampaign({ ...args, telegramUserId: '987654323', fullName: 'Duplicate Identity', instagram: 'different_user', chatId: '987654323' }),
+            error => error.code === 'DUPLICATE_CONTACT'
+          );
+          await assert.rejects(
+            joinCampaign({ ...args, telegramUserId: '987654324', fullName: 'Invalid Participant', phone: 'not-a-phone', instagram: 'invalid_user', chatId: '987654324' }),
+            error => error.code === 'INVALID_PARTICIPANT_PROFILE'
+          );
+          await assert.rejects(
+            joinCampaign({ ...args, telegramUserId: '987654325', fullName: 'Second Participant', phone: '09123456781', instagram: 'second_user', chatId: '987654325' }),
             error => error.code === 'CAMPAIGN_FULL'
           );
           const [[issuedCount]] = await idempotency.execute(
