@@ -81,8 +81,8 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       assert.equal(entry.status, 'active');
       const [[issued]] = await verify.execute("SELECT code,status FROM issued_codes WHERE entry_id=?", [entry.id]);
       assert.deepEqual(issued, { code: 'LOT-LEGACY1', status: 'active' });
-      const [[sequenceBefore]] = await verify.execute("SELECT last_value FROM campaign_sequences WHERE campaign_id=?", [legacyCampaign.id]);
-      assert.equal(Number(sequenceBefore.last_value), 1);
+      const [[sequenceBefore]] = await verify.execute("SELECT last_sequence FROM campaign_sequences WHERE campaign_id=?", [legacyCampaign.id]);
+      assert.equal(Number(sequenceBefore.last_sequence), 1);
       const [audit] = await verify.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_audit_log'"
       );
