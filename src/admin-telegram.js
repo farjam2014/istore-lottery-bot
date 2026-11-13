@@ -150,7 +150,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       LEFT JOIN campaigns c ON c.id=ce.campaign_id
       LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active'
       WHERE ${clauses.join(' AND ')} ORDER BY p.created_at DESC,p.id DESC,cc.id ASC`,params);
-    const cell=v=>{let x=String(v??'');if(/^[\\s]*[=+\\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
+    const cell=v=>{let x=String(v??'');if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
     const csv='\\uFEFF'+[['نام','موبایل','اینستاگرام','کمپین','کد','وضعیت عضویت','زمان صدور'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.campaign_name||'',x.code||'',x.membership_status||'',x.issued_at||''])].map(row=>row.map(cell).join(',')).join('\\r\\n');
     return tgDocument(chat,'ustore-campaign-participants.csv',csv,'text/csv;charset=utf-8');
   }
