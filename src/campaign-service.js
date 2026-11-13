@@ -439,6 +439,45 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
+  async function cancelManualOrder({ orderId, participantId }) {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[order]] = await conn.execute(
+        "SELECT id,campaign_id,entry_id,status FROM payment_orders WHERE id=? AND participant_id=? FOR UPDATE",
+        [orderId,participantId]
+      );
+      if (!order) throw new Error('سفارش برای حساب شما پیدا نشد.');
+      if (order.status !== 'pending_payment') throw new Error('فقط سفارش در انتظار پرداخت قابل لغو است. رسید ارسال‌شده باید توسط پشتیبانی بررسی شود.');
+      await conn.execute("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status='pending_payment'", [orderId]);
+      await conn.execute("UPDATE campaign_capacity_reservations SET status='released' WHERE order_id=? AND status='held'", [orderId]);
+      await conn.execute(
+        "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.id=? AND e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')",
+        [order.entry_id]
+      );
+      await conn.execute("DELETE FROM campaign_payment_sessions WHERE order_id=?", [orderId]);
+      const [[recipient]] = await conn.execute("SELECT chat_id,business_connection_id,order_ref FROM payment_orders o JOIN participants p ON p.id=o.participant_id WHERE o.id=? LIMIT 1", [orderId]);
+      if (recipient?.chat_id) {
+        await conn.execute(
+          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+          ['order-cancelled:'+orderId,'customer_order_cancelled',JSON.stringify({
+            method:'sendMessage',
+            payload:{chat_id:String(recipient.chat_id),...(recipient.business_connection_id?{business_connection_id:String(recipient.business_connection_id)}:{}),text:'سفارش '+recipient.order_ref+' طبق درخواست شما لغو شد و ظرفیت رزروشده آزاد شد.'}
+          })]
+        );
+      }
+      await conn.execute(
+        "INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",
+        ['customer:'+String(participantId),'cancel_order','payment_order',String(orderId),JSON.stringify({campaign_id:order.campaign_id})]
+      );
+      await conn.commit();
+      return { id: orderId, status: 'cancelled' };
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally { conn.release(); }
+  }
+
   async function expireReservations() {
     const conn = await db.getConnection();
     try {
@@ -516,7 +555,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, updateDraftCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
+  return { createCampaign, updateDraftCampaign, setCampaignStatus, reserveManualOrder, cancelManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };
