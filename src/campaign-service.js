@@ -189,6 +189,7 @@ function createCampaignService({ db, adminId }) {
         );
         await conn.execute("UPDATE campaign_capacity_reservations SET status='committed' WHERE id=?", [reservation.id]);
         await conn.execute("UPDATE campaign_entries SET status='active' WHERE id=?", [order.entry_id]);
+        const issuedPaymentCodes = [];
         for (let i=0; i<Number(order.quantity); i++) {
           let code;
           let attempts = 0;
@@ -203,6 +204,7 @@ function createCampaignService({ db, adminId }) {
                 "INSERT INTO campaign_code_history(campaign_code_id,code,action,actor,reason) VALUES(?,?,'issued',?,'manual payment approved')",
                 [created.insertId,code,String(adminId)]
               );
+              issuedPaymentCodes.push(code);
               break;
             } catch (error) {
               if (error.code !== 'ER_DUP_ENTRY' || attempts >= 8) throw error;
@@ -219,11 +221,7 @@ function createCampaignService({ db, adminId }) {
           [order.participant_id]
         );
         if (recipient?.chat_id) {
-          const codeRows = await conn.execute(
-            "SELECT code FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND issued_at >= (SELECT reviewed_at FROM payment_orders WHERE id=?) ORDER BY id",
-            [order.campaign_id,order.participant_id,orderId]
-          );
-          const issuedCodes = codeRows[0].map(row => row.code);
+          const issuedCodes = issuedPaymentCodes;
           await conn.execute(
             "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
             ['payment-approved:'+orderId,'payment_approved',JSON.stringify({
