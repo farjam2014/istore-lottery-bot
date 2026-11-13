@@ -76,6 +76,28 @@ function createCampaignService({ db, adminId }) {
     return { id: result.insertId, slug: c.slug };
   }
 
+  async function updateDraftCampaign(campaignId,input) {
+    const c=assertCampaignInput(input);
+    if(!['per_code','per_participant'].includes(c.drawBasis))throw new Error('مبنای قرعه‌کشی نامعتبر است.');
+    if(!['one_per_participant','allow'].includes(c.multipleWinPolicy))throw new Error('سیاست برنده‌شدن نامعتبر است.');
+    if(!['system','live_wheel','hybrid'].includes(c.drawMethod))throw new Error('روش قرعه‌کشی نامعتبر است.');
+    const cardId=input.payment_card_id==null||input.payment_card_id===''?null:Number(input.payment_card_id);
+    if(c.paymentMode==='manual'&&(!Number.isSafeInteger(cardId)||cardId<1))throw new Error('برای پرداخت دستی کارت فعال لازم است.');
+    if(c.paymentMode!=='manual'&&cardId!=null)throw new Error('کارت فقط برای پرداخت دستی مجاز است.');
+    const conn=await db.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[old]]=await conn.execute("SELECT id,status,current_payment_card_id FROM campaigns WHERE id=? FOR UPDATE",[campaignId]);
+      if(!old||old.status!=='draft')throw new Error('فقط کمپین پیش‌نویس قابل ویرایش است.');
+      if(cardId!=null){const [[card]]=await conn.execute("SELECT id,status FROM bank_cards WHERE id=? FOR UPDATE",[cardId]);if(!card||card.status!=='active')throw new Error('کارت انتخاب‌شده فعال نیست.');}
+      await conn.execute(`UPDATE campaigns SET slug=?,name=?,description=?,payment_mode=?,current_payment_card_id=?,price_per_code=?,currency=?,max_participants=?,max_codes=?,max_codes_per_participant=?,draw_basis=?,winner_count=?,alternate_count=?,multiple_win_policy=?,draw_method=?,starts_at=?,ends_at=? WHERE id=? AND status='draft'`,
+        [c.slug,c.name,c.description,c.paymentMode,cardId,c.price,c.currency,c.maxParticipants,c.maxCodes,c.maxCodesPerParticipant,c.drawBasis,c.winnerCount,c.alternateCount,c.multipleWinPolicy,c.drawMethod,c.startsAt,c.endsAt,campaignId]);
+      if(cardId!==old.current_payment_card_id&&cardId!=null)await conn.execute('INSERT INTO campaign_payment_card_history(campaign_id,card_id,changed_by,change_reason) VALUES(?,?,?,?)',[campaignId,cardId,String(adminId),'draft edited via Telegram']);
+      await conn.commit();
+      return {id:campaignId,slug:c.slug};
+    }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+  }
+
   async function setCampaignStatus(campaignId, nextStatus, reason = '') {
     const allowed = ['draft','scheduled','open','paused','closed','archived'];
     if (!allowed.includes(nextStatus)) throw new Error('وضعیت کمپین نامعتبر است.');
@@ -429,7 +451,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
+  return { createCampaign, updateDraftCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };
