@@ -7,6 +7,10 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   const editModes = new Map();
   const pending = new Map();
   const uiMessageIds = new Map();
+  const callbackInFlight = new Map();
+  const actionInFlight = new Map();
+  const completedCallbackIds = new Set();
+  const completedCallbackOrder = [];
   const isAdmin = (q) => String(q?.from?.id || '') === String(adminId) && q?.message?.chat?.type === 'private';
   const menu = [
     [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 شرکت‌کنندگان', callback_data: 'adm:entries:0' }],
@@ -61,6 +65,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const [[outbox]] = await db.query("SELECT COUNT(*) failed FROM telegram_notification_outbox WHERE status='failed'");
     const [[campaigns]] = await db.query("SELECT COUNT(*) total, SUM(status='open') open, SUM(status='draft') draft, SUM(status='paused') paused, SUM(status='closed') closed FROM campaigns");
     const [[participants]] = await db.query("SELECT COUNT(*) total, SUM(status='active') active FROM participants");
+    const [[entryFunnel]] = await db.query("SELECT COUNT(*) total, SUM(status='active') completed, SUM(status='pending') pending, SUM(status='inactive') inactive, SUM(status IN ('cancelled','disqualified')) excluded FROM campaign_entries");
     const [[codes]] = await db.query("SELECT COUNT(*) total FROM campaign_codes WHERE status='active'");
     const [[orders]] = await db.query("SELECT COUNT(*) total, SUM(status='pending_payment') pending, SUM(status='receipt_submitted') receipts, SUM(status='approved') approved, SUM(status='rejected') rejected FROM payment_orders");
     const [revenue] = await db.query("SELECT currency,SUM(amount) total FROM payment_transactions WHERE status='confirmed' GROUP BY currency ORDER BY currency");
@@ -71,6 +76,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       '📊 داشبورد مدیریتی iStore\n\n' +
       '🧩 کمپین‌ها: '+Number(campaigns.total||0)+' | باز: '+Number(campaigns.open||0)+' | پیش‌نویس: '+Number(campaigns.draft||0)+' | متوقف: '+Number(campaigns.paused||0)+' | بسته: '+Number(campaigns.closed||0)+
       '\n👥 پروفایل‌های چندکمپینی: '+Number(participants.total||0)+' | فعال: '+Number(participants.active||0)+
+      '\n🧭 عضویت کمپین: '+Number(entryFunnel.completed||0)+' تکمیل‌شده از '+Number(entryFunnel.total||0)+' | معلق: '+Number(entryFunnel.pending||0)+' | غیرفعال/حذف‌شده: '+(Number(entryFunnel.inactive||0)+Number(entryFunnel.excluded||0))+' | نرخ تکمیل: '+(Number(entryFunnel.total||0)?Math.round(Number(entryFunnel.completed||0)*100/Number(entryFunnel.total)):0)+'٪'+
       '\n🎟 کدهای فعال: '+Number(codes.total||0)+
       '\n💳 سفارش‌ها: '+Number(orders.total||0)+' | منتظر پرداخت: '+Number(orders.pending||0)+' | رسید در انتظار: '+Number(orders.receipts||0)+
       '\n✅ پرداخت‌های تأییدشده: '+Number(orders.approved||0)+' | ردشده: '+Number(orders.rejected||0)+
@@ -81,7 +87,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       '\n⌛ نشست نیمه‌کاره: '+Number(sessions.pending||0)+
       '\n⚠️ خطاهای Webhook: '+Number(webhooks.failed||0)+' | اعلان ناموفق: '+Number(outbox.failed||0)+
       '\n🏆 قرعه‌کشی قدیمی: '+(draw?.setting_value==='true'?'انجام شده':'انجام نشده'),
-      reply_markup: keyboard([[{text:'🧩 کمپین‌ها',callback_data:'adm:campaigns'},{text:'💳 سفارش‌ها',callback_data:'adm:orders'}],[{text:'📝 درخواست‌های اصلاح',callback_data:'adm:profile-requests'},{text:'🧾 رخدادها',callback_data:'adm:audit'}],[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]]) });
+      reply_markup: keyboard([[{text:'🧩 کمپین‌ها',callback_data:'adm:campaigns'},{text:'💳 سفارش‌ها',callback_data:'adm:orders'}],[{text:'📝 درخواست‌های اصلاح',callback_data:'adm:profile-requests'},{text:'🧾 رخدادها',callback_data:'adm:audit'}],[{text:'📈 گزارش کمپین‌ها',callback_data:'adm:reports'}],[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]]) });
   }
   async function entries(chat, page, status = 'all', period = 'all') {
     const p = Math.max(0, Math.min(10000, Number(page) || 0));
@@ -167,6 +173,33 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       [{text:'راهنما و بازه زمانی',callback_data:'adm:export:help'}],
       [{text:'منوی اصلی',callback_data:'adm:home'}]
     ])});
+  }
+  async function campaignReports(chat) {
+    const [rows] = await db.execute(`
+      SELECT c.id,c.name,c.status,
+        COUNT(DISTINCT ce.id) AS total_entries,
+        COUNT(DISTINCT CASE WHEN ce.status='active' THEN ce.id END) AS completed_entries,
+        COUNT(DISTINCT CASE WHEN ce.status='pending' THEN ce.id END) AS pending_entries,
+        COUNT(DISTINCT CASE WHEN ce.status IN ('inactive','cancelled','disqualified') THEN ce.id END) AS excluded_entries,
+        COUNT(DISTINCT CASE WHEN cc.status='active' THEN cc.id END) AS active_codes,
+        COUNT(DISTINCT CASE WHEN o.status='approved' THEN o.id END) AS approved_orders
+      FROM campaigns c
+      LEFT JOIN campaign_entries ce ON ce.campaign_id=c.id
+      LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id AND cc.entry_id=ce.id
+      LEFT JOIN payment_orders o ON o.campaign_id=c.id AND o.entry_id=ce.id
+      GROUP BY c.id,c.name,c.status
+      ORDER BY c.id DESC LIMIT 20
+    `);
+    if (!rows.length) return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'↩️ داشبورد',callback_data:'adm:stats'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
+    const body=rows.map(r=>{
+      const total=Number(r.total_entries||0),done=Number(r.completed_entries||0);
+      const rate=total?Math.round(done*100/total):0;
+      return '#'+r.id+' '+r.name+' · '+r.status+
+        '\nثبت‌نام نهایی: '+done+'/'+total+' ('+rate+'٪) · معلق: '+Number(r.pending_entries||0)+
+        '\nغیرفعال/حذف‌شده: '+Number(r.excluded_entries||0)+' · کد فعال: '+Number(r.active_codes||0)+
+        ' · سفارش تأییدشده: '+Number(r.approved_orders||0);
+    }).join('\n\n');
+    return adminMessage({chat_id:chat,text:'📈 گزارش مدیریتی کمپین‌ها\n\nنرخ تکمیل = عضویت‌های فعال ÷ کل پرونده‌های ایجادشده در کمپین. این شاخص نرخ تبدیل شروع گفتگو به ثبت‌نام نیست؛ نشست‌های لغوشده/پاک‌شده در سامانه فعلی تاریخچه دائمی ندارند.\n\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'↩️ داشبورد',callback_data:'adm:stats'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
   }
   async function auditLog(chat) {
     const [rows] = await db.query('SELECT action,entity_type,entity_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 15');
@@ -429,7 +462,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!r)return adminMessage({chat_id:chat,text:'درخواست پیدا نشد.'});
     return adminMessage({chat_id:chat,text:'درخواست اصلاح #'+r.id+'\nشرکت‌کننده: '+r.full_name+'\nفیلد: '+r.field_name+'\nمقدار فعلی: '+r.old_value+'\nمقدار درخواستی: '+r.requested_value+'\nوضعیت: '+r.status,reply_markup:keyboard(r.status==='pending'?[[{text:'✅ تأیید',callback_data:'adm:profile-confirm:'+id+':approve'},{text:'❌ رد',callback_data:'adm:profile-confirm:'+id+':reject'}],[{text:'↩️ فهرست',callback_data:'adm:profile-requests'}]]:[[ {text:'↩️ فهرست',callback_data:'adm:profile-requests'} ]])});
   }
-  async function handleCallback(q) {
+  async function processCallback(q) {
     if (!isAdmin(q) || !String(q.data||'').startsWith('adm:')) return false;
     const chat = q.message.chat.id, data = q.data;
     if (q.message.message_id) uiMessageIds.set(String(chat), q.message.message_id);
@@ -452,6 +485,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(data.startsWith('adm:campaign-card-apply:')){const [, ,campaignId,cardId]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='campaign-card'||p.campaignId!==campaignId||p.cardId!==cardId||p.expires<Date.now())return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.assignCampaignCard(Number(campaignId),Number(cardId),'changed via Telegram admin panel');return campaignDetail(chat,campaignId);}
     if (data==='adm:home') return home(chat);
     if (data==='adm:stats') return stats(chat);
+    if (data==='adm:reports') return campaignReports(chat);
     if (data==='adm:campaign') return campaign(chat);
     if (data==='adm:campaigns') return campaignList(chat);
     if (data==='adm:campaign-filter') return campaignFilter(chat);
@@ -570,13 +604,24 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       const [, , id, status] = data.split(':');
       const p=pending.get(String(adminId)); pending.delete(String(adminId));
       if (!p||p.type!=='status'||p.id!==id||p.status!==status||p.expires<Date.now()) return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});
-      if (status==='active') {
-        const [dups]=await db.execute("SELECT id FROM lottery_entries WHERE status='active' AND id<>? AND (phone=(SELECT phone FROM lottery_entries WHERE id=?) OR LOWER(instagram)=(SELECT LOWER(instagram) FROM lottery_entries WHERE id=?)) LIMIT 1",[id,id,id]);
-        if(dups.length) return adminMessage({chat_id:chat,text:'شماره یا اینستاگرام با شرکت‌کننده فعال دیگری تکراری است.'});
-      }
-      const [r]=await db.execute("UPDATE lottery_entries SET status=? WHERE id=? AND status<>'deleted'",[status,id]);
-      if(!r.affectedRows) return adminMessage({chat_id:chat,text:'پرونده پیدا نشد.'});
-      await audit(status==='active'?'restore_entry':'deactivate_entry','lottery_entry',id,{source:'telegram'});
+      const conn=await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [current]=await conn.execute("SELECT id,status,phone,instagram FROM lottery_entries WHERE id=? FOR UPDATE",[id]);
+        if(!current.length || current[0].status==='deleted') throw new Error('پرونده پیدا نشد یا حذف شده است.');
+        if(current[0].status===status) throw new Error('وضعیت پرونده از قبل همین مقدار است.');
+        if(status==='active') {
+          const [dups]=await conn.execute("SELECT id FROM lottery_entries WHERE status='active' AND id<>? AND (phone=? OR LOWER(instagram)=LOWER(?)) LIMIT 1",[id,current[0].phone,current[0].instagram]);
+          if(dups.length) throw new Error('شماره یا اینستاگرام با شرکت‌کننده فعال دیگری تکراری است.');
+        }
+        const [r]=await conn.execute("UPDATE lottery_entries SET status=? WHERE id=? AND status<>'deleted'",[status,id]);
+        if(!r.affectedRows) throw new Error('پرونده پیدا نشد.');
+        await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),status==='active'?'restore_entry':'deactivate_entry','lottery_entry',id,JSON.stringify({source:'telegram',from:current[0].status,to:status})]);
+        await conn.commit();
+      } catch(e) {
+        await conn.rollback();
+        return adminMessage({chat_id:chat,text:'تغییر وضعیت انجام نشد: '+e.message});
+      } finally { conn.release(); }
       return detail(chat,id);
     }
     if (data.startsWith('adm:confirm-registration:')) {
@@ -606,6 +651,41 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:draw-detail:')) return drawDetail(chat,data.slice('adm:draw-detail:'.length));
     if (data==='adm:confirm-draw') return performDraw(chat);
     return adminMessage({chat_id:chat,text:'عملیات ناشناخته است.'});
+  }
+  async function handleCallback(q) {
+    if (!isAdmin(q) || !String(q.data||'').startsWith('adm:')) return false;
+    const callbackId=String(q.id||'');
+    if(callbackId && completedCallbackIds.has(callbackId)) return true;
+    if(callbackId && callbackInFlight.has(callbackId)) return callbackInFlight.get(callbackId);
+    const actionKey=String(q.data||'');
+    if(actionKey && actionInFlight.has(actionKey)) {
+      try { await tg('answerCallbackQuery',{callback_query_id:q.id}); } catch (_) {}
+      const shared=actionInFlight.get(actionKey);
+      if(callbackId) callbackInFlight.set(callbackId,shared);
+      try { return await shared; }
+      finally { if(callbackId) callbackInFlight.delete(callbackId); }
+    }
+    const task=(async()=>{
+      try { return await processCallback(q); }
+      catch(error) {
+        console.error('Admin callback failed:',error?.message||error);
+        return adminMessage({chat_id:q.message.chat.id,text:'❌ عملیات انجام نشد. وضعیت داده‌ها را بررسی کنید و دوباره تلاش کنید.'});
+      }
+    })();
+    if(callbackId) callbackInFlight.set(callbackId,task);
+    if(actionKey) actionInFlight.set(actionKey,task);
+    try {
+      const result=await task;
+      if(callbackId) {
+        completedCallbackIds.add(callbackId);
+        completedCallbackOrder.push(callbackId);
+        if(completedCallbackOrder.length>2048) completedCallbackIds.delete(completedCallbackOrder.shift());
+      }
+      return result;
+    } finally {
+      if(callbackId) callbackInFlight.delete(callbackId);
+      if(actionKey) actionInFlight.delete(actionKey);
+    }
   }
   async function handleMessage(m) {
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
