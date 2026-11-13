@@ -100,7 +100,6 @@ return out;
 function signed(v){return crypto.createHmac("sha256",sessionSecret).update(v).digest("hex")}
 function isAdmin(req){const raw=cookies(req.headers.cookie||"").istore_admin;if(!raw||!raw.includes("."))return false;const [p,s]=raw.split(".");if(!equal(s,signed(p)))return false;try{return JSON.parse(Buffer.from(p,"base64url").toString()).exp>Date.now()}catch{return false}}
 function admin(req,res,next){if(!isAdmin(req))return res.status(401).json({error:"لطفاً وارد پنل مدیریت شوید."});next()}
-async function entry(uid){const [r]=await db.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=?",[String(uid)]);return r[0]}
 async function session(uid){const [r]=await db.execute("SELECT * FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO telegram_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)])}
@@ -271,45 +270,6 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
-if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private"){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
-}
-if(!["admin:stats","admin:export","admin:search","admin:search:phone","admin:search:instagram","admin:search:code"].includes(q.data)){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دکمه نامعتبر است.",show_alert:true});
-}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال اجرا..."});
-if(q.data==="admin:search"){
-return tg("sendMessage",{chat_id:chat,text:"🔎 روش جستجوی شرکت‌کننده را انتخاب کنید:",reply_markup:{inline_keyboard:[
-[{text:"📱 جستجو با شماره موبایل",callback_data:"admin:search:phone"}],
-[{text:"📸 جستجو با آیدی اینستاگرام",callback_data:"admin:search:instagram"}],
-[{text:"🎟️ جستجو با کد قرعه‌کشی",callback_data:"admin:search:code"}]
-]}});
-}
-const searchPrompts={"admin:search:phone":["phone","شماره موبایل شرکت‌کننده را وارد کنید:"],"admin:search:instagram":["instagram","آیدی اینستاگرام را وارد کنید:"],"admin:search:code":["raffle_code","کد قرعه‌کشی را وارد کنید:"]};
-if(searchPrompts[q.data]){
-adminSearchModes.set(uid,searchPrompts[q.data][0]);
-return tg("sendMessage",{chat_id:chat,text:"🔎 "+searchPrompts[q.data][1]});
-}
-if(q.data==="admin:stats"){
-try{
-const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS codes, COUNT(DISTINCT raffle_code) AS unique_codes FROM lottery_entries WHERE status='active'");
-const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-return tg("sendMessage",{chat_id:chat,text:"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today});
-}catch(e){
-console.error("Callback stats error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"خطا در دریافت آمار. گزارش خطا در سرور ثبت شد."});
-}
-}
-try{
-const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-const cell=csvCell;
-const csv="\uFEFF"+[["نام و نام خانوادگی","موبایل","اینستاگرام","کد قرعه‌کشی","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,"@"+String(x.instagram||"").replace(/^@/,""),x.raffle_code,x.created_at])].map(row=>row.map(cell).join(",")).join("\r\n");
-return await tgDocument(chat,"istore-lottery.csv",csv,"text/csv;charset=utf-8");
-}catch(e){
-console.error("Callback export error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق بود. گزارش خطا در سرور ثبت شد."});
-}
-}
 
 async function handlePrivateUpdate(update){
 const m=update.message;
@@ -411,22 +371,6 @@ if(ticket.status!=="open")return reply(chat,conn,"این تیکت قبلاً پ�
 await reply(String(ticket.chat_id),String(ticket.business_connection_id||""),"💬 پاسخ پشتیبانی USTORE\n\n"+answer);
 await db.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=? AND status='open'",[answer,String(uid),ticketId]);
 return reply(chat,conn,"پاسخ تیکت #"+ticketId+" ارسال شد.");
-}
-if(lower==="/export" || lower.startsWith("/export@")){
-if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
-try{
-const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-const csv="\uFEFF"+[["نام و نام خانوادگی","موبایل","اینستاگرام","کد قرعه‌کشی","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,"@"+String(x.instagram||"").replace(/^@/,""),x.raffle_code,x.created_at])].map(row=>row.map(csvCell).join(",")).join("\r\n");
-const boundary="----lottery"+Date.now();
-const file=Buffer.from(csv,"utf8");
-const head=Buffer.from("--"+boundary+"\r\nContent-Disposition: form-data; name=\"business_connection_id\"\r\n\r\n"+conn+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n"+chat+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"document\"; filename=\"istore-lottery.csv\"\r\nContent-Type: text/csv; charset=utf-8\r\n\r\n");
-const tail=Buffer.from("\r\n--"+boundary+"--\r\n");
-const body=Buffer.concat([head,file,tail]);
-const response=await fetch("https://api.telegram.org/bot"+token+"/sendDocument",{method:"POST",headers:{"Content-Type":"multipart/form-data; boundary="+boundary},body});
-const result=await response.json();
-if(!result.ok)throw new Error(result.description||"ارسال فایل ناموفق بود");
-}catch(e){console.error("Export error:",e.message);await reply(chat,conn,"ارسال فایل ناموفق بود. گزارش خطا در سرور ثبت شد.");}
-return;
 }
 
 if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
