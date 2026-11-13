@@ -6,6 +6,7 @@ const {createAdminTelegram}=require("./admin-telegram");
 const {createCampaignService}=require("./campaign-service");
 const {createBankCardService}=require("./bank-card-service");
 const {createDrawService}=require("./draw-service");
+const {createAccountAuth}=require("./account-auth");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -61,6 +62,7 @@ async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
+const accountAuth=createAccountAuth({app,db,tg,adminId:process.env.ADMIN_ID,sessionSecret,siteUrl:process.env.PUBLIC_SITE_URL||"https://"+String(process.env.DOMAIN||"").replace(/^https?:\\/\\//,"")});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const csvCell=v=>{let x=String(v??"");if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"'};
@@ -182,6 +184,7 @@ function campaignQuantityKeyboard(campaignId,max,page=0){
 
 async function handleCallbackQuery(q){
 if(!q?.id)return;
+if(await accountAuth.handleCallback(q))return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
 if(q.data==="reg:continue"||q.data==="reg:cancel"){
@@ -359,6 +362,7 @@ return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق
 async function handlePrivateUpdate(update){
 const m=update.message;
 if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
+if(await accountAuth.handleMessage(m))return;
 const adminHandled=await adminTelegram.handleMessage(m);
 if(adminHandled!==false)return adminHandled;
 return handleUpdate({business_message:{...m,business_connection_id:""}});
