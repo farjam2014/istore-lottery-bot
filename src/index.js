@@ -409,7 +409,7 @@ if(!pending)return reply(chat,conn,"برای شما پرداخت کارت‌به
 const photo=m.photo[m.photo.length-1];
 const [proofResult]=await db.execute(
 "INSERT IGNORE INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
-[pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),crypto.createHash("sha256").update(String(photo.file_unique_id||photo.file_id)).digest("hex"),photo.file_id,photo.file_unique_id||null]);
+[pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),null,photo.file_id,photo.file_unique_id||null]);
 if(!proofResult.affectedRows)console.info("Duplicate receipt update; retrying admin delivery for payment",pending.id);
 await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\nکمپین: "+pending.title+"\nنام: "+pending.full_name+"\nموبایل: "+pending.phone+"\nاینستاگرام: @"+pending.instagram+"\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
 return reply(chat,conn,"📨 تصویر رسید دریافت شد و برای مدیر ارسال شد. پس از بررسی نتیجه به شما اطلاع داده می‌شود. تا قبل از تأیید، کدی صادر نخواهد شد.");
