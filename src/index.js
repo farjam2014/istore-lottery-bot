@@ -405,11 +405,6 @@ if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower=
   return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید حساب خود را مشاهده کنید.',reply_markup:{inline_keyboard:buttons}});
 }
 
-  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
-  if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
-  const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
-  return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:'🧩 کمپین فعال موردنظرتان را انتخاب کنید:',reply_markup:{inline_keyboard:buttons}});
-}
 
 const profileChangeMatch=t.match(/^اصلاح\s+(نام|موبایل|اینستاگرام)\s*[:：]\s*(.+)$/);
 if(profileChangeMatch){
