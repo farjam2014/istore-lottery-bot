@@ -26,6 +26,10 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       await db.query(schema);
       await db.query("ALTER TABLE lottery_entries DROP INDEX uq_entries_active_phone, DROP INDEX uq_entries_active_instagram, DROP COLUMN active_phone, DROP COLUMN active_instagram");
       await db.query("ALTER TABLE lottery_entries MODIFY status ENUM('active','inactive') NOT NULL DEFAULT 'active'");
+      await db.execute(
+        "INSERT INTO lottery_entries(telegram_user_id,chat_id,full_name,phone,instagram,raffle_code,status) VALUES(?,?,?,?,?,?,'active')",
+        [987654321,987654321,'Legacy Participant','09123456789','legacy_user','LOT-LEGACY1']
+      );
     } finally {
       await db.end();
     }
@@ -63,12 +67,60 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       const names = new Set(columns.map(x => x.COLUMN_NAME));
       assert.ok(names.has('deleted_at'));
       assert.ok(names.has('deletion_reason'));
+      const [[legacyCampaign]] = await verify.execute("SELECT id,status FROM campaigns WHERE slug='legacy'");
+      assert.ok(legacyCampaign, 'legacy campaign must be created');
+      assert.equal(legacyCampaign.status, 'closed');
+      const [[participant]] = await verify.execute("SELECT id,telegram_user_id,full_name FROM participants WHERE telegram_user_id=987654321");
+      assert.ok(participant, 'legacy participant profile must be backfilled');
+      assert.equal(participant.full_name, 'Legacy Participant');
+      const [[entry]] = await verify.execute(
+        "SELECT id,campaign_id,status FROM campaign_entries WHERE legacy_entry_id=(SELECT id FROM lottery_entries WHERE telegram_user_id=987654321)"
+      );
+      assert.ok(entry, 'legacy campaign entry must be backfilled');
+      assert.equal(entry.campaign_id, legacyCampaign.id);
+      assert.equal(entry.status, 'active');
+      const [[issued]] = await verify.execute("SELECT code,status FROM issued_codes WHERE entry_id=?", [entry.id]);
+      assert.deepEqual(issued, { code: 'LOT-LEGACY1', status: 'active' });
+      const [[sequenceBefore]] = await verify.execute("SELECT last_value FROM campaign_sequences WHERE campaign_id=?", [legacyCampaign.id]);
+      assert.equal(Number(sequenceBefore.last_value), 1);
       const [audit] = await verify.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_audit_log'"
       );
       assert.deepEqual(new Set(audit.map(x => x.COLUMN_NAME)), new Set([
         'id', 'admin_id', 'action', 'entity_type', 'entity_id', 'details', 'created_at'
       ]));
+      await verify.end();
+      const secondRun = spawnSync(process.execPath, [path.join(__dirname, '..', 'migrations', 'run.js')], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DB_HOST: process.env.MYSQL_TEST_HOST,
+          DB_PORT: String(process.env.MYSQL_TEST_PORT || 3306),
+          DB_USER: process.env.MYSQL_TEST_USER,
+          DB_PASSWORD: process.env.MYSQL_TEST_PASSWORD,
+          DB_NAME: database
+        },
+        timeout: 30000
+      });
+      assert.equal(secondRun.status, 0, secondRun.stderr || secondRun.stdout);
+      const idempotency = await mysql.createConnection({
+        host: process.env.MYSQL_TEST_HOST,
+        port: Number(process.env.MYSQL_TEST_PORT || 3306),
+        user: process.env.MYSQL_TEST_USER,
+        password: process.env.MYSQL_TEST_PASSWORD,
+        database
+      });
+      try {
+        const [[counts]] = await idempotency.execute(
+          "SELECT (SELECT COUNT(*) FROM participants WHERE telegram_user_id=987654321) AS profiles, (SELECT COUNT(*) FROM campaign_entries WHERE legacy_entry_id=(SELECT id FROM lottery_entries WHERE telegram_user_id=987654321)) AS entries, (SELECT COUNT(*) FROM issued_codes WHERE code='LOT-LEGACY1') AS codes"
+        );
+        assert.deepEqual(
+          { profiles: Number(counts.profiles), entries: Number(counts.entries), codes: Number(counts.codes) },
+          { profiles: 1, entries: 1, codes: 1 }
+        );
+      } finally {
+        await idempotency.end();
+      }
     } finally {
       await verify.end();
     }
