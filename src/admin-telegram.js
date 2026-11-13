@@ -3,8 +3,6 @@ const crypto = require('node:crypto');
 const { normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
 function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, campaignService, bankCardService, drawService }) {
-  const searchModes = new Map();
-  const editModes = new Map();
   const pending = new Map();
   const uiMessageIds = new Map();
   const callbackInFlight = new Map();
@@ -513,7 +511,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
     const text=String(m.text||'').trim();
     if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
-    if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
+    if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { return home(m.chat.id); }
 
     const cardMode=pending.get(String(adminId));
     if(cardMode?.type==='card-wizard' && text && (text.toLowerCase()==='/back'||!text.startsWith('/'))){
@@ -562,27 +560,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       return campaignWizardReview(m.chat.id,wizard);
     }
     if (text.toLowerCase()==='/newcampaign') return createCampaignPrompt(m.chat.id);
-    if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)) || pending.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
-    if (editModes.has(String(adminId)) && text) {
-      const mode=editModes.get(String(adminId)); editModes.delete(String(adminId));
-      if(mode.expires<Date.now()) return adminMessage({chat_id:m.chat.id,text:'مهلت ویرایش تمام شده است؛ دوباره از پرونده اقدام کنید.'});
-      const parts=text.split('|').map(x=>x.trim());
-      if(parts.length!==3) return adminMessage({chat_id:m.chat.id,text:'قالب نادرست است. سه مقدار را با | جدا کنید.'});
-      const full_name=parts[0].replace(/\s+/g,' '),phone=normalizePhone(digits(parts[1])),instagram=normalizeInstagram(parts[2]);
-      if(!validFullName(full_name)||!validPhone(phone)||!validInstagram(instagram)) return adminMessage({chat_id:m.chat.id,text:'اطلاعات نامعتبر است؛ نام، شماره و آیدی را بررسی کنید.'});
-      const [rows]=await db.execute('SELECT id,status FROM lottery_entries WHERE id=? LIMIT 1',[mode.id]);
-      if(!rows.length||rows[0].status==='deleted') return adminMessage({chat_id:m.chat.id,text:'پرونده پیدا نشد یا حذف شده است.'});
-      pending.set(String(adminId),{type:'edit',id:mode.id,full_name,phone,instagram,expires:Date.now()+60000});
-      return adminMessage({chat_id:m.chat.id,text:'پیش‌نمایش ویرایش:\nنام: '+full_name+'\nموبایل: '+phone+'\nاینستاگرام: @'+instagram+'\n\nثبت تغییرات؟',reply_markup:keyboard([[{text:'تأیید و ثبت',callback_data:'adm:apply-edit:'+mode.id},{text:'لغو',callback_data:'adm:entry:'+mode.id}]])});
-    }
-    if (!searchModes.has(String(adminId)) || !text) return false;
-    searchModes.delete(String(adminId));
-    const term=digits(text).slice(0,100);
-    const [rows]=await db.execute("SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries WHERE (?='' OR full_name LIKE ? OR phone LIKE ? OR instagram LIKE ? OR raffle_code LIKE ? OR telegram_user_id=?) ORDER BY id DESC LIMIT 10",[term,'%'+term+'%','%'+term+'%','%'+term+'%','%'+term+'%',term]);
-    if(!rows.length) return adminMessage({chat_id:m.chat.id,text:'نتیجه‌ای پیدا نشد.',reply_markup:keyboard([[{text:'🔎 جستجوی دوباره',callback_data:'adm:search'},{text:'🏠 منو',callback_data:'adm:home'}]])});
-    const buttons=rows.map(x=>[{text:(x.status==='active'?'✅ ':'⏸ ')+x.full_name+' · '+x.raffle_code,callback_data:'adm:entry:'+x.id}]);
-    buttons.push([{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
-    return adminMessage({chat_id:m.chat.id,text:'🔎 نتایج جستجو: '+rows.length,reply_markup:keyboard(buttons)});
+    if (text.toLowerCase()==='/cancel') { pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
   }
   return { handleCallback, handleMessage };
 }
