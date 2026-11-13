@@ -138,6 +138,7 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           assert.match(firstJoin.code, /^IS-[A-F0-9]{24}$/);
           const repeatJoin = await joinCampaign(args);
           assert.equal(repeatJoin.existing, true);
+          await assert.rejects(joinCampaign({ ...args, quantity: 2 }), error => error.code === 'FREE_CAMPAIGN_SINGLE_CODE');
           assert.equal(repeatJoin.code, firstJoin.code);
           await assert.rejects(
             joinCampaign({ ...args, telegramUserId: '987654323', fullName: 'Duplicate Identity', instagram: 'different_user', chatId: '987654323' }),
@@ -163,13 +164,17 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
 
           const { approveManualPayment, rejectManualPayment } = require('../src/campaign-service');
           await idempotency.execute(
-            "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,settings) VALUES('integration-manual','Manual Transfer','active',10,'manual_transfer',250000,JSON_OBJECT('card_number','1234567812345678','card_holder','Test Owner'))"
+            "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,max_codes_per_participant,settings) VALUES('integration-manual','Manual Transfer','active',10,'manual_transfer',250000,NULL,JSON_OBJECT('card_number','1234567812345678','card_holder','Test Owner'))"
           );
           const manualArgs = { ...args, telegramUserId: '987654327', fullName: 'Manual Transfer User', phone: '09123456783', instagram: '@manual_user', chatId: '987654327', campaignSlug: 'integration-manual' };
-          const pending = await joinCampaign(manualArgs);
+          const pending = await joinCampaign({ ...manualArgs, quantity: 3 });
           assert.equal(pending.status, 'pending_payment');
           assert.equal(pending.paymentStatus, 'pending');
           assert.equal(pending.code, null);
+          assert.equal(pending.quantity, 3);
+          const [[pendingAmount]] = await idempotency.execute("SELECT amount_minor,quantity FROM campaign_payments WHERE id=?",[pending.paymentId]);
+          assert.equal(Number(pendingAmount.amount_minor),750000);
+          assert.equal(Number(pendingAmount.quantity),3);
           await assert.rejects(
             approveManualPayment({ db: pool, paymentId: pending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret }),
             error => error.code === 'PAYMENT_PROOF_REQUIRED'
@@ -183,6 +188,9 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           const approved = await approveManualPayment({ db: pool, paymentId: pending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret });
           assert.equal(approved.approved, true);
           assert.match(approved.code, /^IS-[A-F0-9]{24}$/);
+          assert.equal(approved.codes.length, 3);
+          const [[issuedTotal]] = await idempotency.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[pending.entryId]);
+          assert.equal(Number(issuedTotal.total),3);
 
           const rejectedPending = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: 'retry_user', chatId: '987654328' });
           await idempotency.execute(
@@ -190,9 +198,18 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
             [rejectedPending.paymentId, 'telegram:retry-file', 'image/jpeg', 100, 'b'.repeat(64), 'retry-file']
           );
           await rejectManualPayment({ db: pool, paymentId: rejectedPending.paymentId, reviewer: 'admin' });
-          const retry = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: '@retry_user', chatId: '987654328' });
+          const retry = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: '@retry_user', chatId: '987654328', quantity: 2 });
           assert.equal(retry.status, 'pending_payment');
           assert.notEqual(retry.paymentId, rejectedPending.paymentId);
+          const [[retryAmount]] = await idempotency.execute("SELECT amount_minor,quantity FROM campaign_payments WHERE id=?",[retry.paymentId]);
+          assert.equal(Number(retryAmount.amount_minor),500000);
+          assert.equal(Number(retryAmount.quantity),2);
+
+          await idempotency.execute("INSERT INTO campaigns(slug,title,status,payment_mode,amount_minor,max_codes_per_participant) VALUES('integration-capped','Capped Campaign','active','manual_transfer',100000,2)");
+          await assert.rejects(
+            joinCampaign({ ...manualArgs, telegramUserId: '987654329', fullName: 'Capped User', phone: '09123456785', instagram: 'capped_user', chatId: '987654329', campaignSlug: 'integration-capped', quantity: 3 }),
+            error => error.code === 'CODE_LIMIT_EXCEEDED'
+          );
         } finally {
           await pool.end();
         }
