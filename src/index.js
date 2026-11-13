@@ -245,7 +245,7 @@ return tg("sendMessage",{chat_id:chat,text:"🔎 روش جستجوی شرکت‌
 [{text:"🎟️ جستجو با کد قرعه‌کشی",callback_data:"admin:search:code"}]
 ]}});
 }
-const searchPrompts={"admin:search:phone":["phone","شماره موبایل شرکت‌کننده را وارد کنید:"],"admin:search:instagram":["instagram","آیدی اینستاگرام را وارد کنید:"],"admin:search:code":["raffle_code","کد قرعه‌کشی را وارد کنید:"]};
+const searchPrompts={"admin:search:phone":["phone","شماره موبایل شرکت‌کننده را وارد کنید:"],"admin:search:instagram":["instagram","آیدی اینستاگرام را بدون @ وارد کنید:"],"admin:search:code":["raffle_code","کد قرعه‌کشی را وارد کنید:"]};
 if(searchPrompts[q.data]){
 adminSearchModes.set(uid,searchPrompts[q.data][0]);
 return tg("sendMessage",{chat_id:chat,text:"🔎 "+searchPrompts[q.data][1]});
@@ -368,7 +368,7 @@ if(!validPhone(phone)){
 return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده معتبر نیست. دوباره شماره خودتان را ارسال کنید."});
 }
 await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id,null,s.campaign_id||null);
-await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example");
+await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را بدون @ وارد کنید؛ مثال: example");
 return tg("sendMessage",{chat_id:chat,text:"✅ شماره شما با موفقیت ثبت شد.\n\nبه گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{remove_keyboard:true}});
 }
 
