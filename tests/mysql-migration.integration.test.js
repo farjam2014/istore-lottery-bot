@@ -96,6 +96,9 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
       assert.deepEqual(contactGateTables.map(x => x.TABLE_NAME), ['telegram_contact_gate']);
       const [customerFlowTables] = await verify.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets'");
       assert.deepEqual(customerFlowTables.map(x => x.TABLE_NAME), ['customer_support_tickets']);
+      const [[sessionStepColumn]] = await verify.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_sessions' AND COLUMN_NAME='step'");
+      assert.match(sessionStepColumn.COLUMN_TYPE, /'profile_name'/);
+      assert.match(sessionStepColumn.COLUMN_TYPE, /'support_message'/);
       const [campaignCardColumn] = await verify.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns' AND COLUMN_NAME='current_payment_card_id'");
       assert.equal(campaignCardColumn.length, 1);
       const [mappingRows] = await verify.execute(
