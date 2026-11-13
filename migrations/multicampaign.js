@@ -125,6 +125,25 @@ async function migrateMultiCampaign(db) {
     await db.query('ALTER TABLE lottery_sessions ADD KEY idx_lottery_sessions_campaign(campaign_id)');
   }
 
+  const [[duplicateInstagram]] = await db.query(
+    "SELECT instagram,COUNT(*) total FROM participants GROUP BY instagram HAVING COUNT(*)>1 LIMIT 1"
+  );
+  if (duplicateInstagram) {
+    throw new Error('Cannot enforce unique participant Instagram: duplicate value "' + duplicateInstagram.instagram + '" exists in participants. Resolve duplicates before migration.');
+  }
+  const [participantIndexes] = await db.execute(
+    "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND INDEX_NAME='uq_participants_instagram'"
+  );
+  if (!participantIndexes.length) await db.query('ALTER TABLE participants ADD UNIQUE KEY uq_participants_instagram(instagram)');
+
+  const [proofColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs'"
+  );
+  if (!proofColumns.some(column => column.COLUMN_NAME === 'telegram_file_id')) {
+    await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_id VARCHAR(255) NULL AFTER storage_key');
+    await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_unique_id VARCHAR(255) NULL AFTER telegram_file_id');
+  }
+
   await db.execute(
     `INSERT IGNORE INTO campaigns(slug,title,status,payment_mode)
      VALUES('legacy','کمپین قدیمی iStore','closed','free')`
