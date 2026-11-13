@@ -325,9 +325,10 @@ if(m.photo?.length||m.document){
     if(document&&(Number(document.file_size||0)>10*1024*1024||!["application/pdf","image/jpeg","image/png","image/webp"].includes(mime)))return reply(chat,conn,"فایل رسید باید PDF یا تصویر JPG/PNG/WEBP و حداکثر ۱۰ مگابایت باشد.");
     const file=photo||document;
     if(Number(file.file_size||0)>10*1024*1024)return reply(chat,conn,"حجم رسید نباید بیشتر از ۱۰ مگابایت باشد.");
-    await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:file.file_id,fileUniqueId:file.file_unique_id,trackingReference:m.caption||null});
+    const receiptResult=await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:file.file_id,fileUniqueId:file.file_unique_id,trackingReference:m.caption||null});
     await db.execute('DELETE FROM campaign_payment_sessions WHERE telegram_user_id=?',[uid]);
-    return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. وضعیت آن را از بخش «سفارش‌های من» پیگیری کنید.');
+    if(receiptResult.duplicate)return reply(chat,conn,'این رسید قبلاً دریافت شده و در صف بررسی مدیر قرار دارد. وضعیت سفارش را از بخش «سفارش‌های من» پیگیری کنید.');
+    return; // The durable outbox sends the first receipt acknowledgement exactly once per order key.
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
 if(lower==='/orders'||lower==='سفارش‌های من'||lower==='سفارش های من')return reply(chat,conn,"برای مشاهده وضعیت سفارش‌ها، دکمه زیر را بزنید:",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}]]}});
