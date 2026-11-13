@@ -178,3 +178,33 @@ test('manual order persists receipt session and payment instructions before comm
   assert.equal(calls[sessionIndex].params[2], '');
   assert.match(calls[outboxIndex].params[0], /^payment-instructions:77$/);
 });
+
+
+test('replayed pending manual order returns the existing order without creating another', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const statements = [];
+  const conn = {
+    async beginTransaction() {},
+    async commit() { statements.push('COMMIT'); },
+    async rollback() {},
+    release() {},
+    async execute(sql) {
+      statements.push(sql);
+      if (sql.includes('SELECT * FROM campaigns')) return [[{ id: 3, status: 'open', payment_mode: 'manual' }]];
+      if (sql.includes('SELECT id,label,bank_name,card_number')) return [[{ id: 8, status: 'active' }]];
+      if (sql.includes('SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants')) return [[{ id: 9, status: 'active' }]];
+      if (sql.includes('SELECT id,order_ref,status,quantity,total_snapshot,currency FROM payment_orders')) {
+        return [[{ id: 77, order_ref: 'IS-ABC', status: 'pending_payment', quantity: 2, total_snapshot: 100000, currency: 'IRR' }]];
+      }
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.reserveManualOrder({ campaignId: 3, participantId: 9, quantity: 2 });
+  assert.equal(result.duplicate, true);
+  assert.equal(result.id, 77);
+  assert.equal(result.orderRef, 'IS-ABC');
+  assert.equal(result.total, 100000);
+  assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_orders')), false);
+  assert.ok(statements.includes('COMMIT'));
+});
