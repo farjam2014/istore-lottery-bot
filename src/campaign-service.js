@@ -149,13 +149,6 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: paymentResult.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
 
-    const [[pendingAcrossCampaigns]] = await conn.execute(
-      `SELECT cp.id FROM campaign_payments cp
-       JOIN campaign_entries e ON e.id=cp.entry_id
-       WHERE e.participant_id=? AND cp.status='pending' LIMIT 1 FOR UPDATE`,
-      [participant.id]
-    );
-    if (pendingAcrossCampaigns) throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
 
     if (campaign.capacity !== null) {
       const [[count]] = await conn.execute(
