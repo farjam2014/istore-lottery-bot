@@ -119,7 +119,6 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
     if(start) {
       await db.execute('INSERT INTO account_telegram_links(telegram_user_id,chat_id,username,first_name,last_seen_at) VALUES(?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),username=VALUES(username),first_name=VALUES(first_name),last_seen_at=NOW()',[String(message.from.id),String(message.chat.id),message.from.username||null,message.from.first_name||null]);
       if(start[1]&&start[1].startsWith('link_'))return tg('sendMessage',{chat_id:String(message.chat.id),text:'حساب تلگرام شما برای بازیابی رمز USTORE آماده استفاده است. حالا به سایت برگردید و ثبت‌نام کنید.'});
-      if(text==='/start')return tg('sendMessage',{chat_id:String(message.chat.id),text:'سلام! ربات USTORE برای بازیابی امن رمز حساب سایت در دسترس شماست. برای ثبت‌نام ابتدا پروفایل شرکت‌کننده خود را در ربات تکمیل کنید، سپس در سایت حساب بسازید.'});
     }
     return false;
   }
