@@ -103,6 +103,9 @@ async function main() {
     const { up: migrateAccountAuth } = require('./account-auth');
     const accountAuthResult = await migrateAccountAuth(db);
     console.log('ACCOUNT_AUTH_MIGRATION', JSON.stringify(accountAuthResult));
+    const { up: migrateContactGate } = require('./contact-gate');
+    const contactGateResult = await migrateContactGate(db);
+    console.log('CONTACT_GATE_MIGRATION', JSON.stringify(contactGateResult));
     console.log('MIGRATIONS_OK');
   } finally {
     try {
