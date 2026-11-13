@@ -125,6 +125,12 @@ async function migrateMultiCampaign(db) {
     await db.query('ALTER TABLE lottery_sessions ADD KEY idx_lottery_sessions_campaign(campaign_id)');
   }
 
+  const [[legacyDuplicateInstagram]] = await db.query(
+    "SELECT LOWER(instagram) instagram,COUNT(*) total FROM lottery_entries GROUP BY LOWER(instagram) HAVING COUNT(*)>1 LIMIT 1"
+  );
+  if (legacyDuplicateInstagram) {
+    throw new Error('Legacy lottery_entries contains duplicate Instagram ID "' + legacyDuplicateInstagram.instagram + '". Resolve duplicate profiles before migrating.');
+  }
   const [[duplicateInstagram]] = await db.query(
     "SELECT instagram,COUNT(*) total FROM participants GROUP BY instagram HAVING COUNT(*)>1 LIMIT 1"
   );
