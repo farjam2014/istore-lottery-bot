@@ -4,6 +4,7 @@ for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const {createAdminTelegram}=require("./admin-telegram");
 const {createCampaignService}=require("./campaign-service");
+const {createBankCardService}=require("./bank-card-service");
 const {createDrawService}=require("./draw-service");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
@@ -14,6 +15,7 @@ app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:fal
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
 const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,charset:"utf8mb4"});
 const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
+const bankCardService=createBankCardService({db,adminId:process.env.ADMIN_ID});
 const drawService=createDrawService({db,adminId:process.env.ADMIN_ID});
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
@@ -55,7 +57,7 @@ throw error;
 async function reply(chat,connection,text,extra={}){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text,...extra})}
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
-const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService});
+const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const csvCell=v=>{let x=String(v??"");if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"'};
@@ -212,12 +214,12 @@ if(String(q.data||'').startsWith('campaign:join:')){
       return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد. کدهای قرعه‌کشی در پیام جداگانه برایتان ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
-    const card=String(process.env.PAYMENT_CARD_NUMBER||'').replace(/\s/g,'');
-    const holder=String(process.env.PAYMENT_CARD_HOLDER||'').trim();
-    if(!/^\d{16}$/.test(card)||!holder)throw new Error('اطلاعات کارت پرداخت هنوز توسط مدیر تنظیم نشده است.');
+    const card=await bankCardService.currentCampaignCard(Number(campaignId));
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity:1});
     await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
-    return reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card+'\nبه نام: '+holder+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
+    const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card.card_number+'\nبه نام: '+card.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
+    if(sent) await bankCardService.recordDelivery({orderId:order.id,card});
+    return sent;
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
