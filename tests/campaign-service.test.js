@@ -156,8 +156,8 @@ test('manual order persists receipt session and payment instructions before comm
       if (sql.includes('SELECT id,order_ref,status FROM payment_orders')) return [[]];
       if (sql.includes('SELECT id,status FROM campaign_entries')) return [[{ id: 12, status: 'active' }]];
       if (sql.includes('SELECT id FROM campaign_capacity_reservations')) return [[]];
-      if (sql.includes('AS codes_used')) return [[{ codes_used: 0 }]];
       if (sql.includes('AS participants_used')) return [[{ participants_used: 1, codes_used: 0 }]];
+      if (sql.includes('AS codes_used')) return [[{ codes_used: 0 }]];
       if (sql.includes('INSERT INTO payment_orders')) return [{ insertId: 77 }];
       if (sql.includes('INSERT INTO campaign_capacity_reservations')) return [{ insertId: 88 }];
       if (sql.includes('INSERT INTO campaign_payment_sessions')) return [{ affectedRows: 1 }];
