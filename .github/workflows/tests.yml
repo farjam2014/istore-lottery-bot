@@ -1,4 +1,5 @@
 name: Staging Tests
+# Runs syntax, unit, safety, and MySQL migration integration tests for staged platform changes.
 
 on:
   push:
