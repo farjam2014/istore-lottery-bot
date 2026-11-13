@@ -62,10 +62,23 @@ function createBankCardService({db,adminId}) {
   async function recordDelivery({orderId,card}) {
     await db.execute('INSERT INTO payment_order_card_deliveries(order_id,card_id,card_label_snapshot,bank_name_snapshot,card_number_snapshot,cardholder_name_snapshot) VALUES(?,?,?,?,?,?)',[orderId,card.id,card.label,card.bank_name,card.card_number,card.cardholder_name]);
   }
+  async function campaignHistory(campaignId) {
+    const [rows]=await db.execute(
+      "SELECT h.card_id,h.changed_by,h.change_reason,h.created_at,b.label,RIGHT(b.card_number,4) last4,b.status FROM campaign_payment_card_history h JOIN bank_cards b ON b.id=h.card_id WHERE h.campaign_id=? ORDER BY h.id DESC LIMIT 20",
+      [campaignId]
+    );
+    return rows;
+  }
+  async function suggestCard() {
+    const [rows]=await db.execute(
+      "SELECT b.id,b.label,b.bank_name,RIGHT(b.card_number,4) last4,b.cardholder_name,b.status,COUNT(d.id) recent_deliveries FROM bank_cards b LEFT JOIN payment_order_card_deliveries d ON d.card_id=b.id AND d.sent_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) WHERE b.status='active' GROUP BY b.id,b.label,b.bank_name,b.card_number,b.cardholder_name,b.status ORDER BY recent_deliveries ASC,b.updated_at ASC,b.id ASC LIMIT 1"
+    );
+    return rows[0]||null;
+  }
   async function deliveries(orderId) {
     const [rows]=await db.execute('SELECT card_label_snapshot,bank_name_snapshot,RIGHT(card_number_snapshot,4) last4,cardholder_name_snapshot,sent_at FROM payment_order_card_deliveries WHERE order_id=? ORDER BY id DESC',[orderId]);
     return rows;
   }
-  return {addCard,listCards,getCard,updateCard,setCardStatus,assignCampaignCard,currentCampaignCard,recordDelivery,deliveries};
+  return {addCard,listCards,getCard,updateCard,setCardStatus,assignCampaignCard,currentCampaignCard,recordDelivery,deliveries,campaignHistory,suggestCard};
 }
 module.exports={createBankCardService,normalizeCardNumber,maskCard};
