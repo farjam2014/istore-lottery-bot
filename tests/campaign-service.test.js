@@ -129,3 +129,52 @@ test('replayed receipt upload with the same Telegram file unique id is idempoten
   assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_receipts')), false);
   assert.ok(statements.includes('COMMIT'));
 });
+
+
+test('manual order persists receipt session and payment instructions before commit', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const calls = [];
+  const conn = {
+    async beginTransaction() { calls.push('BEGIN'); },
+    async commit() { calls.push('COMMIT'); },
+    async rollback() { calls.push('ROLLBACK'); },
+    release() { calls.push('RELEASE'); },
+    async execute(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT * FROM campaigns')) return [[{
+        id: 3, name: 'Paid Campaign', status: 'open', payment_mode: 'manual',
+        current_payment_card_id: 8, max_codes_per_participant: 2, max_participants: 100,
+        max_codes: 200, price_per_code: 50000, currency: 'IRR'
+      }]];
+      if (sql.includes('SELECT id,label,bank_name,card_number')) return [[{
+        id: 8, label: 'Main', bank_name: 'Bank', card_number: '6037990000000000',
+        cardholder_name: 'USTORE', status: 'active'
+      }]];
+      if (sql.includes('SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants')) return [[{
+        id: 9, status: 'active', telegram_user_id: '12345', chat_id: '12345', business_connection_id: ''
+      }]];
+      if (sql.includes('SELECT id,order_ref,status FROM payment_orders')) return [[]];
+      if (sql.includes('SELECT id,status FROM campaign_entries')) return [[{ id: 12, status: 'active' }]];
+      if (sql.includes('SELECT id FROM campaign_capacity_reservations')) return [[]];
+      if (sql.includes('AS codes_used')) return [[{ codes_used: 0 }]];
+      if (sql.includes('AS participants_used')) return [[{ participants_used: 1, codes_used: 0 }]];
+      if (sql.includes('INSERT INTO payment_orders')) return [{ insertId: 77 }];
+      if (sql.includes('INSERT INTO campaign_capacity_reservations')) return [{ insertId: 88 }];
+      if (sql.includes('INSERT INTO campaign_payment_sessions')) return [{ affectedRows: 1 }];
+      if (sql.includes('INSERT IGNORE INTO telegram_notification_outbox')) return [{ affectedRows: 1 }];
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.reserveManualOrder({ campaignId: 3, participantId: 9, quantity: 1 });
+  assert.equal(result.id, 77);
+  const sessionIndex = calls.findIndex(x => typeof x === 'object' && x.sql.includes('INSERT INTO campaign_payment_sessions'));
+  const outboxIndex = calls.findIndex(x => typeof x === 'object' && x.sql.includes('INSERT IGNORE INTO telegram_notification_outbox'));
+  const commitIndex = calls.indexOf('COMMIT');
+  assert.ok(sessionIndex > 0 && sessionIndex < commitIndex);
+  assert.ok(outboxIndex > sessionIndex && outboxIndex < commitIndex);
+  assert.equal(calls[sessionIndex].params[0], '12345');
+  assert.equal(calls[sessionIndex].params[1], '12345');
+  assert.equal(calls[sessionIndex].params[2], '');
+  assert.match(calls[outboxIndex].params[0], /^payment-instructions:77$/);
+});
