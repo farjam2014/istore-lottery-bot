@@ -183,6 +183,7 @@ const CAMPAIGN_SCHEMA = [
     method ENUM('system','live_wheel','hybrid') NOT NULL,
     status ENUM('prepared','running','pending_approval','completed','cancelled') NOT NULL DEFAULT 'prepared',
     draw_basis ENUM('per_code','per_participant') NOT NULL,
+    multiple_win_policy ENUM('one_per_participant','allow') NOT NULL DEFAULT 'one_per_participant',
     winner_count SMALLINT UNSIGNED NOT NULL,
     alternate_count SMALLINT UNSIGNED NOT NULL,
     snapshot_hash CHAR(64) NULL,
