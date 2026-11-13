@@ -22,10 +22,12 @@ function harness() {
   const db = {
     async execute(sql, params = []) {
       calls.push({ sql, params });
+      if (sql.includes('SELECT id,full_name,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
       if (sql.includes('SELECT id,status FROM lottery_entries')) return [[{ id: 42, status: 'active' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deletion_reason')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09121111111', instagram: 'ali.new', raffle_code: 'LOT-ABCDEFGH', status: 'active', created_at: 'now' }]];
       if (sql.includes('SELECT raffle_code,action,actor,created_at FROM lottery_code_history')) return [[]];
+      if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
       if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[]];
       if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
       return [{ affectedRows: 1 }];
@@ -80,9 +82,9 @@ test('admin edit rejects malformed and invalid participant data', async () => {
 test('admin edit commits participant changes and audit record together', async () => {
   const h = harness();
   const message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
-  await h.admin.handleCallback({ id: 'cb3', data: 'adm:edit:42', ...message });
+  await h.admin.handleCallback({ id: 'cb3', data: 'adm:edit:42', from: message.from, message: { chat: message.chat } });
   await h.admin.handleMessage({ ...message, text: 'Ali Rezaei | 09121111111 | ali.new' });
-  await h.admin.handleCallback({ id: 'cb4', data: 'adm:apply-edit:42', ...message });
+  await h.admin.handleCallback({ id: 'cb4', data: 'adm:apply-edit:42', from: message.from, message: { chat: message.chat } });
   const updateIndex = h.calls.findIndex(x => x.sql.startsWith('UPDATE lottery_entries SET full_name='));
   const auditIndex = h.calls.findIndex(x => x.sql.includes('INSERT INTO admin_audit_log'));
   const commitIndex = h.calls.findIndex(x => x.sql === 'COMMIT');
@@ -95,9 +97,9 @@ test('admin edit commits participant changes and audit record together', async (
 test('admin delete requires confirmation and writes soft-delete plus audit atomically', async () => {
   const h = harness();
   const message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
-  await h.admin.handleCallback({ id: 'cb5', data: 'adm:delete:42', ...message });
+  await h.admin.handleCallback({ id: 'cb5', data: 'adm:delete:42', from: message.from, message: { chat: message.chat } });
   assert.equal(h.calls.some(x => x.sql.includes("status='deleted'")), false);
-  await h.admin.handleCallback({ id: 'cb6', data: 'adm:apply-delete:42', ...message });
+  await h.admin.handleCallback({ id: 'cb6', data: 'adm:apply-delete:42', from: message.from, message: { chat: message.chat } });
   const updateIndex = h.calls.findIndex(x => x.sql.includes("UPDATE lottery_entries SET status='deleted'"));
   const auditIndex = h.calls.findIndex(x => x.sql.includes('INSERT INTO admin_audit_log'));
   const commitIndex = h.calls.findIndex(x => x.sql === 'COMMIT');
@@ -117,8 +119,8 @@ test('participant list supports status and date filters with parameterized statu
   });
   const query = h.calls.find(x => x.sql.includes('FROM lottery_entries WHERE status <>'));
   assert.ok(query);
-  assert.match(query.sql, /status = \?/);
-  assert.match(query.sql, /DATE_SUB\(NOW\(\), INTERVAL 7 DAY\)/);
+  assert.match(query.sql,/status = \?/);
+  assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 7 DAY\)/);
   assert.deepEqual(query.params, ['active', 0]);
   assert.ok(h.telegram.some(x => JSON.stringify(x.payload.reply_markup || {}).includes('entry-status')));
 });
@@ -137,7 +139,7 @@ test('filtered CSV export uses parameterized status and valid date windows', asy
   await h.admin.handleMessage({from:{id:12345},chat:{id:12345,type:'private'},text:'/export inactive 30d'});
   const query = h.calls.find(x => x.sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries'));
   assert.ok(query);
-  assert.match(query.sql,/status = \\?/);
-  assert.match(query.sql,/DATE_SUB\\(NOW\\(\\), INTERVAL 30 DAY\\)/);
+  assert.match(query.sql,/status = \?/);
+  assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 30 DAY\)/);
   assert.deepEqual(query.params,['inactive']);
 });

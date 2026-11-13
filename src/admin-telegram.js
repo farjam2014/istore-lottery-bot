@@ -306,7 +306,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen }) 
   async function handleMessage(m) {
     if (!m?.from || String(m.from.id)!==String(adminId) || m.chat?.type!=='private') return false;
     const text=String(m.text||'').trim();
-    if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
+    if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { searchModes.delete(String(adminId)); return home(m.chat.id); }
 
     if (text.toLowerCase()==='/cancel' && (searchModes.has(String(adminId)) || editModes.has(String(adminId)) || pending.has(String(adminId)))) { searchModes.delete(String(adminId)); editModes.delete(String(adminId)); pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }

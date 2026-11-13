@@ -10,22 +10,14 @@ const enabled = Boolean(process.env.MYSQL_TEST_HOST);
 
 test('schema and migrations upgrade a legacy status enum safely', { skip: !enabled }, async () => {
   const database = 'istore_lottery_migration_test';
-  const root = await mysql.createConnection({
-    host: process.env.MYSQL_TEST_HOST,
-    port: Number(process.env.MYSQL_TEST_PORT || 3306),
-    user: process.env.MYSQL_TEST_USER || 'root',
-    password: process.env.MYSQL_TEST_PASSWORD || 'test-root-password',
-    multipleStatements: true
-  });
+  assert.ok(process.env.MYSQL_TEST_USER, 'MYSQL_TEST_USER is required');
+  assert.ok(process.env.MYSQL_TEST_PASSWORD, 'MYSQL_TEST_PASSWORD is required');
 
-  try {
-    await root.query('DROP DATABASE IF EXISTS `' + database + '`');
-    await root.query('CREATE DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-    const db = await mysql.createConnection({
+  const db = await mysql.createConnection({
       host: process.env.MYSQL_TEST_HOST,
       port: Number(process.env.MYSQL_TEST_PORT || 3306),
-      user: process.env.MYSQL_TEST_USER || 'root',
-      password: process.env.MYSQL_TEST_PASSWORD || 'test-root-password',
+      user: process.env.MYSQL_TEST_USER,
+      password: process.env.MYSQL_TEST_PASSWORD,
       database,
       multipleStatements: true
     });
@@ -44,8 +36,8 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
         ...process.env,
         DB_HOST: process.env.MYSQL_TEST_HOST,
         DB_PORT: String(process.env.MYSQL_TEST_PORT || 3306),
-        DB_USER: process.env.MYSQL_TEST_USER || 'root',
-        DB_PASSWORD: process.env.MYSQL_TEST_PASSWORD || 'test-root-password',
+        DB_USER: process.env.MYSQL_TEST_USER,
+        DB_PASSWORD: process.env.MYSQL_TEST_PASSWORD,
         DB_NAME: database
       },
       timeout: 30000
@@ -56,8 +48,8 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
     const verify = await mysql.createConnection({
       host: process.env.MYSQL_TEST_HOST,
       port: Number(process.env.MYSQL_TEST_PORT || 3306),
-      user: process.env.MYSQL_TEST_USER || 'root',
-      password: process.env.MYSQL_TEST_PASSWORD || 'test-root-password',
+      user: process.env.MYSQL_TEST_USER,
+      password: process.env.MYSQL_TEST_PASSWORD,
       database
     });
     try {
@@ -80,8 +72,4 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
     } finally {
       await verify.end();
     }
-  } finally {
-    await root.query('DROP DATABASE IF EXISTS `' + database + '`');
-    await root.end();
-  }
 });

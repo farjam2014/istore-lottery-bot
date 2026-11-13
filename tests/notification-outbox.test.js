@@ -17,7 +17,7 @@ function fakeDb(rows=[]){
   };},
   async execute(sql,params){
    if(sql.includes("SET status='sent'")){const row=state.rows.find(x=>x.id===params[0]);if(row&&row.status==="processing"&&row.token===params[1]){row.status="sent";return [{affectedRows:1}];}return [{affectedRows:0}];}
-   if(sql.includes("SET status=IF(attempts>=?,'failed','pending')")){const row=state.rows.find(x=>x.id===params[2]);if(row&&row.status==="processing"&&row.token===params[4]){row.status=row.attempts>=params[0]?"failed":"pending";row.error=params[2];row.nextAttemptScheduled=row.status==="pending";}return [{affectedRows:1}];}
+   if(sql.includes("SET status=IF(attempts>=?,'failed','pending')")){const row=state.rows.find(x=>x.id===params[3]);if(row&&row.status==="processing"&&row.token===params[4]){row.status=row.attempts>=params[0]?"failed":"pending";row.error=params[2];row.nextAttemptScheduled=row.status==="pending";}return [{affectedRows:1}];}
    throw new Error("Unexpected DB SQL: "+sql);
   }
  };
