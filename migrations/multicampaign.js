@@ -163,8 +163,11 @@ async function migrateMultiCampaign(db) {
     await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_id VARCHAR(255) NULL AFTER storage_key');
   }
   const [proofUniqueColumns] = await db.execute(
-    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs'"
+    "SELECT COLUMN_NAME,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs'"
   );
+  if (proofUniqueColumns.some(column => column.COLUMN_NAME === 'sha256' && column.IS_NULLABLE === 'NO')) {
+    await db.query('ALTER TABLE campaign_payment_proofs MODIFY sha256 CHAR(64) NULL');
+  }
   if (!proofUniqueColumns.some(column => column.COLUMN_NAME === 'telegram_file_unique_id')) {
     await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_unique_id VARCHAR(255) NULL AFTER telegram_file_id');
   }
