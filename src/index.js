@@ -387,6 +387,17 @@ if(lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns')
   return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:'🧩 کمپین فعال موردنظرتان را انتخاب کنید:',reply_markup:{inline_keyboard:buttons}});
 }
 
+const profileChangeMatch=t.match(/^اصلاح\\s+(نام|موبایل|اینستاگرام)\\s*[:：]\\s*(.+)$/);
+if(profileChangeMatch){
+  const fieldMap={'نام':'full_name','موبایل':'phone','اینستاگرام':'instagram'};
+  try{
+    const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+    if(!participant)return reply(chat,conn,'پروفایل کمپین شما پیدا نشد. ابتدا «لاتاری» را تکمیل کنید و دوباره تلاش کنید.');
+    const request=await campaignService.requestProfileChange({participantId:participant.id,field:fieldMap[profileChangeMatch[1]],value:profileChangeMatch[2].trim()});
+    return reply(chat,conn,'📝 درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیر نتیجه اعلام می‌شود.\nشناسه درخواست: '+request.id);
+  }catch(e){return reply(chat,conn,'❌ درخواست اصلاح ثبت نشد: '+e.message);}
+}
+
 if(lower==="/export" || lower.startsWith("/export@")){
 if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
 try{
