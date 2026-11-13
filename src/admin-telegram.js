@@ -199,7 +199,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       GROUP BY c.id,c.name,c.status
       ORDER BY c.id DESC LIMIT 20
     `);
-    if (!rows.length) return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'↩️ داشبورد',callback_data:'adm:stats'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
+    if (!rows.length) return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.\n\nنرخ تکمیل = عضویت‌های فعال ÷ کل پرونده‌های ایجادشده در کمپین. این شاخص نرخ تبدیل شروع گفتگو به ثبت‌نام نیست؛ نشست‌های لغوشده/پاک‌شده در سامانه فعلی تاریخچه دائمی ندارند.',reply_markup:keyboard([[{text:'↩️ داشبورد',callback_data:'adm:stats'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]])});
     const body=rows.map(r=>{
       const total=Number(r.total_entries||0),done=Number(r.completed_entries||0);
       const rate=total?Math.round(done*100/total):0;
