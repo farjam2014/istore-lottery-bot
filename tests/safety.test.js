@@ -102,7 +102,7 @@ test('a second migration process cannot enter until the first releases its lock'
 test('legacy phone text step cannot bypass Telegram contact ownership verification', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null\)/);
+  assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null,s\.campaign_id\|\|null\)/);
   assert.doesNotMatch(source, /if\(s\.step===\"phone\"\)\{const p=t\.replace/);
 });
 
@@ -122,7 +122,7 @@ test('registration callback is answered once after durable confirmation', () => 
   const start = source.indexOf('async function handleCallbackQuery(q)');
   const end = source.indexOf('async function handlePrivateUpdate(update)', start);
   const handler = source.slice(start, end);
-  const registrationHandler = handler.slice(0, handler.indexOf('const adminHandled=await adminTelegram.handleCallback(q)'));
+  const registrationHandler = handler.slice(handler.indexOf('if(verifyConfirmationPayload'), handler.indexOf('const adminHandled=await adminTelegram.handleCallback(q)'));
   assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3);
   assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
   assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
