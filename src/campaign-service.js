@@ -25,7 +25,7 @@ function assertCampaignInput(input) {
     paymentMode, price, currency: String(input.currency || 'IRR').toUpperCase(),
     maxParticipants: input.max_participants == null ? null : assertInteger(input.max_participants, 'ظرفیت افراد'),
     maxCodes: input.max_codes == null ? null : assertInteger(input.max_codes, 'ظرفیت کدها'),
-    maxCodesPerParticipant: assertInteger(input.max_codes_per_participant || 1, 'سقف کد هر نفر'),
+    maxCodesPerParticipant: assertInteger(input.max_codes_per_participant || 1, 'سقف کد هر نفر', 1, 1000),
     drawBasis: input.draw_basis || 'per_code',
     winnerCount: assertInteger(input.winner_count || 1, 'تعداد برندگان'),
     alternateCount: assertInteger(input.alternate_count || 0, 'تعداد ذخیره', 0, 1000),
