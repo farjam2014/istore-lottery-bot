@@ -91,6 +91,7 @@ ENV
 chmod 600 "$APP_DIR/.env"
 if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
 chown -R root:istorebot "$APP_DIR"
+chmod -R g+rX "$APP_DIR"
 chmod 640 "$APP_DIR/.env"
 log "ساخت جداول دیتابیس تازه"
 mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
