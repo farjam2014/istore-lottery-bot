@@ -70,3 +70,62 @@ test('expires held capacity reservations and their pending payment orders transa
   assert.match(statements[2], /o\.status='pending_payment'/);
   assert.doesNotMatch(statements[2], /receipt_submitted/);
 });
+
+
+test('replayed free campaign join returns existing codes without minting new ones', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const statements = [];
+  const conn = {
+    async beginTransaction() {},
+    async commit() { statements.push('COMMIT'); },
+    async rollback() {},
+    release() {},
+    async execute(sql) {
+      statements.push(sql);
+      if (sql.includes('SELECT * FROM campaigns')) return [[{ id: 7, status: 'open', payment_mode: 'free', max_codes_per_participant: 3 }]];
+      if (sql.includes('SELECT * FROM participants')) return [[{ id: 11, status: 'active', telegram_user_id: '123', full_name: 'Test User', phone: '09120000000', instagram: 'testuser' }]];
+      if (sql.includes('UPDATE participants SET chat_id')) return [{ affectedRows: 1 }];
+      if (sql.includes('SELECT id,status FROM campaign_entries')) return [[{ id: 22, status: 'active' }]];
+      if (sql.includes('SELECT code FROM campaign_codes')) return [[{ code: 'UST-ABC123' }, { code: 'UST-DEF456' }]];
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.joinFreeCampaign({
+    campaignId: 7, telegramUserId: '123', chatId: '123',
+    fullName: 'Test User', phone: '09120000000', instagram: 'testuser', quantity: 2
+  });
+  assert.equal(result.duplicate, true);
+  assert.deepEqual(result.codes, ['UST-ABC123', 'UST-DEF456']);
+  assert.equal(statements.filter(sql => sql.includes('INSERT INTO campaign_codes')).length, 0);
+  assert.ok(statements.includes('COMMIT'));
+});
+
+test('replayed receipt upload with the same Telegram file unique id is idempotent', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const statements = [];
+  const conn = {
+    async beginTransaction() {},
+    async commit() { statements.push('COMMIT'); },
+    async rollback() {},
+    release() {},
+    async execute(sql) {
+      statements.push(sql);
+      if (sql.includes('SELECT id,status,expires_at,participant_id FROM payment_orders')) {
+        return [[{ id: 41, status: 'receipt_submitted', participant_id: 11 }]];
+      }
+      if (sql.includes('SELECT id,telegram_file_unique_id FROM payment_receipts')) {
+        return [[{ id: 55, telegram_file_unique_id: 'photo-unique-1' }]];
+      }
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.submitReceipt({
+    orderId: 41, fileId: 'telegram-file-id', fileUniqueId: 'photo-unique-1'
+  });
+  assert.equal(result.status, 'receipt_submitted');
+  assert.equal(result.duplicate, true);
+  assert.equal(statements.some(sql => sql.includes('INSERT INTO payment_receipts')), false);
+  assert.ok(statements.includes('COMMIT'));
+});
