@@ -252,3 +252,34 @@ test('bank card wizard supports back navigation and invalid card numbers without
   assert.match(h.telegram.at(-1).payload.text,/مقدار نامعتبر است/);
   assert.equal(h.calls.some(x=>x.sql==='ADD_BANK_CARD'),false);
 });
+
+test('admin menus and conversational wizard reuse the same Telegram message', async () => {
+  const h = harness();
+  const callbackMessage = {
+    message_id: 9001,
+    chat: { id: 12345, type: 'private' }
+  };
+  await h.admin.handleCallback({
+    id: 'card-menu', data: 'adm:cards',
+    from: { id: 12345 }, message: callbackMessage
+  });
+  const firstEdit = h.telegram.find(x => x.method === 'editMessageText');
+  assert.ok(firstEdit);
+  assert.equal(firstEdit.payload.message_id, 9001);
+
+  await h.admin.handleCallback({
+    id: 'card-add', data: 'adm:card-add',
+    from: { id: 12345 }, message: callbackMessage
+  });
+  const wizardEdit = h.telegram.filter(x => x.method === 'editMessageText').at(-1);
+  assert.equal(wizardEdit.payload.message_id, 9001);
+  assert.match(wizardEdit.payload.text, /عنوان کارت/);
+
+  await h.admin.handleMessage({
+    from: { id: 12345 }, chat: { id: 12345, type: 'private' },
+    text: 'کارت اصلی'
+  });
+  const nextStepEdit = h.telegram.filter(x => x.method === 'editMessageText').at(-1);
+  assert.equal(nextStepEdit.payload.message_id, 9001);
+  assert.match(nextStepEdit.payload.text, /نام بانک/);
+});
