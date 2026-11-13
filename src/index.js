@@ -399,9 +399,10 @@ const [[pending]]=await db.execute(
 [uid]);
 if(!pending)return reply(chat,conn,"برای شما پرداخت کارت‌به‌کارتِ در انتظار رسید پیدا نشد. ابتدا از فهرست کمپین‌ها ثبت‌نام کنید.");
 const photo=m.photo[m.photo.length-1];
-await db.execute(
-"INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
+const [proofResult]=await db.execute(
+"INSERT IGNORE INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?,?,?,?,?)",
 [pending.id,"telegram:"+photo.file_id,"image/jpeg",Number(photo.file_size||0),crypto.createHash("sha256").update(String(photo.file_unique_id||photo.file_id)).digest("hex"),photo.file_id,photo.file_unique_id||null]);
+if(!proofResult.affectedRows)return reply(chat,conn,"رسید این پرداخت قبلاً دریافت شده است و در صف بررسی مدیر قرار دارد.");
 await tg("sendPhoto",{chat_id:process.env.ADMIN_ID,photo:photo.file_id,caption:"🧾 رسید کارت‌به‌کارت جدید\\nکمپین: "+pending.title+"\nنام: "+pending.full_name+"\nموبایل: "+pending.phone+"\\nاینستاگرام: @"+pending.instagram+"\nمبلغ: "+Number(pending.amount_minor).toLocaleString("fa-IR")+" "+pending.currency+"\nشناسه پرداخت: "+pending.id,reply_markup:{inline_keyboard:[[{text:"✅ تأیید و صدور کد",callback_data:"pay:approve:"+pending.id},{text:"❌ رد رسید",callback_data:"pay:reject:"+pending.id}]]}});
 return reply(chat,conn,"📨 تصویر رسید دریافت شد و برای مدیر ارسال شد. پس از بررسی نتیجه به شما اطلاع داده می‌شود. تا قبل از تأیید، کدی صادر نخواهد شد.");
 }
@@ -619,6 +620,7 @@ app.post("/api/admin/campaigns/:id/draw",admin,async(q,r)=>{
 app.get("/api/admin/campaign-payments",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT p.id AS payment_id,p.entry_id,p.mode,p.status,p.amount_minor,p.currency,p.created_at,
+           EXISTS(SELECT 1 FROM campaign_payment_proofs pr WHERE pr.payment_id=p.id) AS has_proof,
            e.campaign_id,c.title AS campaign_title,pt.full_name,pt.phone,pt.instagram
     FROM campaign_payments p
     JOIN campaign_entries e ON e.id=p.entry_id
