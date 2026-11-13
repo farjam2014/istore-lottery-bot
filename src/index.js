@@ -514,6 +514,15 @@ if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شنا�
 try{const result=await campaignService.reviewProfileChange({requestId:Number(q.params.id),approve:q.body.approve===true,note:q.body.note||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
+app.get("/api/admin/participants",admin,async(q,r)=>{
+const term=String(q.query.q||"").trim().slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50));
+const [rows]=await db.execute(`SELECT p.id,p.telegram_user_id,p.full_name,p.phone,p.instagram,p.status,p.created_at,
+(SELECT COUNT(*) FROM campaign_entries e WHERE e.participant_id=p.id AND e.status='active') AS campaign_count,
+(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.participant_id=p.id AND cc.status='active') AS active_codes
+FROM participants p WHERE (?='' OR p.full_name LIKE ? OR p.phone LIKE ? OR p.instagram LIKE ? OR p.telegram_user_id LIKE ?)
+ORDER BY p.created_at DESC,p.id DESC LIMIT ${limit}`,[term,like,like,like,like]);
+r.json({participants:rows,limit});
+});
 app.get("/api/admin/stats",admin,async(_q,r)=>{const [[a]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active'");const [[b]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");const [[c]]=await db.query("SELECT COUNT(*) total FROM lottery_sessions");const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");const [[f]]=await db.execute("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");r.json({total:a.total,today:b.total,pending:c.total,failedUpdates:f.total,open:await registrationOpen(),drawn:d?.setting_value==='true'})});
 app.get("/api/admin/entries",admin,async(q,r)=>{const term=String(q.query.q||"").slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.min(1000000,Math.max(0,Number(q.query.offset)||0));const [rows]=await db.execute(`SELECT id,full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE status<>'deleted' AND (?='' OR full_name LIKE ? OR phone LIKE ? OR instagram LIKE ? OR raffle_code LIKE ?) ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}`,[term,like,like,like,like]);r.json({entries:rows,limit,offset})});
 async function audit(adminId,action,type,id,details={}){await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)])}
