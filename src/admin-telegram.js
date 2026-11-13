@@ -200,7 +200,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'💬 تیکت‌های پشتیبانی · '+status+' · صفحه '+(p+1),reply_markup:keyboard(buttons)});
   }
   async function supportDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
     const [[ticket]]=await db.execute('SELECT id,telegram_user_id,chat_id,business_connection_id,message,status,admin_reply,replied_at,created_at FROM customer_support_tickets WHERE id=? LIMIT 1',[id]);
     if(!ticket)return adminMessage({chat_id:chat,text:'تیکت پیدا نشد.'});
     const buttons=[];
@@ -210,7 +210,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'💬 تیکت #'+ticket.id+' · '+ticket.status+'\nکاربر: '+ticket.telegram_user_id+'\nثبت: '+ticket.created_at+'\n\nپیام مشتری:\n'+ticket.message+'\n\nآخرین پاسخ مدیر:\n'+(ticket.admin_reply||'هنوز پاسخی ثبت نشده است.')+'\n\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
   }
   async function setSupportStatus(chat,id,status) {
-    if(!/^\\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
+    if(!/^\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
     const conn=await db.getConnection();
     try {
       await conn.beginTransaction();
