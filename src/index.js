@@ -145,7 +145,7 @@ const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
 if(String(q.data||"").startsWith("camp:select:")){
   const campaignId=String(q.data).slice("camp:select:".length);
-  if(!/^\\d+$/.test(campaignId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"کمپین نامعتبر است.",show_alert:true});
+  if(!/^\d+$/.test(campaignId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"کمپین نامعتبر است.",show_alert:true});
   const [[campaign]]=await db.execute("SELECT id,slug,title,payment_mode FROM campaigns WHERE id=? AND status='active'",[campaignId]);
   if(!campaign)return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این کمپین دیگر فعال نیست.",show_alert:true});
   await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال بررسی اطلاعات..."});
@@ -154,7 +154,7 @@ if(String(q.data||"").startsWith("camp:select:")){
   if(profile){
     try{
       const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
-      const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\\n🎟 کد اختصاصی: "+result.code:
+      const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
         result.status==="pending_payment"?"🧾 درخواست شما برای «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
     }catch(e){
@@ -163,7 +163,7 @@ if(String(q.data||"").startsWith("camp:select:")){
     }
   }
   await putSession(uid,chat,"name",null,null,connection,null,Number(campaign.id));
-  return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎉 برای شرکت در «"+campaign.title+"»، نام و نام خانوادگی خود را ارسال کنید.\\nبرای لغو، «لغو» را بفرستید."});
+  return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎉 برای شرکت در «"+campaign.title+"»، نام و نام خانوادگی خود را ارسال کنید.\nبرای لغو، «لغو» را بفرستید."});
 }
 if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
@@ -181,7 +181,7 @@ if(s.campaign_id){
   if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
   const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
   await delSession(uid);
-  const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\\n🎟 کد اختصاصی: "+result.code:
+  const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
     result.status==="pending_payment"?"🧾 درخواست شما در «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
   return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text});
 }
@@ -378,7 +378,7 @@ if(lower==="/stats"){
 if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
 const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS codes, COUNT(DISTINCT raffle_code) AS unique_codes FROM lottery_entries WHERE status='active'");
 const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\\n\\n👥 شرکت‌کنندگان: "+a.total+"\\n🎟 تعداد کدها: "+a.codes+"\\n🔑 کدهای یکتا: "+a.unique_codes+"\\n📅 ثبت‌نام امروز: "+b.today);
+return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today);
 }
 if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
 if(lower==="لاتاری"||lower==="/start"){
@@ -389,9 +389,9 @@ return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"🎉 ک�
 }
 if(!await registrationOpen())return reply(chat,conn,"در حال حاضر کمپین فعالی برای ثبت‌نام وجود ندارد.");
 const old=await entry(uid);
-if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\\nکد شما: "+old.raffle_code);
+if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);
 await putSession(uid,chat,"name",null,null,conn);
-return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\\n\\nنام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\\n\\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.");
+return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nنام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\n\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.");
 }
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
 if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn,null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
