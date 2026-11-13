@@ -104,6 +104,20 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
     if (existing) {
+      const [[pendingAcrossCampaigns]] = await conn.execute(
+        `SELECT cp.id,e.campaign_id FROM campaign_payments cp
+         JOIN campaign_entries e ON e.id=cp.entry_id
+         WHERE e.participant_id=? AND cp.status='pending' ORDER BY cp.id DESC LIMIT 1 FOR UPDATE`,
+        [participant.id]
+      );
+      if (pendingAcrossCampaigns) {
+        if (existing.status === 'pending_payment' && Number(existing.id) > 0 && Number(pendingAcrossCampaigns.campaign_id) === Number(campaign.id)) {
+          const [[pendingPayment]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1",[existing.id]);
+          await conn.commit();
+          return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: pendingPayment?.id || pendingAcrossCampaigns.id, code: null, codes: [] };
+        }
+        throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
+      }
       const [existingCodes] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' ORDER BY sequence_no,id", [existing.id]
       );
@@ -134,6 +148,14 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       await conn.commit();
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: paymentResult.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
+
+    const [[pendingAcrossCampaigns]] = await conn.execute(
+      `SELECT cp.id FROM campaign_payments cp
+       JOIN campaign_entries e ON e.id=cp.entry_id
+       WHERE e.participant_id=? AND cp.status='pending' LIMIT 1 FOR UPDATE`,
+      [participant.id]
+    );
+    if (pendingAcrossCampaigns) throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
 
     if (campaign.capacity !== null) {
       const [[count]] = await conn.execute(
