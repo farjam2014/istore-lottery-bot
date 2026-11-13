@@ -52,8 +52,16 @@ function harness() {
   };
   const telegram = [];
   const tg = async (method, payload) => { telegram.push({ method, payload }); return { ok: true }; };
+  const cardRows=new Map();
+  const bankCardService={
+    async listCards(){return [...cardRows.values()];},
+    async getCard(id){const c=cardRows.get(Number(id));if(!c)throw new Error('card not found');return c;},
+    async addCard(input){calls.push({sql:'ADD_BANK_CARD',input});const c={id:77,label:input.label,bank_name:input.bankName,card_number:input.cardNumber,cardholder_name:input.cardholderName,status:'active'};cardRows.set(77,c);return {id:77};},
+    async updateCard(input){calls.push({sql:'UPDATE_BANK_CARD',input});const c={id:input.id,label:input.label,bank_name:input.bankName,card_number:input.cardNumber,cardholder_name:input.cardholderName,status:'active'};cardRows.set(input.id,c);},
+    async setCardStatus(){}
+  };
   const admin = createAdminTelegram({
-    db, tg, tgDocument: async () => ({ ok: true }),
+    db, tg, tgDocument: async () => ({ ok: true }), bankCardService,
     adminId: '12345', registrationOpen: async () => false,
     campaignService: { async createCampaign(input) { calls.push({ sql: 'CREATE_CAMPAIGN', input }); return { id: 88, slug: input.slug }; }, async updateDraftCampaign(id,input) { calls.push({ sql: 'UPDATE_DRAFT_CAMPAIGN', id, input }); return { id, slug: input.slug }; } }
   });
@@ -212,4 +220,35 @@ test('campaign creation uses a step-by-step wizard and final review before savin
   assert.equal(created.input.payment_mode,'free');
   assert.equal(created.input.payment_card_id,null);
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('کمپین در وضعیت پیش‌نویس ساخته شد')));
+});
+
+
+test('bank card creation uses a conversational wizard and masks the card number in review', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'card-add',data:'adm:card-add',from:message.from,message:{chat:message.chat}});
+  const answers=['کارت فروشگاه','ملت','6037991234567890','علی رضایی'];
+  for(const answer of answers) await h.admin.handleMessage({...message,text:answer});
+  const review=h.telegram.at(-1).payload.text;
+  assert.match(review,/بازبینی اطلاعات کارت/);
+  assert.match(review,/•••• •••• •••• 7890/);
+  assert.equal(review.includes('6037991234567890'),false);
+  assert.equal(h.calls.some(x=>x.sql==='ADD_BANK_CARD'),false);
+  await h.admin.handleCallback({id:'card-save',data:'adm:card-wizard-save',from:message.from,message:{chat:message.chat}});
+  const created=h.calls.find(x=>x.sql==='ADD_BANK_CARD');
+  assert.ok(created);
+  assert.equal(created.input.cardNumber,'6037991234567890');
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('کارت فروشگاه')));
+});
+
+test('bank card wizard supports back navigation and invalid card numbers without losing entered data', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'card-add',data:'adm:card-add',from:message.from,message:{chat:message.chat}});
+  await h.admin.handleMessage({...message,text:'کارت فروشگاه'});
+  await h.admin.handleMessage({...message,text:'ملت'});
+  await h.admin.handleMessage({...message,text:'/back'});
+  assert.match(h.telegram.at(-1).payload.text,/نام بانک/);
+  await h.admin.handleMessage({...message,text:'ملت'});
+  await h.admin.handleMessage({...message,text:'123'});
+  assert.match(h.telegram.at(-1).payload.text,/مقدار نامعتبر است/);
+  assert.equal(h.calls.some(x=>x.sql==='ADD_BANK_CARD'),false);
 });
