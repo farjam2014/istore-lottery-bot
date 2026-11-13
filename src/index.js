@@ -569,6 +569,8 @@ server.close(()=>process.exit(1));
 });
 webhookQueue.start();
 notificationOutbox.start();
+const reservationExpiryTimer=setInterval(()=>campaignService.expireReservations().catch(e=>console.error('Reservation expiry worker error:',e.message)),60000);
+reservationExpiryTimer.unref?.();
 let shuttingDown=false;
 async function shutdown(signal){
 if(shuttingDown)return;
