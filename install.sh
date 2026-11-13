@@ -64,6 +64,7 @@ if [[ "$DB_EXISTS" == "0" ]]; then
   mysql --protocol=socket -uroot <<SQL
 CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
