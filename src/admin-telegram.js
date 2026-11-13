@@ -151,7 +151,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active'
       WHERE ${clauses.join(' AND ')} ORDER BY p.created_at DESC,p.id DESC,cc.id ASC`,params);
     const cell=v=>{let x=String(v??'');if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
-    const csv='\\uFEFF'+[['نام','موبایل','اینستاگرام','کمپین','کد','وضعیت عضویت','زمان صدور'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.campaign_name||'',x.code||'',x.membership_status||'',x.issued_at||''])].map(row=>row.map(cell).join(',')).join('\\r\\n');
+    const csv='\uFEFF'+[['نام','موبایل','اینستاگرام','کمپین','کد','وضعیت عضویت','زمان صدور'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.campaign_name||'',x.code||'',x.membership_status||'',x.issued_at||''])].map(row=>row.map(cell).join(',')).join('\r\n');
     return tgDocument(chat,'ustore-campaign-participants.csv',csv,'text/csv;charset=utf-8');
   }
   async function exportMenu(chat) {
@@ -183,8 +183,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       LEFT JOIN payment_orders o ON o.campaign_id=c.id AND o.entry_id=ce.id
       GROUP BY c.id,c.name,c.status ORDER BY c.id DESC LIMIT 20`);
     if(!rows.length)return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'داشبورد',callback_data:'adm:stats'}]])});
-    const body=rows.map(x=>{const n=Number(x.total_entries||0),a=Number(x.completed_entries||0);return '#'+x.id+' '+x.name+' · '+x.status+'\\nعضویت فعال: '+a+'/'+n+' ('+(n?Math.round(a*100/n):0)+'٪) · معلق: '+Number(x.pending_entries||0)+'\\nکد فعال: '+Number(x.active_codes||0)+' · سفارش تأییدشده: '+Number(x.approved_orders||0);}).join('\\n\\n');
-    return adminMessage({chat_id:chat,text:'📈 گزارش کمپین‌ها\\n\\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'داشبورد',callback_data:'adm:stats'}]])});
+    const body=rows.map(x=>{const n=Number(x.total_entries||0),a=Number(x.completed_entries||0);return '#'+x.id+' '+x.name+' · '+x.status+'\nعضویت فعال: '+a+'/'+n+' ('+(n?Math.round(a*100/n):0)+'٪) · معلق: '+Number(x.pending_entries||0)+'\nکد فعال: '+Number(x.active_codes||0)+' · سفارش تأییدشده: '+Number(x.approved_orders||0);}).join('\n\n');
+    return adminMessage({chat_id:chat,text:'📈 گزارش کمپین‌ها\n\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'داشبورد',callback_data:'adm:stats'}]])});
   }
   async function supportList(chat,status='open',page=0) {
     if(!['open','answered','closed','all'].includes(status))return adminMessage({chat_id:chat,text:'فیلتر تیکت نامعتبر است.'});
@@ -192,7 +192,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const where=status==='all'?'':'WHERE status=?';
     const params=status==='all'?[10,p*10]:[status,10,p*10];
     const [rows]=await db.execute(`SELECT id,telegram_user_id,status,LEFT(message,90) AS preview,created_at FROM customer_support_tickets ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,params);
-    const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.status+' · '+String(x.preview||'').replace(/\\s+/g,' '),callback_data:'adm:support-ticket:'+x.id}]);
+    const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.status+' · '+String(x.preview||'').replace(/\s+/g,' '),callback_data:'adm:support-ticket:'+x.id}]);
     buttons.push([{text:'باز',callback_data:'adm:support:open'},{text:'پاسخ‌داده',callback_data:'adm:support:answered'},{text:'بسته',callback_data:'adm:support:closed'}]);
     buttons.push([{text:'همه',callback_data:'adm:support:all'},{text:'منوی اصلی',callback_data:'adm:home'}]);
     if(p>0)buttons.push([{text:'⬅️ قبلی',callback_data:'adm:support-page:'+status+':'+(p-1)}]);
@@ -225,8 +225,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   }
   async function auditLog(chat) {
     const [rows]=await db.query('SELECT action,entity_type,entity_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 15');
-    const body=rows.length?rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\\n'+x.created_at).join('\\n\\n'):'هنوز رخدادی ثبت نشده است.';
-    return adminMessage({chat_id:chat,text:'🧾 ۱۵ رخداد اخیر\\n\\n'+body,reply_markup:keyboard([[{text:'منوی اصلی',callback_data:'adm:home'}]])});
+    const body=rows.length?rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\n'+x.created_at).join('\n\n'):'هنوز رخدادی ثبت نشده است.';
+    return adminMessage({chat_id:chat,text:'🧾 ۱۵ رخداد اخیر\n\n'+body,reply_markup:keyboard([[{text:'منوی اصلی',callback_data:'adm:home'}]])});
   }
   const cardWizardFields = [
     {key:'label',label:'عنوان کارت',hint:'مثلاً کارت اصلی فروشگاه'},
@@ -477,8 +477,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       const [[d]]=await db.execute('SELECT id,campaign_id,draw_number,status,method,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1',[id]);
       if(!d)return adminMessage({chat_id:chat,text:'قرعه‌کشی پیدا نشد.'});
       const [winners]=await db.execute('SELECT winner_rank,winner_type,participant_id,code,selection_method FROM draw_winners WHERE draw_id=? ORDER BY winner_rank',[id]);
-      const body=winners.length?winners.map(w=>'رتبه '+w.winner_rank+' · '+w.winner_type+' · مشتری #'+w.participant_id+' · '+(w.code||'بدون کد')).join('\\n'):'نتیجه هنوز انتخاب نشده است.';
-      return adminMessage({chat_id:chat,text:'قرعه‌کشی #'+d.draw_number+' · '+d.status+'\\nSnapshot: '+(d.snapshot_hash||'-')+'\\n\\n'+body,reply_markup:keyboard(d.status==='pending_approval'?[[{text:'تأیید نتیجه',callback_data:'adm:draw-approve:'+id}],[{text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]]:[[ {text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]])});
+      const body=winners.length?winners.map(w=>'رتبه '+w.winner_rank+' · '+w.winner_type+' · مشتری #'+w.participant_id+' · '+(w.code||'بدون کد')).join('\n'):'نتیجه هنوز انتخاب نشده است.';
+      return adminMessage({chat_id:chat,text:'قرعه‌کشی #'+d.draw_number+' · '+d.status+'\nSnapshot: '+(d.snapshot_hash||'-')+'\n\n'+body,reply_markup:keyboard(d.status==='pending_approval'?[[{text:'تأیید نتیجه',callback_data:'adm:draw-approve:'+id}],[{text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]]:[[ {text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]])});
     }
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:reports') return campaignReports(chat);
@@ -541,7 +541,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:support-ticket:')) return supportDetail(chat,data.slice('adm:support-ticket:'.length));
     if (data.startsWith('adm:support-close:')) return setSupportStatus(chat,data.slice('adm:support-close:'.length),'closed');
     if (data.startsWith('adm:support-reopen:')) return setSupportStatus(chat,data.slice('adm:support-reopen:'.length),'open');
-    if (data.startsWith('adm:support-reply-help:')) return adminMessage({chat_id:chat,text:'برای پاسخ به این تیکت در همین گفت‌وگوی خصوصی دستور زیر را ارسال کنید:\\n/reply '+data.slice('adm:support-reply-help:'.length)+' متن پاسخ'});
+    if (data.startsWith('adm:support-reply-help:')) return adminMessage({chat_id:chat,text:'برای پاسخ به این تیکت در همین گفت‌وگوی خصوصی دستور زیر را ارسال کنید:\n/reply '+data.slice('adm:support-reply-help:'.length)+' متن پاسخ'});
     if (data==='adm:audit') return auditLog(chat);
     if (data==='adm:export') return exportMenu(chat);
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
