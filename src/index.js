@@ -449,8 +449,8 @@ const inst=normalizeInstagram(t);
 if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است؛ فقط حروف انگلیسی، عدد، نقطه و زیرخط مجاز است.");
 const old=await entry(uid);
 if(old&&old.status==="active"){await delSession(uid);return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید. کد شما: "+old.raffle_code)}
+if(process.env.CONTACT_PHONE){
 try{
-if(!process.env.CONTACT_PHONE)throw new Error("CONTACT_PHONE is not configured");
 await tg("sendContact",{
 chat_id:chat,
 business_connection_id:conn,
@@ -459,6 +459,7 @@ first_name:"موبایل مهدی زاده",
 last_name:"iStore"
 });
 }catch(e){console.error("Contact card error:",e.message);return reply(chat,conn,"⚠️ فعلاً ارسال کارت مخاطب ممکن نشد. لطفاً دوباره آیدی اینستاگرام خود را ارسال کنید؛ اطلاعات قبلی حفظ شده است.")}
+}
 await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
 return tg("sendMessage",{
 chat_id:chat,
