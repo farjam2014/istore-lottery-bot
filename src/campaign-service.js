@@ -30,7 +30,7 @@ async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret) {
   return code;
 }
 
-async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, chatId, campaignSlug, codeSecret }) {
+async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, chatId, businessConnectionId, campaignSlug, codeSecret }) {
   if (!telegramUserId || !campaignSlug) throw new Error('telegramUserId and campaignSlug are required');
   const conn = await db.getConnection();
   try {
@@ -83,8 +83,11 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       const [[existingCode]] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' LIMIT 1", [existing.id]
       );
+      const [[existingPayment]] = existing.status === 'pending_payment'
+        ? await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id])
+        : [null];
       await conn.commit();
-      return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, code: existingCode?.code || null };
+      return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, paymentId: existingPayment?.id || null, code: existingCode?.code || null };
     }
 
     if (campaign.capacity !== null) {
@@ -107,11 +110,12 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     const entryId = entryResult.insertId;
     if (requiresApproval) {
       await conn.execute(
-        'INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency) VALUES(?,?,?,?,?)',
-        [entryId, campaign.payment_mode, 'pending', campaign.amount_minor, campaign.currency]
+        'INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?)',
+        [entryId, campaign.payment_mode, 'pending', campaign.amount_minor, campaign.currency, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
+      const paymentId = (await conn.execute("SELECT LAST_INSERT_ID() AS id"))[0][0].id;
       await conn.commit();
-      return { entryId, existing: false, status: 'pending_payment', paymentStatus: 'pending', code: null };
+      return { entryId, existing: false, status: 'pending_payment', paymentStatus: 'pending', paymentId, code: null };
     }
 
     const code = await issueCodeInTransaction(conn, campaign.id, entryId, codeSecret);
