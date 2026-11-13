@@ -67,12 +67,13 @@ function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||
 async function contactGateAccepted(uid){const [rows]=await db.execute("SELECT telegram_user_id FROM telegram_contact_gate WHERE telegram_user_id=? AND accepted_at IS NOT NULL LIMIT 1",[String(uid)]);return rows.length>0}
 async function showContactGate(chat,connection){return tg("sendMessage",{chat_id:chat,business_connection_id:connection||undefined,text:contactGateText(),reply_markup:contactGateKeyboard()})}
 async function handleContactGateCallback(q,uid,chat){
+const connection=String(q.message?.business_connection_id||"");
 if(q.data==="contact:send"){
 const phone=configuredContactPhone();
 if(!phone){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است. لطفاً بعداً مراجعه کنید.",show_alert:true});return;}
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"کارت مخاطب ارسال شد."});
-await tg("sendContact",{chat_id:chat,phone_number:phone,first_name:"مدیریت",last_name:"USTORE"});
-return tg("sendMessage",{chat_id:chat,text:"کارت مخاطب ارسال شد. آن را باز کنید و گزینه افزودن به مخاطبین را بزنید؛ سپس «ذخیره کردم؛ ادامه» را انتخاب کنید.",reply_markup:contactGateKeyboard()});
+await tg("sendContact",{chat_id:chat,business_connection_id:connection||undefined,phone_number:phone,first_name:"مدیریت",last_name:"USTORE"});
+return reply(chat,connection,"کارت مخاطب ارسال شد. در صورت تمایل آن را ذخیره کنید و سپس «ذخیره کردم؛ ادامه» را بزنید. ربات نمی‌تواند ذخیره‌شدن شماره را بررسی کند.",{reply_markup:contactGateKeyboard()});
 }
 if(q.data==="contact:confirm"){
 if(!configuredContactPhone()){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است.",show_alert:true});return;}
@@ -82,7 +83,9 @@ const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,c
 const buttons=campaigns.map(x=>[{text:x.name+" · "+(x.payment_mode==="free"?"رایگان":x.price_per_code+" "+x.currency),callback_data:"campaign:details:"+x.id}]);
 buttons.push([{text:"👤 حساب من و کدها",callback_data:"participant:account"}]);
 buttons.push([{text:"🔄 تازه‌سازی فهرست کمپین‌ها",callback_data:"campaign:list"}]);
-return tg("sendMessage",{chat_id:chat,text:campaigns.length?"✅ دسترسی شما فعال شد.\n\n🧩 کمپین فعال موردنظرتان را انتخاب کنید:":"✅ دسترسی شما فعال شد.\n\nدر حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد؛ می‌توانید بعداً دوباره بررسی کنید.",reply_markup:{inline_keyboard:buttons}});
+buttons.push([{text:"👤 حساب و پروفایل",callback_data:"participant:account"},{text:"🎟 کدهای من",callback_data:"participant:codes"}]);
+buttons.push([{text:"📝 ساخت پروفایل",callback_data:"profile:create"},{text:"💬 پشتیبانی",callback_data:"support:start"}]);
+return reply(chat,connection,campaigns.length?"دسترسی فعال شد. از منوی USTORE استفاده کنید:":"دسترسی فعال شد. کمپین فعالی نیست؛ می‌توانید پروفایل بسازید یا با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:buttons}});
 }
 }
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
@@ -318,13 +321,15 @@ if(q.data==='participant:account'){
 }
 if(q.data==='participant:home'){
  await tg('answerCallbackQuery',{callback_query_id:q.id});
- return tg('sendMessage',{chat_id:chat,text:'به سامانه کمپین‌های iStore خوش آمدید.\\nیک بخش را انتخاب کنید:',reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب من و کدها',callback_data:'participant:account'}]]}});
+ return reply(chat,String(q.message?.business_connection_id||''),'به USTORE خوش آمدید. یک بخش را انتخاب کنید:',{reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
 }
 if(q.data==='campaign:list'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
-  return tg('sendMessage',{chat_id:chat,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.',reply_markup:{inline_keyboard:buttons}});
+  buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
+  buttons.push([{text:'📝 ساخت پروفایل',callback_data:'profile:create'},{text:'💬 پشتیبانی',callback_data:'support:start'}]);
+  return reply(chat,String(q.message?.business_connection_id||''),campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید پروفایل بسازید یا از پشتیبانی کمک بگیرید.',{reply_markup:{inline_keyboard:buttons}});
 }
 if(String(q.data||'').startsWith('campaign:join:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
@@ -468,9 +473,10 @@ if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پ�
 if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(x=>[{text:x.name+' · '+(x.payment_mode==='free'?'رایگان':x.price_per_code+' '+x.currency),callback_data:'campaign:details:'+x.id}]);
-  buttons.push([{text:'👤 حساب من و کدها',callback_data:'participant:account'}]);
-  buttons.push([{text:'🔄 تازه‌سازی فهرست کمپین‌ها',callback_data:'campaign:list'}]);
-  return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید حساب خود را مشاهده کنید.',reply_markup:{inline_keyboard:buttons}});
+  buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
+  buttons.push([{text:'📝 ساخت پروفایل',callback_data:'profile:create'},{text:'💬 پشتیبانی',callback_data:'support:start'}]);
+  buttons.push([{text:'🔄 تازه‌سازی کمپین‌ها',callback_data:'campaign:list'}]);
+  return reply(chat,conn,campaigns.length?'به USTORE خوش آمدید؛ کمپین موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید پروفایل بسازید یا از پشتیبانی کمک بگیرید.',{reply_markup:{inline_keyboard:buttons}});
 }
 
 
@@ -506,6 +512,18 @@ if(profileChangeMatch){
   }catch(e){return reply(chat,conn,'❌ درخواست اصلاح ثبت نشد: '+e.message);}
 }
 
+if(lower==="/reply"||lower.startsWith("/reply ")){
+if(uid!==String(process.env.ADMIN_ID||""))return;
+const match=t.match(/^\\/reply\\s+(\\d+)\\s+([\\s\\S]{2,2000})$/i);
+if(!match)return reply(chat,conn,"فرمت پاسخ: /reply شماره_تیکت متن پاسخ");
+const ticketId=Number(match[1]),answer=match[2].trim();
+const [[ticket]]=await db.execute("SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=? LIMIT 1",[ticketId]);
+if(!ticket)return reply(chat,conn,"تیکت پیدا نشد.");
+if(ticket.status!=="open")return reply(chat,conn,"این تیکت قبلاً پاسخ داده شده است.");
+await reply(String(ticket.chat_id),String(ticket.business_connection_id||""),"💬 پاسخ پشتیبانی USTORE\\n\\n"+answer);
+await db.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=? AND status='open'",[answer,String(uid),ticketId]);
+return reply(chat,conn,"پاسخ تیکت #"+ticketId+" ارسال شد.");
+}
 if(lower==="/export" || lower.startsWith("/export@")){
 if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
 try{
