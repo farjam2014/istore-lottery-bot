@@ -7,7 +7,7 @@ APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
 DB_NAME="istore_lottery"
 DB_USER="istore_lottery"
-STAGE_DIR="/opt/.istore-lottery-preflight-$"
+STAGE_DIR="/opt/.istore-lottery-preflight-${BASHPID}"
 log(){ printf '\n[iStore] %s\n' "$*"; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ فایل پیش‌آزمون در $STAGE_DIR باقی مانده و کد خطا: $rc" >&2' EXIT
