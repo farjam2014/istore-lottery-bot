@@ -336,3 +336,43 @@ test('bank card detail accepts numeric IDs and supports confirmed deletion', asy
   assert.ok(h.calls.some(x => x.sql === 'DELETE_BANK_CARD' && x.id === 77));
   assert.match(h.telegram.at(-1).payload.text, /کارت‌های ثبت‌شده|هنوز کارتی ثبت نشده/);
 });
+
+
+test('campaign wizard uses inline Persian buttons for draw settings and shows selectable bank-card IDs', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'new-card',data:'adm:card-add',from:message.from,message:{chat:message.chat}});
+  for(const value of ['کارت اصلی','ملت','6037991234567890','علی رضایی']) {
+    await h.admin.handleMessage({...message,text:value});
+  }
+  await h.admin.handleCallback({id:'save-card',data:'adm:card-wizard-save',from:message.from,message:{chat:message.chat}});
+
+  await h.admin.handleCallback({id:'start-campaign',data:'adm:campaign-create',from:message.from,message:{chat:message.chat}});
+  for(const value of ['کمپین پولی','paid-campaign']) await h.admin.handleMessage({...message,text:value});
+  await h.admin.handleCallback({id:'paid',data:'adm:campaign-wizard-payment:manual',from:message.from,message:{chat:message.chat}});
+  for(const value of ['1000','-','-','2','1','0']) await h.admin.handleMessage({...message,text:value});
+
+  let markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b=>b.text==='🎡 از گردونه'&&b.callback_data.endsWith(':live_wheel')));
+  assert.ok(markup.flat().some(b=>b.text==='🤖 از خود ربات'&&b.callback_data.endsWith(':system')));
+  assert.equal(h.telegram.at(-1).payload.text.includes('live_wheel'),false);
+  await h.admin.handleCallback({id:'wheel',data:'adm:campaign-wizard-draw-method:live_wheel',from:message.from,message:{chat:message.chat}});
+
+  markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b=>b.text==='🎟 به ازای هر کد'&&b.callback_data.endsWith(':per_code')));
+  assert.ok(markup.flat().some(b=>b.text==='👤 به ازای هر شرکت‌کننده'&&b.callback_data.endsWith(':per_participant')));
+  assert.equal(h.telegram.at(-1).payload.text.includes('per_code'),false);
+  await h.admin.handleCallback({id:'per-code',data:'adm:campaign-wizard-draw-basis:per_code',from:message.from,message:{chat:message.chat}});
+
+  markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  const cardButton=markup.flat().find(b=>b.callback_data==='adm:campaign-wizard-card:77');
+  assert.ok(cardButton);
+  assert.match(cardButton.text,/#77/);
+  await h.admin.handleCallback({id:'choose-card',data:'adm:campaign-wizard-card:77',from:message.from,message:{chat:message.chat}});
+  assert.match(h.telegram.at(-1).payload.text,/بازبینی اطلاعات کمپین/);
+  await h.admin.handleCallback({id:'save-campaign',data:'adm:campaign-wizard-save',from:message.from,message:{chat:message.chat}});
+  const created=h.calls.find(x=>x.sql==='CREATE_CAMPAIGN');
+  assert.ok(created);
+  assert.equal(created.input.draw_method,'live_wheel');
+  assert.equal(created.input.draw_basis,'per_code');
+  assert.equal(created.input.payment_card_id,77);
+});
