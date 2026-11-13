@@ -240,9 +240,10 @@ const prompts={name:"لطفاً نام و نام خانوادگی خود را ب
 return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
 }
 if(q.data==="profile:create"){
+await tg("answerCallbackQuery",{callback_query_id:q.id});
 const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
 if(p)return reply(chat,String(q.message?.business_connection_id||""),"پروفایل شما قبلاً ساخته شده است.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}]]}});
-const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"profile_name",null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});
+const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"profile_name",null,null,connection);
 return reply(chat,connection,"نام و نام خانوادگی خود را برای ساخت پروفایل دائمی وارد کنید؛ حتی بدون کمپین فعال.",{reply_markup:{inline_keyboard:[[{text:"لغو",callback_data:"reg:cancel"}]]}});
 }
 if(q.data==="profile:confirm"){
@@ -301,8 +302,9 @@ if(String(q.data||'').startsWith('campaign:details:')){
   return reply(chat,String(q.message?.business_connection_id||''),body,{reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
 }
 if(q.data==='profile:edit:name'||q.data==='profile:edit:instagram'||q.data==='profile:edit:phone'){
+await tg("answerCallbackQuery",{callback_query_id:q.id});
 const connection=String(q.message?.business_connection_id||"");const field=q.data.split(':')[2];const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,connection,"پروفایل فعال پیدا نشد.");
-const step=field==="name"?"profile_change_full_name":field==="instagram"?"profile_change_instagram":"profile_change_phone_contact";await putSession(uid,chat,step,null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});
+const step=field==="name"?"profile_change_full_name":field==="instagram"?"profile_change_instagram":"profile_change_phone_contact";await putSession(uid,chat,step,null,null,connection);
 if(field==="phone")return reply(chat,connection,"شماره جدید را با دکمه رسمی تلگرام ارسال کنید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}});
 return reply(chat,connection,field==="name"?"نام جدید را ارسال کنید:":"آیدی اینستاگرام جدید را ارسال کنید:");
 }
