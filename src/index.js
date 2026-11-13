@@ -328,6 +328,16 @@ if(m.photo?.length){
     return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.');
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
+if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پروفایل من'){
+  const [[participant]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+  if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع، /campaigns را بزنید و یک کمپین را انتخاب کنید.");
+  const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[participant.id]);
+  const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[participant.id]);
+  const statusLabel={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
+  const entryText=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\\n\\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
+  const orderText=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · سفارش '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(statusLabel[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
+  return reply(chat,conn,'👤 پروفایل شما\\nنام: '+participant.full_name+'\\nموبایل: '+participant.phone+'\\nاینستاگرام: @'+participant.instagram+'\\nوضعیت: '+participant.status+'\\n\\n🎟 کمپین‌ها و کدهای شما\\n'+entryText+'\\n\\n💳 سفارش‌ها\\n'+orderText,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
+}
 if(lower==='/start'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
   if(!campaigns.length)return reply(chat,conn,'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.');
