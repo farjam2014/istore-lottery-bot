@@ -158,12 +158,14 @@ test('campaign payment session schema binds one pending order to a Telegram Busi
   assert.match(schema, /FOREIGN KEY\(order_id\) REFERENCES payment_orders\(id\)/);
 });
 
-test('campaign-only profile onboarding is allowed while legacy registration is closed', () => {
+test('new customer profile onboarding is independent of campaign availability', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);\n  assert.match(source, /if\(!legacyRegistrationOpen\)throw Object\.assign\(new Error\("REGISTRATION_CLOSED"\)/);
+  assert.match(source, /if\(q\.data==="profile:create"\)/);
+  assert.match(source, /نام و نام خانوادگی خود را برای ساخت پروفایل دائمی وارد کنید؛ حتی بدون کمپین فعال/);
+  assert.match(source, /async function saveParticipantProfile\(/);
   assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
-  assert.match(source, /if\(!await registrationOpen\(\)\)\{const \[\[campaignOpen\]\]=await db\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+  assert.doesNotMatch(source, /legacyRegistrationOpen|lottery_entries|lottery_settings/);
 });
 
 
