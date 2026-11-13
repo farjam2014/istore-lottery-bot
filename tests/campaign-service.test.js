@@ -153,7 +153,7 @@ test('manual order persists receipt session and payment instructions before comm
       if (sql.includes('SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants')) return [[{
         id: 9, status: 'active', telegram_user_id: '12345', chat_id: '12345', business_connection_id: ''
       }]];
-      if (sql.includes('SELECT id,order_ref,status FROM payment_orders')) return [[]];
+      if (sql.includes('SELECT id,order_ref,status,quantity,total_snapshot,currency FROM payment_orders')) return [[]];
       if (sql.includes('SELECT id,status FROM campaign_entries')) return [[{ id: 12, status: 'active' }]];
       if (sql.includes('SELECT id FROM campaign_capacity_reservations')) return [[]];
       if (sql.includes('AS participants_used')) return [[{ participants_used: 1, codes_used: 0 }]];
