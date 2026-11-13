@@ -298,7 +298,7 @@ if(String(q.data||'').startsWith('campaign:details:')){
   if(!campaign)return reply(chat,String(q.message?.business_connection_id||''),'این کمپین دیگر فعال نیست.');
   const price=campaign.payment_mode==='free'?'رایگان':Number(campaign.price_per_code).toLocaleString('en-US')+' '+campaign.currency+' برای هر کد';
   const body='🧩 '+campaign.name+'\\n\\n'+(campaign.description||'توضیحات تکمیلی برای این کمپین ثبت نشده است.')+'\\n\\n💳 شیوه شرکت: '+price+'\\n🎟 حداکثر کد برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nبرای ادامه، دکمه زیر را بزنید.';
-  return tg('sendMessage',{chat_id:chat,text:body,reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
+  return reply(chat,String(q.message?.business_connection_id||''),body,{reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
 }
 if(q.data==='profile:edit:name'||q.data==='profile:edit:instagram'||q.data==='profile:edit:phone'){
 const connection=String(q.message?.business_connection_id||"");const field=q.data.split(':')[2];const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,connection,"پروفایل فعال پیدا نشد.");
@@ -317,7 +317,7 @@ if(q.data==='participant:account'){
   const labels={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
   const et=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\\n\\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
   const ot=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(labels[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
-  return tg('sendMessage',{chat_id:chat,text:'👤 حساب شما\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram+'\\nوضعیت: '+p.status+'\\n\\n🎟 کمپین‌ها و کدها\\n'+et+'\\n\\n💳 سفارش‌ها\\n'+ot,reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
+  return reply(chat,String(q.message?.business_connection_id||''),'👤 حساب شما\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram+'\\nوضعیت: '+p.status+'\\n\\n🎟 کمپین‌ها و کدها\\n'+et+'\\n\\n💳 سفارش‌ها\\n'+ot,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
 }
 if(q.data==='participant:home'){
  await tg('answerCallbackQuery',{callback_query_id:q.id});
@@ -481,6 +481,7 @@ if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower=
 }
 
 
+if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"عملیات لغو شد. از منوی اصلی می‌توانید دوباره شروع کنید.",{reply_markup:{inline_keyboard:[[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
 const currentSession=await session(uid);
 if(currentSession?.step==="profile_name"){
 if(!validFullName(t))return reply(chat,conn,"نام و نام خانوادگی معتبر وارد کنید.");
