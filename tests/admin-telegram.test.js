@@ -58,7 +58,8 @@ function harness() {
     async getCard(id){const c=cardRows.get(Number(id));if(!c)throw new Error('card not found');return c;},
     async addCard(input){calls.push({sql:'ADD_BANK_CARD',input});const c={id:77,label:input.label,bank_name:input.bankName,card_number:input.cardNumber,cardholder_name:input.cardholderName,status:'active'};cardRows.set(77,c);return {id:77};},
     async updateCard(input){calls.push({sql:'UPDATE_BANK_CARD',input});const c={id:input.id,label:input.label,bank_name:input.bankName,card_number:input.cardNumber,cardholder_name:input.cardholderName,status:'active'};cardRows.set(input.id,c);},
-    async setCardStatus(){}
+    async setCardStatus(){},
+    async deleteCard(id){calls.push({sql:'DELETE_BANK_CARD',id});if(!cardRows.has(Number(id)))throw new Error('کارت پیدا نشد.');cardRows.delete(Number(id));}
   };
   const admin = createAdminTelegram({
     db, tg, tgDocument: async () => ({ ok: true }), bankCardService,
@@ -316,4 +317,22 @@ test('campaign and bank-card wizards expose inline back/cancel controls and Pers
   assert.ok(markup.flat().some(b => b.callback_data === 'adm:card-wizard-cancel'));
   await click('card-back', 'adm:card-wizard-back');
   assert.match(h.telegram.at(-1).payload.text, /عنوان کارت/);
+});
+
+
+test('bank card detail accepts numeric IDs and supports confirmed deletion', async () => {
+  const h = harness(), message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
+  await h.admin.handleCallback({ id: 'add-card-for-delete', data: 'adm:card-add', from: message.from, message: { chat: message.chat } });
+  for (const value of ['Unused card', 'Bank', '6037991234567890', 'Test Holder']) {
+    await h.admin.handleMessage({ ...message, text: value });
+  }
+  await h.admin.handleCallback({ id: 'save-card-for-delete', data: 'adm:card-wizard-save', from: message.from, message: { chat: message.chat } });
+  await h.admin.handleCallback({ id: 'open-card-detail', data: 'adm:card:77', from: message.from, message: { chat: message.chat } });
+  assert.match(h.telegram.at(-1).payload.text, /Unused card/);
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(b => b.callback_data === 'adm:card-delete:77'));
+  await h.admin.handleCallback({ id: 'request-card-delete', data: 'adm:card-delete:77', from: message.from, message: { chat: message.chat } });
+  assert.match(h.telegram.at(-1).payload.text, /حذف دائمی کارت/);
+  await h.admin.handleCallback({ id: 'confirm-card-delete', data: 'adm:card-delete-apply:77', from: message.from, message: { chat: message.chat } });
+  assert.ok(h.calls.some(x => x.sql === 'DELETE_BANK_CARD' && x.id === 77));
+  assert.match(h.telegram.at(-1).payload.text, /کارت‌های ثبت‌شده|هنوز کارتی ثبت نشده/);
 });
