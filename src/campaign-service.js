@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const { validFullName, validPhone, validInstagram } = require('./domain');
+const { validFullName, validPhone, normalizeInstagram, validInstagram } = require('./domain');
 
 function makeCampaignCode(campaignId, sequence, secret) {
   if (!secret || String(secret).length < 32) throw new Error('CAMPAIGN_CODE_SECRET must contain at least 32 characters');
@@ -43,7 +43,8 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
        FOR UPDATE`, [campaignSlug]
     );
     if (!campaign) throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
-    if (!validFullName(fullName) || !validPhone(phone) || !validInstagram(instagram)) {
+    const normalizedInstagram = normalizeInstagram(instagram);
+    if (!validFullName(fullName) || !validPhone(phone) || !validInstagram(normalizedInstagram)) {
       throw Object.assign(new Error('INVALID_PARTICIPANT_PROFILE'), { code: 'INVALID_PARTICIPANT_PROFILE' });
     }
 
@@ -61,7 +62,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     );
     const [[duplicateInstagram]] = await conn.execute(
       'SELECT id FROM participants WHERE telegram_user_id<>? AND instagram=? LIMIT 1 FOR UPDATE',
-      [String(telegramUserId), instagram]
+      [String(telegramUserId), normalizedInstagram]
     );
     const duplicate = duplicatePhone || duplicateInstagram;
     if (duplicate) throw Object.assign(new Error('DUPLICATE_CONTACT'), { code: 'DUPLICATE_CONTACT' });
@@ -70,7 +71,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       `INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
        VALUES(?,?,?,?)
        ON DUPLICATE KEY UPDATE full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram)`,
-      [String(telegramUserId), fullName, phone, instagram]
+      [String(telegramUserId), fullName, phone, normalizedInstagram]
     );
     const [[participant]] = await conn.execute(
       'SELECT id FROM participants WHERE telegram_user_id=? FOR UPDATE', [String(telegramUserId)]
