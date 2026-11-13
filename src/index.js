@@ -200,8 +200,14 @@ if(String(q.data||"").startsWith("camp:select:")){
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
     }
   }
+  const telegramName=[q.from?.first_name,q.from?.last_name].filter(Boolean).join(" ").trim();
+  if(validFullName(telegramName)){
+    await putSession(uid,chat,"awaiting_contact",telegramName,null,connection,null,Number(campaign.id));
+    const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);
+    return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"نام و نام خانوادگی از پروفایل تلگرام شما دریافت شد. برای ادامه، شماره موبایل خودتان را از طریق دکمه زیر ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}});
+  }
   await putSession(uid,chat,"name",null,null,connection,null,Number(campaign.id));
-  return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎉 برای شرکت در «"+campaign.title+"»، نام و نام خانوادگی خود را ارسال کنید.\nبرای لغو، «لغو» را بفرستید."});
+  return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"نام نمایشی تلگرام قابل استفاده نیست؛ لطفاً نام و نام خانوادگی خود را ارسال کنید."});
 }
 if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
@@ -442,8 +448,14 @@ return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"🎉 ک�
 if(!await registrationOpen())return reply(chat,conn,"در حال حاضر کمپین فعالی برای ثبت‌نام وجود ندارد.");
 const old=await entry(uid);
 if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);
+const telegramName=[m.from.first_name,m.from.last_name].filter(Boolean).join(" ").trim();
+if(validFullName(telegramName)){
+await putSession(uid,chat,"awaiting_contact",telegramName,null,conn);
+const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);
+return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام و نام خانوادگی از پروفایل تلگرام شما دریافت شد. برای ادامه، شماره موبایل خودتان را از طریق دکمه زیر ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}});
+}
 await putSession(uid,chat,"name",null,null,conn);
-return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nنام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\n\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.");
+return reply(chat,conn,"لطفاً نام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.");
 }
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(s.campaign_id){const [[activeCampaign]]=await db.execute("SELECT id FROM campaigns WHERE id=? AND status='active' AND (starts_at IS NULL OR starts_at<=NOW()) AND (ends_at IS NULL OR ends_at>=NOW())",[s.campaign_id]);if(!activeCampaign){await delSession(uid);return reply(chat,conn,"ثبت‌نام این کمپین بسته شده است.")}}else if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
 if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn,null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
