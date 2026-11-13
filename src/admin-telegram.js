@@ -541,7 +541,6 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       wizard.values[field.key]=field.key==='payment_mode'?value.toLowerCase():value;
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
-      if(wizard.values.payment_mode==='manual'&&wizard.step===2){wizard.step=3;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
       if(wizard.step<campaignWizardFields.length-1){wizard.step++;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
       return campaignWizardReview(m.chat.id,wizard);
     }
