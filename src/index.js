@@ -655,19 +655,19 @@ app.post("/api/admin/campaigns/:id/draw",admin,async(q,r)=>{
     const [[pending]]=await conn.execute("SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[campaign.id]);
     if(Number(pending.total)){await conn.rollback();return r.status(409).json({error:"ابتدا پرداخت‌های معلق را تعیین تکلیف کنید."})}
     const [people]=await conn.execute(
-      `SELECT e.id,pt.full_name,pt.instagram,ic.code
-       FROM campaign_entries e
+      `SELECT e.id AS entry_id,pt.full_name,pt.instagram,ic.code
+       FROM issued_codes ic
+       JOIN campaign_entries e ON e.id=ic.entry_id AND e.campaign_id=ic.campaign_id
        JOIN participants pt ON pt.id=e.participant_id
-       JOIN issued_codes ic ON ic.entry_id=e.id AND ic.campaign_id=e.campaign_id AND ic.status='active'
-       WHERE e.campaign_id=? AND e.status='active' AND e.payment_status IN ('not_required','approved')
-       ORDER BY e.id FOR UPDATE`,[campaign.id]
+       WHERE e.campaign_id=? AND e.status='active' AND e.payment_status IN ('not_required','approved') AND ic.status='active'
+       ORDER BY ic.sequence_no,ic.id FOR UPDATE`,[campaign.id]
     );
     if(!people.length){await conn.rollback();return r.status(400).json({error:"شرکت‌کننده واجد شرایطی در این کمپین وجود ندارد."})}
     const winner=people[crypto.randomInt(people.length)];
     const seed=crypto.randomBytes(32).toString("hex");
-    const [draw]=await conn.execute("INSERT INTO campaign_draws(campaign_id,winner_entry_id,winner_code,drawn_by,draw_seed) VALUES(?,?,?,?,?)",[campaign.id,winner.id,winner.code,String(process.env.ADMIN_ID),seed]);
-    for(const person of people)await conn.execute("INSERT INTO campaign_draw_participants(draw_id,entry_id,code) VALUES(?,?,?)",[draw.insertId,person.id,person.code]);
-    await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),"campaign_draw","campaign",String(campaign.id),JSON.stringify({draw_id:draw.insertId,eligible_count:people.length,winner_entry_id:winner.id})]);
+    const [draw]=await conn.execute("INSERT INTO campaign_draws(campaign_id,winner_entry_id,winner_code,drawn_by,draw_seed) VALUES(?,?,?,?,?)",[campaign.id,winner.entry_id,winner.code,String(process.env.ADMIN_ID),seed]);
+    for(const person of people)await conn.execute("INSERT INTO campaign_draw_participants(draw_id,entry_id,code) VALUES(?,?,?)",[draw.insertId,person.entry_id,person.code]);
+    await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),"campaign_draw","campaign",String(campaign.id),JSON.stringify({draw_id:draw.insertId,eligible_count:people.length,winner_entry_id:winner.entry_id,winner_code:winner.code})]);
     await conn.commit();
     r.json({drawId:draw.insertId,total:people.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.code}});
   }catch(e){await conn.rollback();console.error("Campaign draw error:",e.message);r.status(500).json({error:"قرعه‌کشی کمپین انجام نشد."})}
@@ -692,7 +692,7 @@ app.post("/api/admin/campaign-payments/:id/approve",admin,async(q,r)=>{
   try{
     const result=await approveManualPayment({db,paymentId:q.params.id,reviewer:String(process.env.ADMIN_ID),codeSecret:process.env.CAMPAIGN_CODE_SECRET});
     const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[q.params.id]);
-    if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کد اختصاصی شما: "+result.code})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
+    if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کدهای اختصاصی شما ("+result.quantity+"):\n"+result.codes.join("\n")})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
     await audit(process.env.ADMIN_ID,"approve_campaign_payment","campaign_payment",q.params.id,{entry_id:result.entryId,code:result.code});
     r.json(result);
   }catch(e){
