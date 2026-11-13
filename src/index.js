@@ -4,6 +4,7 @@ for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const {createAdminTelegram}=require("./admin-telegram");
 const {createCampaignService}=require("./campaign-service");
+const {createDrawService}=require("./draw-service");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -13,6 +14,7 @@ app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:fal
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
 const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,charset:"utf8mb4"});
 const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
+const drawService=createDrawService({db,adminId:process.env.ADMIN_ID});
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
 const [rows]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' LIMIT 1");
@@ -430,6 +432,33 @@ r.json({orders:rows});
 app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
 if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
 try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.post("/api/admin/campaigns/:id/draws/prepare",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+try{const result=await drawService.prepareDraw(Number(q.params.id));r.status(201).json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.get("/api/admin/draws/:id/candidates",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+const [[draw]]=await db.execute("SELECT id,campaign_id,method,status,draw_basis,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[q.params.id]);
+if(!draw)return r.status(404).json({error:"قرعه‌کشی پیدا نشد."});
+const [candidates]=await db.execute("SELECT candidate_reference,participant_id,code FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference",[q.params.id]);
+r.json({draw,candidates});
+});
+app.post("/api/admin/draws/:id/run",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+try{const result=await drawService.runSystemDraw(Number(q.params.id));r.json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.post("/api/admin/draws/:id/live-results",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+try{const result=await drawService.submitLiveWheelResults({drawId:Number(q.params.id),candidateReferences:q.body.candidate_references,externalReference:q.body.external_reference,evidenceHash:q.body.evidence_hash});r.json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.post("/api/admin/draws/:id/approve",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+try{const result=await drawService.approveDraw(Number(q.params.id));r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.get("/api/admin/stats",admin,async(_q,r)=>{const [[a]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active'");const [[b]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");const [[c]]=await db.query("SELECT COUNT(*) total FROM lottery_sessions");const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");const [[f]]=await db.execute("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");r.json({total:a.total,today:b.total,pending:c.total,failedUpdates:f.total,open:await registrationOpen(),drawn:d?.setting_value==='true'})});
