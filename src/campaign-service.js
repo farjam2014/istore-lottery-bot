@@ -338,6 +338,27 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
+  async function expireReservations() {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [reservations] = await conn.execute(
+        "UPDATE campaign_capacity_reservations SET status='expired' WHERE status='held' AND expires_at<=UTC_TIMESTAMP()"
+      );
+      const [orders] = await conn.execute(
+        "UPDATE payment_orders o JOIN campaign_capacity_reservations r ON r.order_id=o.id SET o.status='expired' WHERE r.status='expired' AND o.status IN ('pending_payment','receipt_submitted') AND o.expires_at<=UTC_TIMESTAMP()"
+      );
+      await conn.execute(
+        "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')"
+      );
+      await conn.commit();
+      return { reservationsExpired: reservations.affectedRows, ordersExpired: orders.affectedRows };
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally { conn.release(); }
+  }
+
   async function requestProfileChange({ participantId, field, value }) {
     const fields = {
       full_name: v => { const x=String(v||'').trim().replace(/\\s+/g,' '); if(!validFullName(x)) throw new Error('نام معتبر نیست.'); return x; },
@@ -377,7 +398,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, requestProfileChange, reviewProfileChange };
+  return { createCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };
