@@ -171,8 +171,8 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[order]] = await conn.execute('SELECT * FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
       if (!order || order.status !== 'receipt_submitted') throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
-      const [[reservation]] = await conn.execute('SELECT * FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
-      if (!reservation || reservation.status !== 'held' || new Date(reservation.expires_at).getTime() <= Date.now()) throw new Error('رزرو سفارش منقضی شده است.');
+      const [[reservation]] = await conn.execute('SELECT *, (expires_at > UTC_TIMESTAMP()) AS is_valid FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
+      if (!reservation || reservation.status !== 'held' || !reservation.is_valid) throw new Error('رزرو سفارش منقضی شده است.');
       const [[campaign]] = await conn.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE', [order.campaign_id]);
       if (approve) {
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
