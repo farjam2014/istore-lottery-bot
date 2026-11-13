@@ -135,7 +135,7 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           };
           const firstJoin = await joinCampaign(args);
           assert.equal(firstJoin.status, 'active');
-          assert.match(firstJoin.code, /^IS-[A-F0-9]{16}$/);
+          assert.match(firstJoin.code, /^IS-[A-F0-9]{24}$/);
           const repeatJoin = await joinCampaign(args);
           assert.equal(repeatJoin.existing, true);
           assert.equal(repeatJoin.code, firstJoin.code);
