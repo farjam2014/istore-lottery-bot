@@ -146,7 +146,7 @@ const [[campaign]]=await db.execute("SELECT title,amount_minor,max_codes_per_par
 if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
 await putSession(uid,chat,"quantity",fullName,phone,connection,instagram,campaignId);
 const limit=campaign.max_codes_per_participant==null?"بدون سقف":Number(campaign.max_codes_per_participant).toLocaleString("fa-IR")+" کد";
-return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎟 کمپین «"+campaign.title+"»\nقیمت هر کد: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" ریال\nسقف مجاز برای هر نفر: "+limit+"\n\nچند کد می‌خواهید؟ فقط عدد را ارسال کنید. پس از پرداخت و تأیید مدیر، همان تعداد کد صادر می‌شود."});
+return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎟 کمپین «"+campaign.title+"»\nقیمت هر کد: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" ریال\nسقف مجاز برای هر نفر: "+limit+"\n\nهر درخواست حداکثر ۱۰٬۰۰۰ کد می‌پذیرد؛ اگر سقف کمپین نامحدود باشد می‌توانید چند بار خرید کنید.\nچند کد می‌خواهید؟ فقط عدد را ارسال کنید. پس از پرداخت و تأیید مدیر، همان تعداد کد صادر می‌شود."});
 }
 async function sendCodeDelivery(chatId, connectionId, campaignTitle, codes) {
 const list=Array.isArray(codes)?codes:[];
