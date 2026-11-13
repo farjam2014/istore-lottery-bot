@@ -60,7 +60,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   async function stats(chat) {
     const [[legacy]] = await db.query("SELECT COUNT(*) total, SUM(status='active') active, SUM(status='inactive') inactive, SUM(status='deleted') deleted FROM lottery_entries");
     const [[legacyToday]] = await db.query("SELECT COUNT(*) today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-    const [[sessions]] = await db.query("SELECT COUNT(*) pending FROM lottery_sessions");
+    const [[sessions]] = await db.query("SELECT COUNT(*) pending FROM telegram_sessions");
     const [[webhooks]] = await db.query("SELECT COUNT(*) failed FROM webhook_inbox WHERE status='failed'");
     const [[outbox]] = await db.query("SELECT COUNT(*) failed FROM telegram_notification_outbox WHERE status='failed'");
     const [[campaigns]] = await db.query("SELECT COUNT(*) total, SUM(status='open') open, SUM(status='draft') draft, SUM(status='paused') paused, SUM(status='closed') closed FROM campaigns");
