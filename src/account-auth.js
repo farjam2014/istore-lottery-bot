@@ -122,32 +122,52 @@ function createAccountAuth({ app, db, tg, adminId, sessionSecret, botUsername, s
     }
     return false;
   }
+  async function deliverResetLink(requestId, request, token) {
+    const url=siteUrl.replace(/\\/$/,'')+'/account.html?token='+encodeURIComponent(token);
+    try {
+      await tg('sendMessage',{chat_id:String(request.chat_id),text:'✅ درخواست بازیابی رمز شما تأیید شد. لینک امن و یک‌بارمصرف (۱۵ دقیقه):\\n'+url});
+      await db.execute("UPDATE password_reset_requests SET delivery_status='sent',delivery_error=NULL WHERE id=? AND status='approved'",[requestId]);
+      return true;
+    } catch(error) {
+      await db.execute("UPDATE password_reset_requests SET delivery_status='failed',delivery_error=? WHERE id=? AND status='approved'",[String(error.message||error).slice(0,500),requestId]);
+      logger.error('Password reset link delivery failed for request '+requestId+':',error.message);
+      return false;
+    }
+  }
   async function handleCallback(q) {
     if(String(q?.from?.id)!==String(adminId)||q.message?.chat?.type!=='private')return false;
-    const match=String(q.data||'').match(/^acct:([ar]):(\d+)$/);
+    const match=String(q.data||'').match(/^acct:([ars]):(\\d+)$/);
     if(!match)return false;
-    const id=Number(match[2]), approve=match[1]==='a';
-    await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال بررسی درخواست...'});
+    const id=Number(match[2]), action=match[1];
+    await tg('answerCallbackQuery',{callback_query_id:q.id,text:action==='s'?'در حال ارسال مجدد لینک...':'در حال بررسی درخواست...'});
     const conn=await db.getConnection();
-    let notify=null, token=null;
+    let request=null, token=null, approved=action!=='r';
     try {
       await conn.beginTransaction();
-      const [[request]]=await conn.execute("SELECT id,account_id,phone,telegram_user_id,chat_id,status FROM password_reset_requests WHERE id=? FOR UPDATE",[id]);
-      if(!request||request.status!=='pending'){await conn.rollback();await tg('sendMessage',{chat_id:String(adminId),text:'این درخواست قبلاً بررسی شده یا وجود ندارد.'});return true;}
-      if(!approve) {
-        await conn.execute("UPDATE password_reset_requests SET status='rejected',reviewed_at=NOW(),reviewed_by=? WHERE id=?",[String(adminId),id]);
-        notify={chat_id:String(request.chat_id),text:'درخواست بازیابی رمز حساب USTORE توسط مدیر رد شد. برای پیگیری با پشتیبانی فروشگاه تماس بگیرید.'};
+      const [[row]]=await conn.execute("SELECT id,account_id,phone,telegram_user_id,chat_id,status,delivery_status FROM password_reset_requests WHERE id=? FOR UPDATE",[id]);
+      if(!row){await conn.rollback();await tg('sendMessage',{chat_id:String(adminId),text:'این درخواست وجود ندارد.'});return true;}
+      request=row;
+      if(action==='r') {
+        if(row.status!=='pending'){await conn.rollback();await tg('sendMessage',{chat_id:String(adminId),text:'فقط درخواست در انتظار را می‌توان رد کرد.'});return true;}
+        await conn.execute("UPDATE password_reset_requests SET status='rejected',reviewed_at=NOW(),reviewed_by=?,delivery_status='not_required' WHERE id=?",[String(adminId),id]);
       } else {
+        if(action==='a'&&row.status!=='pending'){await conn.rollback();await tg('sendMessage',{chat_id:String(adminId),text:'این درخواست قبلاً بررسی شده است.'});return true;}
+        if(action==='s'&&(row.status!=='approved'||row.delivery_status==='sent')){await conn.rollback();await tg('sendMessage',{chat_id:String(adminId),text:'این درخواست در وضعیت ارسال مجدد نیست.'});return true;}
         token=randomToken();
-        await conn.execute('INSERT INTO account_reset_tokens(request_id,account_id,token_hash,expires_at) VALUES(?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[id,request.account_id,hash(token)]);
-        await conn.execute("UPDATE password_reset_requests SET status='approved',reviewed_at=NOW(),reviewed_by=? WHERE id=?",[String(adminId),id]);
-        notify={chat_id:String(request.chat_id),text:'✅ درخواست بازیابی رمز شما تأیید شد. لینک امن و یک‌بارمصرف (۱۵ دقیقه):\n'+siteUrl.replace(/\/$/,'')+'/account.html?token='+encodeURIComponent(token)};
+        if(action==='s')await conn.execute('UPDATE account_reset_tokens SET used_at=COALESCE(used_at,NOW()) WHERE request_id=?',[id]);
+        await conn.execute('INSERT INTO account_reset_tokens(request_id,account_id,token_hash,expires_at) VALUES(?,?,?,DATE_ADD(NOW(),INTERVAL 15 MINUTE))',[id,row.account_id,hash(token)]);
+        await conn.execute("UPDATE password_reset_requests SET status='approved',reviewed_at=NOW(),reviewed_by=?,delivery_status='pending',delivery_error=NULL WHERE id=?",[String(adminId),id]);
       }
       await conn.commit();
     } catch(e){await conn.rollback();throw e;} finally{conn.release();}
-    if(notify)await tg('sendMessage',notify);
+    if(action==='r') {
+      try{await tg('sendMessage',{chat_id:String(request.chat_id),text:'درخواست بازیابی رمز حساب USTORE توسط مدیر رد شد. برای پیگیری با پشتیبانی فروشگاه تماس بگیرید.'});}catch(error){logger.error('Reset rejection notice failed:',error.message);}
+    } else {
+      const delivered=await deliverResetLink(id,request,token);
+      if(!delivered)await tg('sendMessage',{chat_id:String(adminId),text:'⚠️ درخواست #'+id+' تأیید شده، اما ارسال لینک ناموفق بود. از دکمه «ارسال مجدد لینک» استفاده کنید.',reply_markup:{inline_keyboard:[[{text:'↻ ارسال مجدد لینک',callback_data:'acct:s:'+id}]]}});
+    }
     await tg('editMessageReplyMarkup',{chat_id:String(q.message.chat.id),message_id:q.message.message_id,reply_markup:{inline_keyboard:[]}});
-    await tg('sendMessage',{chat_id:String(adminId),text:approve?'بازیابی #'+id+' تأیید شد.':'بازیابی #'+id+' رد شد.'});
+    await tg('sendMessage',{chat_id:String(adminId),text:action==='r'?'بازیابی #'+id+' رد شد.':(action==='s'?'لینک بازیابی #'+id+' دوباره ارسال شد.':'بازیابی #'+id+' تأیید شد.')});
     return true;
   }
   return {handleMessage,handleCallback};
