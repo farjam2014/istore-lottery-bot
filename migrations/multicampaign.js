@@ -131,6 +131,12 @@ async function migrateMultiCampaign(db) {
   if (legacyDuplicateInstagram) {
     throw new Error('Legacy lottery_entries contains duplicate Instagram ID "' + legacyDuplicateInstagram.instagram + '". Resolve duplicate profiles before migrating.');
   }
+  const [[normalizedDuplicateInstagram]] = await db.query(
+    "SELECT LOWER(TRIM(LEADING '@' FROM instagram)) instagram,COUNT(*) total FROM participants GROUP BY LOWER(TRIM(LEADING '@' FROM instagram)) HAVING COUNT(*)>1 LIMIT 1"
+  );
+  if (normalizedDuplicateInstagram) {
+    throw new Error('Participant profiles contain duplicate Instagram ID "' + normalizedDuplicateInstagram.instagram + '". Resolve duplicates before migration.');
+  }
   await db.query("UPDATE participants SET instagram=LOWER(TRIM(LEADING '@' FROM instagram))");
   const [[duplicateInstagram]] = await db.query(
     "SELECT instagram,COUNT(*) total FROM participants GROUP BY instagram HAVING COUNT(*)>1 LIMIT 1"
@@ -155,6 +161,11 @@ async function migrateMultiCampaign(db) {
   );
   if (!proofColumns.some(column => column.COLUMN_NAME === 'telegram_file_id')) {
     await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_id VARCHAR(255) NULL AFTER storage_key');
+  }
+  const [proofUniqueColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payment_proofs'"
+  );
+  if (!proofUniqueColumns.some(column => column.COLUMN_NAME === 'telegram_file_unique_id')) {
     await db.query('ALTER TABLE campaign_payment_proofs ADD COLUMN telegram_file_unique_id VARCHAR(255) NULL AFTER telegram_file_id');
   }
 
