@@ -189,12 +189,15 @@ test('customer profile edits, codes and support have interactive routes', () => 
   assert.match(source, /\/reply/);
 });
 
-test('customer flow migration adds the required session states and support tickets', () => {
+test('customer flow migration creates support tickets; session states belong to fresh bootstrap', () => {
   const migration = require('../migrations/customer-flow');
   assert.equal(typeof migration.up, 'function');
   const fs = require('node:fs');
-  const source = fs.readFileSync(require.resolve('../migrations/customer-flow'), 'utf8');
-  assert.match(source, /profile_confirmation/);
-  assert.match(source, /support_message/);
-  assert.match(source, /CREATE TABLE IF NOT EXISTS customer_support_tickets/);
+  const customerFlow = fs.readFileSync(require.resolve('../migrations/customer-flow'), 'utf8');
+  const bootstrap = fs.readFileSync(require.resolve('../migrations/run'), 'utf8');
+  assert.match(customerFlow, /CREATE TABLE IF NOT EXISTS customer_support_tickets/);
+  assert.match(customerFlow, /status ENUM\('open','answered','closed'\)/);
+  assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS telegram_sessions/);
+  assert.match(bootstrap, /profile_confirmation/);
+  assert.match(bootstrap, /support_message/);
 });
