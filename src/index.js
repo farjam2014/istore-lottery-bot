@@ -81,9 +81,9 @@ try{
 await conn.beginTransaction();
 const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
 const legacyRegistrationOpen=registrationState?.setting_value==="true";
-if(!legacyRegistrationOpen){
-  const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
-  if(!openCampaign)throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
+const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
+if(openCampaign){
+
   const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
   if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
   await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active') ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id)",[String(uid),String(chat),String(businessConnection||''),name,phone,inst]);
@@ -93,6 +93,7 @@ if(!legacyRegistrationOpen){
   await conn.commit();
   return null;
 }
+if(!legacyRegistrationOpen)throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
 const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
 const existing=existingRows[0];
 if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
