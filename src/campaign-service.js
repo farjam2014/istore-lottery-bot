@@ -138,7 +138,7 @@ function createCampaignService({ db, adminId }) {
       const [[participant]] = await conn.execute("SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE", [participantId]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل شرکت‌کننده فعال نیست.');
       const [[openOrder]] = await conn.execute(
-        "SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders WHERE participant_id=? AND status IN ('pending_payment','receipt_submitted') ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        "SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders WHERE participant_id=? AND (status='receipt_submitted' OR (status='pending_payment' AND expires_at>UTC_TIMESTAMP())) ORDER BY id DESC LIMIT 1 FOR UPDATE",
         [participantId]
       );
       if (openOrder?.status === 'pending_payment') {
