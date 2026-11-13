@@ -138,10 +138,16 @@ function createCampaignService({ db, adminId }) {
       const [[participant]] = await conn.execute("SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE", [participantId]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل شرکت‌کننده فعال نیست.');
       const [[openOrder]] = await conn.execute(
-        "SELECT id,order_ref,status FROM payment_orders WHERE participant_id=? AND status IN ('pending_payment','receipt_submitted') ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        "SELECT id,order_ref,status,quantity,total_snapshot,currency FROM payment_orders WHERE participant_id=? AND status IN ('pending_payment','receipt_submitted') ORDER BY id DESC LIMIT 1 FOR UPDATE",
         [participantId]
       );
-      if (openOrder) throw new Error('برای شما سفارش باز '+openOrder.order_ref+' وجود دارد. ابتدا رسید همان سفارش را ارسال کنید یا منتظر بررسی مدیر بمانید؛ سپس سفارش جدید بسازید.');
+      if (openOrder?.status === 'pending_payment') {
+        // Telegram may retry the same callback after the DB commit. Reuse the
+        // already-created order and its durable instruction notification.
+        await conn.commit();
+        return { id: openOrder.id, orderRef: openOrder.order_ref, quantity: Number(openOrder.quantity), total: Number(openOrder.total_snapshot), currency: openOrder.currency, duplicate: true };
+      }
+      if (openOrder) throw new Error('برای شما سفارش '+openOrder.order_ref+' رسید ارسال‌شده و در انتظار بررسی دارد.');
       const [[entry]] = await conn.execute(
         'SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',
         [campaignId,participantId]
