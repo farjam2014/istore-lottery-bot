@@ -99,44 +99,42 @@ test('a second migration process cannot enter until the first releases its lock'
 });
 
 
-test('legacy phone text step cannot bypass Telegram contact ownership verification', () => {
+test('customer phone is accepted only from the owner Telegram contact', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null\)/);
-  assert.doesNotMatch(source, /if\(s\.step===\"phone\"\)\{const p=t\.replace/);
+  assert.match(source, /if\(m\.contact\)/);
+  assert.match(source, /!m\.contact\.user_id\|\|String\(m\.contact\.user_id\)!==uid/);
+  assert.match(source, /profile_awaiting_contact/);
+  assert.doesNotMatch(source, /s\.step==="phone"/);
 });
 
-test('registration confirmation token is bound to user, chat and Business connection', () => {
+test('profile confirmation is bound to the Telegram user, chat and Business connection', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /function makeConfirmationPayload\(uid,chat,connection\)/);
-  assert.match(source, /claims\.uid===String\(uid\)&&claims\.chat===String\(chat\)&&claims\.connection===String\(connection\)/);
-  assert.match(source, /verifyConfirmationPayload\(q\.data\|\|"",uid,chat,q\.message\?\.business_connection_id\|\|""\)/);
-  assert.match(source, /String\(s\.business_connection_id\)!==String\(q\.message\?\.business_connection_id\|\|""\)/);
-  assert.match(source, /callback_data:makeConfirmationPayload\(uid,chat,conn\)/);
-});
-
-test('registration callback is answered once after durable confirmation', () => {
-  const fs = require('node:fs');
-  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  const start = source.indexOf('async function handleCallbackQuery(q)');
-  const end = source.indexOf('async function handlePrivateUpdate(update)', start);
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
   const handler = source.slice(start, end);
-  const confirmStart = handler.indexOf('if(verifyConfirmationPayload');
-  const registrationHandler = handler.slice(confirmStart, handler.indexOf("if(String(q.data||'').startsWith('campaign:details:')", confirmStart));
-  assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3);
-  assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
-  assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
+  assert.match(handler, /s\.step!=="profile_confirmation"/);
+  assert.match(handler, /String\(s\.chat_id\)!==chat/);
+  assert.match(handler, /String\(s\.business_connection_id\|\|""\)!==connection/);
 });
 
-test('contact-card delivery failure does not strand registration in confirmation state', () => {
+test('profile confirmation persists the profile before clearing the session', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  const contact = source.indexOf('if(s.step==="instagram"){');
-  const confirm = source.indexOf('await putSession(uid,chat,"awaiting_confirmation"', contact);
-  const failure = source.indexOf('ارسال کارت مخاطب ممکن نشد', contact);
-  assert.ok(contact >= 0 && confirm > failure);
-  assert.match(source, /if\(s\.step==="awaiting_confirmation"\)\{\s*return tg\("sendMessage"/);
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /await saveParticipantProfile\([\s\S]*?await delSession\(uid\)/);
+  assert.match(handler, /پروفایل شما با موفقیت ساخته شد/);
+});
+
+test('optional contact gate fails open when CONTACT_PHONE is unset or invalid', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /function configuredContactPhone\(\)/);
+  assert.match(source, /if\(!configuredContactPhone\(\)\)return true/);
+  assert.match(source, /if\(!await contactGateAccepted\(uid\)\)/);
 });
 
 test('multi-campaign Business flow supports campaign listing, joins, and payment receipt photos', () => {
