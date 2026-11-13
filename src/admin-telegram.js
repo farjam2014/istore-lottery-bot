@@ -151,7 +151,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return tg('sendMessage',{chat_id:chat,text:'📚 تاریخچه قرعه‌کشی · صفحه '+(p+1)+'\nبرای جزئیات انتخاب کنید:',reply_markup:keyboard(buttons)});
   }
   async function drawDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
     const [rows]=await db.execute(
       'SELECT d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.draw_seed,d.created_at,e.full_name,e.instagram,COUNT(p.entry_id) AS eligible_count FROM lottery_draws d LEFT JOIN lottery_entries e ON e.id=d.winner_entry_id LEFT JOIN lottery_draw_participants p ON p.draw_id=d.id WHERE d.id=? GROUP BY d.id,d.winner_entry_id,d.winner_code,d.drawn_by,d.draw_seed,d.created_at,e.full_name,e.instagram LIMIT 1',
       [id]
@@ -201,7 +201,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return tg('sendMessage',{chat_id:chat,text:'🧩 مدیریت کمپین‌ها\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function campaignDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه نامعتبر است.'});
     const [[c]]=await db.execute('SELECT * FROM campaigns WHERE id=? LIMIT 1',[id]);
     if(!c)return tg('sendMessage',{chat_id:chat,text:'کمپین پیدا نشد.'});
     const [[n]]=await db.execute("SELECT (SELECT COUNT(*) FROM campaign_entries WHERE campaign_id=? AND status='active') participants,(SELECT COUNT(*) FROM campaign_codes WHERE campaign_id=? AND status='active') codes,(SELECT COUNT(*) FROM payment_orders WHERE campaign_id=? AND status IN ('pending_payment','receipt_submitted')) pending_orders",[id,id,id]);
@@ -224,7 +224,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:campaigns') return campaignList(chat);
     if (data==='adm:campaign-create') return createCampaignPrompt(chat);
     if (data.startsWith('adm:campaign-detail:')) return campaignDetail(chat,data.slice('adm:campaign-detail:'.length));
-    if (data.startsWith('adm:campaign-confirm:')) { const [, , id, next]=data.split(':'); if(!/^\\d+$/.test(id)||!['open','paused','closed','archived'].includes(next)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'campaign-status',id,next,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت کمپین #'+id+' به '+next+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:campaign-apply:'+id+':'+next},{text:'لغو',callback_data:'adm:campaign-detail:'+id}]])}); }
+    if (data.startsWith('adm:campaign-confirm:')) { const [, , id, next]=data.split(':'); if(!/^\d+$/.test(id)||!['open','paused','closed','archived'].includes(next)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'campaign-status',id,next,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت کمپین #'+id+' به '+next+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:campaign-apply:'+id+':'+next},{text:'لغو',callback_data:'adm:campaign-detail:'+id}]])}); }
     if (data.startsWith('adm:campaign-apply:')) { const [, , id, next]=data.split(':'); const p=pending.get(String(adminId)); pending.delete(String(adminId)); if(!p||p.type!=='campaign-status'||p.id!==id||p.next!==next||p.expires<Date.now()) return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'}); try { await campaignService.setCampaignStatus(Number(id),next,'telegram admin confirmation'); return campaignDetail(chat,id); } catch(e) { return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت انجام نشد: '+e.message}); } }
     if (data==='adm:export') return exportMenu(chat);
     if (data==='adm:export:help') return tg('sendMessage',{chat_id:chat,text:'برای خروجی فیلترشده از دستورهای زیر استفاده کن:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
