@@ -561,7 +561,7 @@ app.get("/api/admin/campaigns",admin,async(_q,r)=>{
            c.amount_minor,c.max_codes_per_participant,c.currency,c.created_at,
            COUNT(DISTINCT e.id) AS entries_count, EXISTS(SELECT 1 FROM campaign_draws cd WHERE cd.campaign_id=c.id) AS drawn,
            SUM(e.status='active') AS active_count,
-           SUM(e.status='pending_payment') AS pending_payment_count
+           (SELECT COUNT(*) FROM campaign_payments p JOIN campaign_entries pe ON pe.id=p.entry_id WHERE pe.campaign_id=c.id AND p.status='pending') AS pending_payment_count
     FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id
     GROUP BY c.id ORDER BY c.id DESC
   `);
@@ -571,9 +571,7 @@ app.get("/api/admin/campaigns/:id/entries",admin,async(q,r)=>{
   const id=Number(q.params.id),limit=Math.min(100,Math.max(1,Math.floor(Number(q.query.limit)||50))),offset=Math.max(0,Math.floor(Number(q.query.offset)||0));
   const term=String(q.query.q||"").trim().slice(0,80);
   if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(offset))return r.status(400).json({error:"شناسه یا صفحه‌بندی نامعتبر است."});
-  const params=[id],where=["e.campaign_id=?"];
-  if(term){where.push("(pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR ic.code LIKE ?)");const like="%"+term+"%";params.push(like,like,like,like)}
-  const filter=where.join(" AND ");
+  
   const [[count]]=await db.execute(
     `SELECT COUNT(*) total FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
      WHERE e.campaign_id=? AND (?='' OR pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR EXISTS(SELECT 1 FROM issued_codes sx WHERE sx.entry_id=e.id AND sx.status='active' AND sx.code LIKE ?))`,
