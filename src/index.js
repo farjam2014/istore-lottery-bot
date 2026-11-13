@@ -310,7 +310,7 @@ if(!validPhone(phone)){
 return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده معتبر نیست. دوباره شماره خودتان را ارسال کنید."});
 }
 await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id);
-await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example");
+await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example",{reply_markup:registrationKeyboard()});
 const back=storeReturnButton();return tg("sendMessage",{chat_id:chat,text:"✅ شماره موبایل شما با موفقیت دریافت شد. برای ادامه ثبت‌نام به پی‌وی فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{remove_keyboard:true,...(back?{inline_keyboard:[[back]]}:{})}});
 }
 
