@@ -195,7 +195,7 @@ function createCampaignService({ db, adminId }) {
       const [order] = await conn.execute(
         `INSERT INTO payment_orders(order_ref,campaign_id,participant_id,entry_id,quantity,unit_price_snapshot,total_snapshot,currency,terms_snapshot,status,expires_at)
          VALUES(?,?,?,?,?,?,?,?,?,'pending_payment',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))`,
-        [orderRef,campaignId,participantId,entryId,qty,unitPrice,total,campaign.currency,JSON.stringify({terms_version:termsVersion,refund_policy:'no_refund_after_payment_confirmation'}),hold]
+        [orderRef,campaignId,participantId,entryId,qty,unitPrice,total,campaign.currency,JSON.stringify({terms_version:termsVersion,refund_policy:'no_refund_after_payment_confirmation',payment_card:{label:paymentCard.label,bank_name:paymentCard.bank_name,card_number:paymentCard.card_number,cardholder_name:paymentCard.cardholder_name}}),hold]
       );
       await conn.execute(
         "INSERT INTO campaign_capacity_reservations(campaign_id,participant_id,order_id,participant_slots,code_slots,status,expires_at) VALUES(?,?,?,?,?,'held',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))",
