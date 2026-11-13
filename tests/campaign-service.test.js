@@ -42,3 +42,29 @@ test('rejects zero price for paid campaign and invalid limits', () => {
   assert.throws(() => assertCampaignInput({ name: 'Paid Draw', slug: 'paid-draw', payment_mode: 'manual', price_per_code: 0 }));
   assert.throws(() => assertCampaignInput({ name: 'Too Many', slug: 'too-many', max_codes: -1 }));
 });
+
+
+test('expires held capacity reservations and their pending payment orders transactionally', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const statements = [];
+  const conn = {
+    async beginTransaction() { statements.push('BEGIN'); },
+    async execute(sql) {
+      statements.push(sql);
+      if (sql.includes('UPDATE campaign_capacity_reservations')) return [{ affectedRows: 2 }];
+      if (sql.includes('UPDATE payment_orders')) return [{ affectedRows: 2 }];
+      return [{ affectedRows: 1 }];
+    },
+    async commit() { statements.push('COMMIT'); },
+    async rollback() { statements.push('ROLLBACK'); },
+    release() { statements.push('RELEASE'); }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.expireReservations();
+  assert.deepEqual(result, { reservationsExpired: 2, ordersExpired: 2 });
+  assert.equal(statements[0], 'BEGIN');
+  assert.equal(statements.at(-2), 'COMMIT');
+  assert.equal(statements.at(-1), 'RELEASE');
+  assert.match(statements[1], /expires_at<=UTC_TIMESTAMP/);
+  assert.match(statements[2], /receipt_submitted/);
+});
