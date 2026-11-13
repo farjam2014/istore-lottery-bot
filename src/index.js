@@ -61,7 +61,7 @@ throw error;
 async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
-function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"✅ ذخیره کردم؛ ادامه",callback_data:"contact:confirm"}]]}}
+function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"ادامه",callback_data:"contact:confirm"}]]}}
 function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای ادامه استفاده از ربات، شماره مدیریت USTORE را دریافت می‌کنید. در صورت تمایل آن را در مخاطبین ذخیره کنید و سپس ادامه دهید.\n\nنکته: ربات نمی‌تواند ذخیره‌شدن شماره را در مخاطبین گوشی بررسی کند و ذخیره شماره به‌تنهایی نمایش استوری‌های فروشگاه را تضمین نمی‌کند."}
 function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||"").replace(/[\s()-]/g,"");return /^\+?[0-9]{8,15}$/.test(phone)?phone:null}
 async function contactGateAccepted(uid){const [rows]=await db.execute("SELECT telegram_user_id FROM telegram_contact_gate WHERE telegram_user_id=? AND accepted_at IS NOT NULL LIMIT 1",[String(uid)]);return rows.length>0}
@@ -228,7 +228,7 @@ const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
 if(uid!==String(process.env.ADMIN_ID||"")&&q.message?.chat?.type==="private"){
 if(q.data==="contact:send"||q.data==="contact:confirm")return handleContactGateCallback(q,uid,chat);
-if(!await contactGateAccepted(uid)){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"برای استفاده از ربات ابتدا شماره مدیریت USTORE را ذخیره کنید.",show_alert:true});return showContactGate(chat,String(q.message?.business_connection_id||""));}
+if(!await contactGateAccepted(uid)){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"برای استفاده از ربات ابتدا مرحله خوش‌آمدگویی را تکمیل کنید.",show_alert:true});return showContactGate(chat,String(q.message?.business_connection_id||""));}
 }
 if(await accountAuth.handleCallback(q))return;
 if(q.data==="reg:continue"||q.data==="reg:cancel"){
