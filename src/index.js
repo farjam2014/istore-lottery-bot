@@ -141,10 +141,11 @@ return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection==
 }catch{return false}
 }
 
-async function manualPaymentInstructions(campaignId) {
+async function manualPaymentInstructions(campaignId, paymentId) {
 const [[campaign]]=await db.execute("SELECT title,amount_minor,currency,settings FROM campaigns WHERE id=?",[campaignId]);
+const [[payment]]=await db.execute("SELECT id,amount_minor,quantity FROM campaign_payments WHERE id=?",[paymentId]);
 let settings=campaign?.settings||{};if(typeof settings==="string"){try{settings=JSON.parse(settings)}catch{settings={}}}
-return "🧾 پرداخت کارت‌به‌کارت کمپین «"+campaign.title+"»\n\nمبلغ: "+Number(campaign.amount_minor).toLocaleString("fa-IR")+" "+campaign.currency+
+return "🧾 پرداخت کارت‌به‌کارت کمپین «"+campaign.title+"»\n\nتعداد کد: "+Number(payment?.quantity||1).toLocaleString("fa-IR")+"\nمبلغ کل: "+Number(payment?.amount_minor||campaign.amount_minor).toLocaleString("fa-IR")+" "+campaign.currency+
 "\nشماره کارت: "+String(settings.card_number||"ثبت نشده")+
 "\nبه نام: "+String(settings.card_holder||"ثبت نشده")+
 (settings.bank_name?"\nبانک: "+settings.bank_name:"")+
@@ -165,7 +166,7 @@ try{
 if(action==="approve"){
 const result=await approveManualPayment({db,paymentId:id,reviewer:uid,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
 const [[recipient]]=await db.execute("SELECT p.telegram_user_id,cp.telegram_chat_id,cp.business_connection_id,c.title FROM campaign_payments cp JOIN campaign_entries e ON e.id=cp.entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE cp.id=?",[id]);
-if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کد اختصاصی شما: "+result.code})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
+if(recipient)try{await tg("sendMessage",{chat_id:recipient.telegram_chat_id||recipient.telegram_user_id,...(recipient.business_connection_id?{business_connection_id:recipient.business_connection_id}:{}),text:"✅ پرداخت شما برای کمپین «"+recipient.title+"» تأیید شد.\n🎟 کدهای اختصاصی شما ("+result.quantity+"):\n"+result.codes.join("\n")})}catch(notifyError){console.error("Payment approval notification failed:",notifyError.message)}
 try{await tg("editMessageCaption",{chat_id:chat,message_id:q.message.message_id,caption:(q.message.caption||"رسید پرداخت")+"\n\n✅ تأیید شد · کد: "+result.code,reply_markup:{inline_keyboard:[]}})}catch(editError){console.error("Receipt message update failed:",editError.message)}
 await audit(uid,"approve_campaign_payment","campaign_payment",id,{entry_id:result.entryId,code:result.code});
 }else{
@@ -193,7 +194,7 @@ if(String(q.data||"").startsWith("camp:select:")){
     try{
       const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,businessConnectionId:connection,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
       const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
-        result.status==="pending_payment"?await manualPaymentInstructions(campaign.id):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+        result.status==="pending_payment"?await manualPaymentInstructions(campaign.id,result.paymentId):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
       return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
     }catch(e){
       const message=e.code==="CAMPAIGN_FULL"?"ظرفیت این کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"این کمپین دیگر قابل ثبت‌نام نیست.":"ثبت‌نام انجام نشد؛ لطفاً بعداً تلاش کنید.";
@@ -226,7 +227,7 @@ if(s.campaign_id){
   const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,businessConnectionId:s.business_connection_id,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
   await delSession(uid);
   const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\n🎟 کد اختصاصی: "+result.code:
-    result.status==="pending_payment"?await manualPaymentInstructions(s.campaign_id):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+    result.status==="pending_payment"?await manualPaymentInstructions(s.campaign_id,result.paymentId):"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
   return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text});
 }
 await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
@@ -555,6 +556,8 @@ app.post("/api/admin/campaigns",admin,async(q,r)=>{
   const capacity=q.body.capacity===null||q.body.capacity===""?null:Number(q.body.capacity);
   const mode=q.body.payment_mode||"free";
   const amount=Number(q.body.amount_minor||0);
+  const maxCodesRaw=q.body.max_codes_per_participant;
+  const maxCodes=mode==="free"?1:(maxCodesRaw===null||maxCodesRaw===""?null:Number(maxCodesRaw));
   const currency=String(q.body.currency||"IRR").toUpperCase();
   if(!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)||title.length<3||title.length>160)
     return r.status(400).json({error:"شناسه یا عنوان کمپین معتبر نیست."});
@@ -569,10 +572,14 @@ app.post("/api/admin/campaigns",admin,async(q,r)=>{
     return r.status(400).json({error:"برای کارت‌به‌کارت، شماره کارت ۱۶ رقمی و نام صاحب کارت الزامی است."});
   if(!Number.isSafeInteger(amount)||amount<0||! /^[A-Z]{3}$/.test(currency)||(mode==="free"&&amount!==0)||(mode==="manual_transfer"&&amount<1))
     return r.status(400).json({error:"مبلغ یا واحد پول نامعتبر است."});
+  if(maxCodes!==null&&(!Number.isSafeInteger(maxCodes)||maxCodes<1||maxCodes>1000000))
+    return r.status(400).json({error:"سقف کد باید عدد صحیح مثبت یا خالی برای نامحدود باشد."});
+  if(mode==="free"&&maxCodes!==1)
+    return r.status(400).json({error:"در کمپین رایگان تعداد کد هر شرکت‌کننده دقیقاً یک است."});
   try{
     const [result]=await db.execute(
-      "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,currency,settings) VALUES(?,?,'draft',?,?,?,?,?)",
-      [slug,title,capacity,mode,amount,currency,JSON.stringify(mode==="manual_transfer"?{card_number:cardNumber,card_holder:cardHolder,bank_name:bankName}:{})]
+      "INSERT INTO campaigns(slug,title,status,capacity,payment_mode,amount_minor,max_codes_per_participant,currency,settings) VALUES(?,?,'draft',?,?,?,?,?,?)",
+      [slug,title,capacity,mode,amount,maxCodes,currency,JSON.stringify(mode==="manual_transfer"?{card_number:cardNumber,card_holder:cardHolder,bank_name:bankName}:{})]
     );
     await db.execute("INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)",[result.insertId]);
     await audit(process.env.ADMIN_ID,"create_campaign","campaign",result.insertId,{slug,title,capacity,payment_mode:mode});
@@ -635,7 +642,7 @@ app.get("/api/admin/campaign-payments",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT p.id AS payment_id,p.entry_id,p.mode,p.status,p.amount_minor,p.currency,p.created_at,
            EXISTS(SELECT 1 FROM campaign_payment_proofs pr WHERE pr.payment_id=p.id) AS has_proof,
-           e.campaign_id,c.title AS campaign_title,pt.full_name,pt.phone,pt.instagram
+           e.campaign_id,c.title AS campaign_title,pt.full_name,pt.phone,pt.instagram,p.quantity
     FROM campaign_payments p
     JOIN campaign_entries e ON e.id=p.entry_id
     JOIN campaigns c ON c.id=e.campaign_id
