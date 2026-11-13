@@ -164,6 +164,9 @@ function createCampaignService({ db, adminId }) {
         [orderId,fileId,fileUniqueId,trackingReference]
       );
       await conn.execute("UPDATE payment_orders SET status='receipt_submitted' WHERE id=?", [orderId]);
+      const [[notify]] = await conn.execute('SELECT o.order_ref,o.total_snapshot,o.currency,c.name AS campaign_name,p.full_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=?',[orderId]);
+      await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['receipt-submitted:'+orderId,'payment_receipt_submitted',JSON.stringify({method:'sendMessage',payload:{chat_id:String(process.env.ADMIN_ID),text:'🧾 رسید پرداخت جدید\\nسفارش: '+notify.order_ref+' (#'+orderId+')\\nکمپین: '+notify.campaign_name+'\\nشرکت‌کننده: '+notify.full_name+'\\nمبلغ: '+notify.total_snapshot+' '+notify.currency+'\\nبرای بررسی به پنل تلگرام مراجعه کنید: /panel'}})]);
+
       await conn.commit();
       return { orderId, status: 'receipt_submitted' };
     } catch (error) {
