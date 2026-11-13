@@ -165,6 +165,36 @@ if(field==="phone")return reply(chat,connection,"شماره جدید را با �
 return reply(chat,connection,field==="name"?"نام جدید را ارسال کنید:":"آیدی اینستاگرام جدید را ارسال کنید:");
 }
 if(q.data==='support:start'){const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"support_message",null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});return reply(chat,connection,"پیام خود را برای پشتیبانی بنویسید (۵ تا ۲۰۰۰ نویسه).");}
+if(q.data==='participant:orders'){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+  if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل خود را بسازید.");
+  const [rows]=await db.execute("SELECT o.id,o.order_ref,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,c.name AS campaign_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
+  const labels={pending_payment:"در انتظار پرداخت",receipt_submitted:"رسید در حال بررسی",approved:"تأییدشده",rejected:"ردشده",expired:"منقضی",cancelled:"لغوشده"};
+  const lines=rows.map((o,i)=>(i+1)+") "+o.campaign_name+"\nسفارش: "+o.order_ref+" | تعداد: "+o.quantity+" | مبلغ: "+Number(o.total_snapshot).toLocaleString("en-US")+" "+o.currency+"\nوضعیت: "+(labels[o.status]||o.status)+(o.status==="pending_payment"?"\nمهلت: "+new Date(o.expires_at).toLocaleString("fa-IR"):""));
+  const buttons=rows.filter(o=>o.status==="pending_payment").map(o=>[{text:"📤 ادامه پرداخت "+o.order_ref,callback_data:"order:resume:"+o.id}]);
+  buttons.push([{text:"🎟 کدهای من",callback_data:"participant:codes"},{text:"👤 حساب من",callback_data:"participant:account"}]);
+  buttons.push([{text:"🏠 منوی اصلی",callback_data:"participant:home"}]);
+  return reply(chat,String(q.message?.business_connection_id||""),lines.length?"💳 سفارش‌های شما\n\n"+lines.join("\n\n"):"هنوز سفارشی ثبت نکرده‌اید.",{reply_markup:{inline_keyboard:buttons}});
+}
+if(String(q.data||"").startsWith("order:resume:")){
+  const orderId=String(q.data.split(":")[2]||"");
+  if(!/^\\d+$/.test(orderId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"شناسه سفارش نامعتبر است.",show_alert:true});
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [[order]]=await db.execute("SELECT o.id,o.order_ref,o.status,o.quantity,o.total_snapshot,o.currency,o.expires_at,c.name AS campaign_name,p.id AS participant_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? AND p.telegram_user_id=? LIMIT 1",[orderId,uid]);
+  if(!order)return reply(chat,String(q.message?.business_connection_id||""),"این سفارش برای حساب شما پیدا نشد.");
+  if(order.status!=="pending_payment")return reply(chat,String(q.message?.business_connection_id||""),"وضعیت این سفارش اجازه ادامه پرداخت نمی‌دهد. برای مشاهده آخرین وضعیت، سفارش‌های من را باز کنید.");
+  if(new Date(order.expires_at).getTime()<=Date.now())return reply(chat,String(q.message?.business_connection_id||""),"مهلت این سفارش تمام شده است. از فهرست کمپین‌ها سفارش جدید ثبت کنید.");
+  await db.execute("INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)",[uid,chat,String(q.message?.business_connection_id||""),order.id]);
+  return reply(chat,String(q.message?.business_connection_id||""),"🔁 نشست پرداخت بازیابی شد.\nسفارش: "+order.order_ref+"\nکمپین: "+order.campaign_name+"\nمبلغ: "+Number(order.total_snapshot).toLocaleString("en-US")+" "+order.currency+"\n\nاگر قبلاً پرداخت کرده‌اید، تصویر رسید یا فایل PDF رسید را همین‌جا ارسال کنید. اگر هنوز پرداخت نکرده‌اید، پیام اطلاعات کارت اولیه را در گفت‌وگو پیدا کنید. اگر آن پیام را ندارید، با پشتیبانی تماس بگیرید؛ برای جلوگیری از ارسال کارت اشتباه، شماره کارت قدیمی را حدس نمی‌زنیم.",{reply_markup:{inline_keyboard:[[{text:"💳 مشاهده سفارش‌ها",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+}
+if(q.data==='participant:tickets'){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [rows]=await db.execute("SELECT id,message,status,admin_reply,created_at,replied_at FROM customer_support_tickets WHERE telegram_user_id=? ORDER BY created_at DESC LIMIT 10",[uid]);
+  const labels={open:"در انتظار پاسخ",answered:"پاسخ داده‌شده",closed:"بسته‌شده"};
+  const body=rows.length?rows.map((x,i)=>(i+1)+") تیکت #"+x.id+" · "+(labels[x.status]||x.status)+"\nپیام شما: "+x.message+(x.admin_reply?"\nپاسخ پشتیبانی: "+x.admin_reply:"")).join("\n\n"):"هنوز تیکتی ثبت نکرده‌اید.";
+  return reply(chat,String(q.message?.business_connection_id||""),body,{reply_markup:{inline_keyboard:[[{text:"➕ ثبت پیام جدید",callback_data:"support:start"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});
+}
 if(q.data==='participant:codes'){await tg("answerCallbackQuery",{callback_query_id:q.id});const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل بسازید.");const [rows]=await db.execute("SELECT c.name,cc.code FROM campaign_codes cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.participant_id=? AND cc.status='active' ORDER BY cc.issued_at DESC LIMIT 100",[p.id]);return reply(chat,String(q.message?.business_connection_id||""),rows.length?rows.map((x,i)=>(i+1)+". "+x.name+" — "+x.code).join("\n"):"هنوز کدی ندارید.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
 if(q.data==='participant:account'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
@@ -175,11 +205,11 @@ if(q.data==='participant:account'){
   const labels={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
   const et=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\n\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
   const ot=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · '+x.order_ref+'\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\nوضعیت: '+(labels[x.status]||x.status)).join('\n\n'):'سفارشی ندارید.';
-  return reply(chat,String(q.message?.business_connection_id||''),'👤 حساب شما\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram+'\nوضعیت: '+p.status+'\n\n🎟 کمپین‌ها و کدها\n'+et+'\n\n💳 سفارش‌ها\n'+ot,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
+  return reply(chat,String(q.message?.business_connection_id||''),'👤 حساب شما\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram+'\nوضعیت: '+p.status+'\n\n🎟 کمپین‌ها و کدها\n'+et+'\n\n💳 سفارش‌ها\n'+ot,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'},{text:'🎫 تیکت‌های من',callback_data:'participant:tickets'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
 }
 if(q.data==='participant:home'){
  await tg('answerCallbackQuery',{callback_query_id:q.id});
- return reply(chat,String(q.message?.business_connection_id||''),'به USTORE خوش آمدید. یک بخش را انتخاب کنید:',{reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
+ return reply(chat,String(q.message?.business_connection_id||''),'به USTORE خوش آمدید. یک بخش را انتخاب کنید:',{reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'},{text:'🎫 تیکت‌های من',callback_data:'participant:tickets'}],[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
 }
 if(q.data==='campaign:list'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
@@ -267,16 +297,22 @@ if(m.contact){
   await putSession(uid,chat,"profile_instagram",s.full_name,phone,conn);
   return reply(chat,conn,"شماره موبایل تأیید شد. حالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
 }
-if(m.photo?.length){
+if(m.photo?.length||m.document){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
   if(!paymentSession)return;
   try{
-    const photo=m.photo[m.photo.length-1];
-    await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:photo.file_id,fileUniqueId:photo.file_unique_id,trackingReference:m.caption||null});
+    const photo=m.photo?.length?m.photo[m.photo.length-1]:null;
+    const document=m.document||null;
+    const mime=String(document?.mime_type||"").toLowerCase();
+    if(document&&(Number(document.file_size||0)>10*1024*1024||!["application/pdf","image/jpeg","image/png","image/webp"].includes(mime)))return reply(chat,conn,"فایل رسید باید PDF یا تصویر JPG/PNG/WEBP و حداکثر ۱۰ مگابایت باشد.");
+    const file=photo||document;
+    await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:file.file_id,fileUniqueId:file.file_unique_id,trackingReference:m.caption||null});
     await db.execute('DELETE FROM campaign_payment_sessions WHERE telegram_user_id=?',[uid]);
-    return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.');
+    return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. وضعیت آن را از بخش «سفارش‌های من» پیگیری کنید.');
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
+if(lower==='/orders'||lower==='سفارش‌های من'||lower==='سفارش های من')return handleCallbackQuery({id:"cmd-"+Date.now(),from:m.from,message:m,data:"participant:orders"});
+if(lower==='/tickets'||lower==='تیکت‌های من'||lower==='تیکت های من')return handleCallbackQuery({id:"cmd-"+Date.now(),from:m.from,message:m,data:"participant:tickets"});
 if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پروفایل من'){
   const [[participant]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
   if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع، /campaigns را بزنید و یک کمپین را انتخاب کنید.");
