@@ -61,6 +61,30 @@ throw error;
 async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
 function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
 function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
+function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"✅ ذخیره کردم؛ ادامه",callback_data:"contact:confirm"}]]}}
+function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای دسترسی به ربات، کمپین‌ها و اطلاع از آخرین اخبار و استوری‌های فروشگاه، لطفاً ابتدا شماره مدیریت USTORE را در مخاطبین گوشی خود ذخیره کنید.\n\n📌 نام مخاطب: مدیریت USTORE\n\n⚠️ لطفاً قبل از انتخاب دکمه «ذخیره کردم؛ ادامه»، شماره را واقعاً در مخاطبین گوشی خود ذخیره کنید. با انتخاب این گزینه تأیید می‌کنید که این کار را انجام داده‌اید.\n\nبرای ادامه استفاده از ربات، انجام این مرحله الزامی است."}
+function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||"").replace(/[\s()-]/g,"");return /^\+?[0-9]{8,15}$/.test(phone)?phone:null}
+async function contactGateAccepted(uid){const [rows]=await db.execute("SELECT telegram_user_id FROM telegram_contact_gate WHERE telegram_user_id=? AND accepted_at IS NOT NULL LIMIT 1",[String(uid)]);return rows.length>0}
+async function showContactGate(chat,connection){return tg("sendMessage",{chat_id:chat,business_connection_id:connection||undefined,text:contactGateText(),reply_markup:contactGateKeyboard()})}
+async function handleContactGateCallback(q,uid,chat){
+if(q.data==="contact:send"){
+const phone=configuredContactPhone();
+if(!phone){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است. لطفاً بعداً مراجعه کنید.",show_alert:true});return;}
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"کارت مخاطب ارسال شد."});
+await tg("sendContact",{chat_id:chat,phone_number:phone,first_name:"مدیریت",last_name:"USTORE"});
+return tg("sendMessage",{chat_id:chat,text:"کارت مخاطب ارسال شد. آن را باز کنید و گزینه افزودن به مخاطبین را بزنید؛ سپس «ذخیره کردم؛ ادامه» را انتخاب کنید.",reply_markup:contactGateKeyboard()});
+}
+if(q.data==="contact:confirm"){
+if(!configuredContactPhone()){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است.",show_alert:true});return;}
+await db.execute("INSERT INTO telegram_contact_gate(telegram_user_id,chat_id,accepted_at) VALUES(?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),accepted_at=COALESCE(accepted_at,CURRENT_TIMESTAMP)",[String(uid),String(chat)]);
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"تأیید شد؛ خوش آمدید."});
+const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
+const buttons=campaigns.map(x=>[{text:x.name+" · "+(x.payment_mode==="free"?"رایگان":x.price_per_code+" "+x.currency),callback_data:"campaign:details:"+x.id}]);
+buttons.push([{text:"👤 حساب من و کدها",callback_data:"participant:account"}]);
+buttons.push([{text:"🔄 تازه‌سازی فهرست کمپین‌ها",callback_data:"campaign:list"}]);
+return tg("sendMessage",{chat_id:chat,text:campaigns.length?"✅ دسترسی شما فعال شد.\n\n🧩 کمپین فعال موردنظرتان را انتخاب کنید:":"✅ دسترسی شما فعال شد.\n\nدر حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد؛ می‌توانید بعداً دوباره بررسی کنید.",reply_markup:{inline_keyboard:buttons}});
+}
+}
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
 const accountAuth=createAccountAuth({app,db,tg,adminId:process.env.ADMIN_ID,sessionSecret,siteUrl:process.env.PUBLIC_SITE_URL||"https://"+String(process.env.DOMAIN||"")});
 const code=makeRaffleCode;
@@ -184,9 +208,13 @@ function campaignQuantityKeyboard(campaignId,max,page=0){
 
 async function handleCallbackQuery(q){
 if(!q?.id)return;
-if(await accountAuth.handleCallback(q))return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
+if(uid!==String(process.env.ADMIN_ID||"")&&q.message?.chat?.type==="private"){
+if(q.data==="contact:send"||q.data==="contact:confirm")return handleContactGateCallback(q,uid,chat);
+if(!await contactGateAccepted(uid)){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"برای استفاده از ربات ابتدا شماره مدیریت USTORE را ذخیره کنید.",show_alert:true});return showContactGate(chat,String(q.message?.business_connection_id||""));}
+}
+if(await accountAuth.handleCallback(q))return;
 if(q.data==="reg:continue"||q.data==="reg:cancel"){
 const s=await session(uid);
 if(!uid||!s||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
@@ -362,6 +390,7 @@ return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق
 async function handlePrivateUpdate(update){
 const m=update.message;
 if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
+if(String(m.from.id)!==String(process.env.ADMIN_ID||"")&&!await contactGateAccepted(m.from.id))return showContactGate(m.chat.id,"");
 if(await accountAuth.handleMessage(m))return;
 const adminHandled=await adminTelegram.handleMessage(m);
 if(adminHandled!==false)return adminHandled;
@@ -372,6 +401,7 @@ async function handleUpdate(update){
 const m=update.business_message;
 if(!m?.from||!m.chat||m.from.is_bot||m.chat.type!=="private")return;
 const uid=String(m.from.id),chat=String(m.chat.id),conn=String(m.business_connection_id||""),t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
+if(uid!==String(process.env.ADMIN_ID||"")&&!await contactGateAccepted(uid))return showContactGate(chat,conn);
 if(m.contact){
   const s=await session(uid);
   if(!s||s.step!=="awaiting_contact"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
