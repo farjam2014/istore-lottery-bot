@@ -163,6 +163,16 @@ const CAMPAIGN_SCHEMA = [
     CONSTRAINT fk_capacity_participant FOREIGN KEY(participant_id) REFERENCES participants(id) ON DELETE RESTRICT,
     CONSTRAINT fk_capacity_order FOREIGN KEY(order_id) REFERENCES payment_orders(id) ON DELETE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS campaign_payment_sessions (
+    telegram_user_id BIGINT NOT NULL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    business_connection_id VARCHAR(128) NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_campaign_payment_session_order(order_id),
+    CONSTRAINT fk_campaign_payment_session_order FOREIGN KEY(order_id) REFERENCES payment_orders(id) ON DELETE RESTRICT
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `CREATE TABLE IF NOT EXISTS profile_change_requests (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     participant_id BIGINT UNSIGNED NOT NULL,
