@@ -209,9 +209,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   async function campaignCardPicker(chat,campaignId) {
     const cards=await bankCardService.listCards({includeInactive:false});
     if(!cards.length)return tg('sendMessage',{chat_id:chat,text:'ابتدا یک کارت فعال اضافه کنید.',reply_markup:keyboard([[{text:'مدیریت کارت‌ها',callback_data:'adm:cards'}],[{text:'بازگشت',callback_data:'adm:campaign-detail:'+campaignId}]])});
-    const rows=cards.map(c=>[{text:c.label+' · '+c.last4,callback_data:'adm:campaign-card-confirm:'+campaignId+':'+c.id}]);
+    const suggestion=await bankCardService.suggestCard();
+    const rows=[];
+    if(suggestion)rows.push([{text:'⭐ پیشنهاد سیستم: '+suggestion.label+' · '+suggestion.last4+' ('+suggestion.recent_deliveries+' ارسال در ۷ روز)',callback_data:'adm:campaign-card-confirm:'+campaignId+':'+suggestion.id}]);
+    rows.push(...cards.filter(c=>!suggestion||c.id!==suggestion.id).map(c=>[{text:c.label+' · '+c.last4,callback_data:'adm:campaign-card-confirm:'+campaignId+':'+c.id}]));
     rows.push([{text:'لغو',callback_data:'adm:campaign-detail:'+campaignId}]);
-    return tg('sendMessage',{chat_id:chat,text:'کارت مقصد جدید را انتخاب کنید:',reply_markup:keyboard(rows)});
+    return tg('sendMessage',{chat_id:chat,text:'کارت مقصد را انتخاب کنید. پیشنهاد بر اساس کمترین تعداد ارسال در ۷ روز اخیر است؛ موجودی حساب بررسی نمی‌شود و تصمیم نهایی با شماست.',reply_markup:keyboard(rows)});
   }
   async function campaignList(chat) {
     if (!campaignService) return tg('sendMessage',{chat_id:chat,text:'سرویس کمپین پیکربندی نشده است.'});
@@ -229,6 +232,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const next={draft:['open'],scheduled:['open','closed'],open:['paused','closed'],paused:['open','closed'],closed:[],drawn:['archived'],archived:[]};
     const buttons=(next[c.status]||[]).map(s=>[{text:({open:'🟢 بازکردن',paused:'⏸ توقف',closed:'🔒 بستن',archived:'📦 آرشیو'}[s]),callback_data:'adm:campaign-confirm:'+id+':'+s}]);
     if(c.payment_mode==='manual') buttons.push([{text:'💳 تغییر کارت مقصد',callback_data:'adm:campaign-card:'+id}]);
+    if(c.payment_mode==='manual') buttons.push([{text:'🕘 تاریخچه تغییر کارت',callback_data:'adm:campaign-card-history:'+id}]);
     let campaignCardInfo='';
     if(c.payment_mode==='manual'){const [[pc]]=await db.execute('SELECT label,RIGHT(card_number,4) last4,status FROM bank_cards WHERE id=? LIMIT 1',[c.current_payment_card_id]);campaignCardInfo='\\nکارت مقصد: '+(pc?pc.label+' · '+pc.last4+' · '+pc.status:'تعیین نشده');}
     buttons.push([{text:'↩️ فهرست کمپین‌ها',callback_data:'adm:campaigns'}]);
@@ -285,6 +289,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(data.startsWith('adm:card-edit:')){const id=data.slice('adm:card-edit:'.length),c=await bankCardService.getCard(Number(id));pending.set(String(adminId),{type:'card-edit',id,expires:Date.now()+300000});return tg('sendMessage',{chat_id:chat,text:'عنوان | بانک | شماره کارت | نام دارنده\\nمقادیر فعلی: '+c.label+' | '+(c.bank_name||'')+' | '+c.card_number+' | '+c.cardholder_name});}
     if(data.startsWith('adm:card-status:')){const [, ,id,status]=data.split(':');if(!/^\\d+$/.test(id)||!['active','inactive'].includes(status))return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'});pending.set(String(adminId),{type:'card-status',id,status,expires:Date.now()+60000});return tg('sendMessage',{chat_id:chat,text:'تغییر وضعیت کارت را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید',callback_data:'adm:card-status-apply:'+id+':'+status},{text:'لغو',callback_data:'adm:card:'+id}]])});}
     if(data.startsWith('adm:card-status-apply:')){const [, ,id,status]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='card-status'||p.id!==id||p.status!==status||p.expires<Date.now())return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.setCardStatus(Number(id),status);await audit(status==='active'?'activate_bank_card':'deactivate_bank_card','bank_card',id,{source:'telegram'});return cardDetail(chat,id);}
+    if(data.startsWith('adm:campaign-card-history:')){const id=data.slice('adm:campaign-card-history:'.length);if(!/^\\d+$/.test(id))return tg('sendMessage',{chat_id:chat,text:'شناسه کمپین نامعتبر است.'});const rows=await bankCardService.campaignHistory(Number(id));const body=rows.length?rows.map(r=>r.label+' · '+r.last4+'\\nمدیر: '+r.changed_by+' · '+r.created_at+'\\n'+(r.change_reason||'بدون توضیح')).join('\\n\\n'):'تاریخچه‌ای برای این کمپین ثبت نشده است.';return tg('sendMessage',{chat_id:chat,text:'🕘 تاریخچه کارت کمپین #'+id+'\\n\\n'+body,reply_markup:keyboard([[{text:'↩️ بازگشت به کمپین',callback_data:'adm:campaign-detail:'+id}]])});}
     if(data.startsWith('adm:campaign-card:'))return campaignCardPicker(chat,data.slice('adm:campaign-card:'.length));
     if(data.startsWith('adm:campaign-card-confirm:')){const [, ,campaignId,cardId]=data.split(':');if(!/^\\d+$/.test(campaignId)||!/^\\d+$/.test(cardId))return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'});pending.set(String(adminId),{type:'campaign-card',campaignId,cardId,expires:Date.now()+60000});const card=await bankCardService.getCard(Number(cardId),{activeOnly:true});return tg('sendMessage',{chat_id:chat,text:'تغییر کارت کمپین به «'+card.label+' · '+card.card_number.slice(-4)+'» را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید تغییر',callback_data:'adm:campaign-card-apply:'+campaignId+':'+cardId},{text:'لغو',callback_data:'adm:campaign-detail:'+campaignId}]])});}
     if(data.startsWith('adm:campaign-card-apply:')){const [, ,campaignId,cardId]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='campaign-card'||p.campaignId!==campaignId||p.cardId!==cardId||p.expires<Date.now())return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.assignCampaignCard(Number(campaignId),Number(cardId),'changed via Telegram admin panel');return campaignDetail(chat,campaignId);}
