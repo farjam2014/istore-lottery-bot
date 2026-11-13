@@ -22,6 +22,7 @@ function harness() {
   const db = {
     async execute(sql, params = []) {
       calls.push({ sql, params });
+      if (sql.includes('FROM campaigns c') || sql.includes('FROM payment_orders o JOIN campaigns')) return [[]];
       if (sql.includes('SELECT id,full_name,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
       if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
       if (sql.includes('SELECT id,status FROM lottery_entries')) return [[{ id: 42, status: 'active' }]];
@@ -32,7 +33,20 @@ function harness() {
       if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
       return [{ affectedRows: 1 }];
     },
-    async query() { return [[]]; },
+    async query(sql) {
+      if (sql.includes('FROM lottery_entries')) return [[{ total: 0, active: 0, inactive: 0, deleted: 0 }]];
+      if (sql.includes('FROM lottery_sessions')) return [[{ pending: 0 }]];
+      if (sql.includes('FROM webhook_inbox')) return [[{ failed: 0 }]];
+      if (sql.includes('FROM telegram_notification_outbox')) return [[{ failed: 0 }]];
+      if (sql.includes('FROM campaigns')) return [[{ total: 0, open: 0, draft: 0, paused: 0, closed: 0 }]];
+      if (sql.includes('FROM participants')) return [[{ total: 0, active: 0 }]];
+      if (sql.includes('FROM campaign_codes')) return [[{ total: 0 }]];
+      if (sql.includes('FROM payment_orders')) return [[{ total: 0, pending: 0, receipts: 0, approved: 0, rejected: 0 }]];
+      if (sql.includes('FROM payment_transactions')) return [[]];
+      if (sql.includes('FROM profile_change_requests')) return [[{ pending: 0 }]];
+      if (sql.includes('FROM lottery_settings')) return [[{ setting_value: 'false' }]];
+      return [[]];
+    },
     async getConnection() { return conn; }
   };
   const telegram = [];
@@ -43,6 +57,42 @@ function harness() {
   });
   return { admin, calls, telegram };
 }
+
+
+test('management dashboard reports multi-campaign, payment and reliability metrics', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'dash1',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  const body=h.telegram.find(x=>String(x.payload.text||'').includes('داشبورد مدیریتی'));
+  assert.ok(body);
+  assert.match(body.payload.text,/کمپین‌ها/);
+  assert.match(body.payload.text,/پرداخت‌های تأییدشده/);
+  assert.match(body.payload.text,/خطاهای Webhook/);
+  assert.ok(JSON.stringify(body.payload.reply_markup).includes('adm:orders'));
+});
+
+test('campaign management supports validated status filters and pagination', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'camp1',data:'adm:campaigns:open:2',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  const query=h.calls.find(x=>x.sql.includes('FROM campaigns c'));
+  assert.ok(query);
+  assert.match(query.sql,/WHERE c\.status=\?/);
+  assert.deepEqual(query.params,['open',20]);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه ۳ · open')));
+  await h.admin.handleCallback({id:'camp2',data:'adm:campaigns:unknown:0',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('فیلتر وضعیت کمپین نامعتبر')));
+});
+
+test('order management supports action queue, status filters and pagination', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'ord1',data:'adm:orders:approved:1',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  const query=h.calls.find(x=>x.sql.includes('FROM payment_orders o JOIN campaigns c'));
+  assert.ok(query);
+  assert.match(query.sql,/WHERE o\.status=\?/);
+  assert.deepEqual(query.params,['approved',10]);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('صفحه ۲ · approved')));
+  await h.admin.handleCallback({id:'ord2',data:'adm:orders:bad:0',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('فیلتر سفارش نامعتبر')));
+});
 
 test('admin edit preview can be cancelled with /cancel', async () => {
   const h = harness();
