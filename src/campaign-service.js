@@ -64,7 +64,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       [String(telegramUserId), instagram]
     );
     const duplicate = duplicatePhone || duplicateInstagram;
-
+    if (duplicate) throw Object.assign(new Error('DUPLICATE_CONTACT'), { code: 'DUPLICATE_CONTACT' });
 
     await conn.execute(
       `INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
@@ -144,6 +144,8 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
     if (!payment || payment.mode !== 'manual_transfer' || payment.status !== 'pending') {
       throw Object.assign(new Error('PAYMENT_NOT_REVIEWABLE'), { code: 'PAYMENT_NOT_REVIEWABLE' });
     }
+    const [[proof]] = await conn.execute('SELECT id FROM campaign_payment_proofs WHERE payment_id=? LIMIT 1 FOR UPDATE', [paymentId]);
+    if (!proof) throw Object.assign(new Error('PAYMENT_PROOF_REQUIRED'), { code: 'PAYMENT_PROOF_REQUIRED' });
     if (payment.campaign_status !== 'active') throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
     const [[count]] = await conn.execute(
       "SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='active'",
