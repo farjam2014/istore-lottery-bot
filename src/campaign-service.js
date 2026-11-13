@@ -93,9 +93,11 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       const [[existingCode]] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' LIMIT 1", [existing.id]
       );
-      const [[existingPayment]] = existing.status === 'pending_payment'
-        ? await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id])
-        : [null];
+      let existingPayment = null;
+      if (existing.status === 'pending_payment') {
+        const [[pendingPayment]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id]);
+        existingPayment = pendingPayment || null;
+      }
       await conn.commit();
       return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, paymentId: existingPayment?.id || null, code: existingCode?.code || null };
     }
