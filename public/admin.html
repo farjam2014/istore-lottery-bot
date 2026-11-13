@@ -21,8 +21,11 @@
   </div>
   <div class="tools" style="margin:12px 0">
     <input id="campaignCapacity" type="number" min="1" placeholder="ظرفیت (خالی = نامحدود)">
-    <select id="campaignPayment" disabled><option value="free">رایگان (فعلاً تنها روش فعال)</option></select>
-    <input id="campaignAmount" type="number" min="0" placeholder="مبلغ (کمپین رایگان: صفر)" value="0">
+    <select id="campaignPayment" onchange="togglePaymentFields()"><option value="free">رایگان</option><option value="manual_transfer">کارت‌به‌کارت با رسید</option></select>
+    <input id="campaignAmount" type="number" min="0" placeholder="مبلغ به ریال (رایگان: صفر)" value="0">
+    <input id="campaignCardNumber" inputmode="numeric" maxlength="19" placeholder="شماره کارت ۱۶ رقمی">
+    <input id="campaignCardHolder" placeholder="نام صاحب کارت">
+    <input id="campaignBankName" placeholder="نام بانک (اختیاری)">
     <button onclick="createCampaign()">ساخت پیش‌نویس</button>
   </div>
   <div class="wrap"><table style="min-width:760px"><thead><tr><th>عنوان</th><th>شناسه</th><th>وضعیت</th><th>ظرفیت</th><th>ثبت‌نام‌ها</th><th>پرداخت</th><th>عملیات</th></tr></thead><tbody id="campaignRows"><tr><td colspan="7">در حال دریافت…</td></tr></tbody></table></div>
@@ -73,6 +76,11 @@ async function loadCampaigns(){
     await loadCampaignPayments();
   }catch(e){message(e.message)}
 }
+function togglePaymentFields(){
+  const manual=document.getElementById('campaignPayment').value==='manual_transfer';
+  for(const id of ['campaignAmount','campaignCardNumber','campaignCardHolder','campaignBankName'])document.getElementById(id).hidden=!manual&&id!=='campaignAmount';
+  if(!manual)document.getElementById('campaignAmount').value='0';
+}
 async function createCampaign(){
   const slug=document.getElementById('campaignSlug').value.trim();
   const title=document.getElementById('campaignTitle').value.trim();
@@ -80,9 +88,10 @@ async function createCampaign(){
   const payment_mode=document.getElementById('campaignPayment').value;
   const amount_minor=Number(document.getElementById('campaignAmount').value||0);
   try{
-    await api('/api/admin/campaigns',{method:'POST',body:JSON.stringify({slug,title,capacity:capacity===''?null:Number(capacity),payment_mode,amount_minor,currency:'IRR'})});
+    await api('/api/admin/campaigns',{method:'POST',body:JSON.stringify({slug,title,capacity:capacity===''?null:Number(capacity),payment_mode,amount_minor,currency:'IRR',card_number:document.getElementById('campaignCardNumber').value,card_holder:document.getElementById('campaignCardHolder').value,bank_name:document.getElementById('campaignBankName').value})});
     document.getElementById('campaignSlug').value='';document.getElementById('campaignTitle').value='';
     document.getElementById('campaignCapacity').value='';
+    document.getElementById('campaignCardNumber').value='';document.getElementById('campaignCardHolder').value='';document.getElementById('campaignBankName').value='';
     message('پیش‌نویس کمپین ساخته شد.');await loadCampaigns();await loadAudit();
   }catch(e){message(e.message)}
 }
@@ -137,5 +146,5 @@ async function loadCampaignPayments(){
     }
   }catch(e){el.textContent=e.message}
 }
-(async()=>{try{await stats();await loadEntries();await loadAudit();await loadCampaigns()}catch(e){message(e.message)}})();
+(async()=>{try{togglePaymentFields();await stats();await loadEntries();await loadAudit();await loadCampaigns()}catch(e){message(e.message)}})();
 </script></body></html>
