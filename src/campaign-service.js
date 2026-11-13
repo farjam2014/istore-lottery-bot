@@ -73,10 +73,6 @@ function createCampaignService({ db, adminId }) {
       await conn.commit();
     } catch(error) { await conn.rollback(); throw error; }
     finally { conn.release(); }
-    await db.execute(
-      "INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,NULL,'draft',?,'campaign created')",
-      [result.insertId,String(adminId)]
-    );
     return { id: result.insertId, slug: c.slug };
   }
 
