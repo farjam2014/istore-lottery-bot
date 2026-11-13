@@ -169,7 +169,7 @@ if(q.data==='participant:codes'){await tg("answerCallbackQuery",{callback_query_
 if(q.data==='participant:account'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
   const [[p]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
-  if(!p)return tg('sendMessage',{chat_id:chat,text:'هنوز پروفایلی ندارید. حتی بدون کمپین فعال می‌توانید پروفایل بسازید.',reply_markup:{inline_keyboard:[[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
+  if(!p)return tg('sendMessage',{chat_id:chat,business_connection_id:String(q.message?.business_connection_id||'')||undefined,text:'هنوز پروفایلی ندارید. حتی بدون کمپین فعال می‌توانید پروفایل بسازید.',reply_markup:{inline_keyboard:[[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
   const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[p.id]);
   const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
   const labels={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
@@ -204,7 +204,7 @@ if(String(q.data||'').startsWith('campaign:join:')){
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
     const max=Math.max(1,Math.min(1000,Number(campaign.max_codes_per_participant)||1));
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
-    return tg('sendMessage',{chat_id:chat,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+max+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:campaignQuantityKeyboard(campaign.id,max,0)});
+    return tg('sendMessage',{chat_id:chat,business_connection_id:connection||undefined,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+max+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:campaignQuantityKeyboard(campaign.id,max,0)});
   }catch(e){return reply(chat,connection,'❌ امکان ادامه ثبت‌نام وجود ندارد: '+e.message);}
 }
 if(String(q.data||'').startsWith('campaign:quantity-page:')){
