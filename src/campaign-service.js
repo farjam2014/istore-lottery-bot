@@ -448,6 +448,10 @@ function createCampaignService({ db, adminId }) {
         [orderId,participantId]
       );
       if (!order) throw new Error('سفارش برای حساب شما پیدا نشد.');
+      if (order.status === 'cancelled') {
+        await conn.commit();
+        return { id: orderId, status: 'cancelled', duplicate: true };
+      }
       if (order.status !== 'pending_payment') throw new Error('فقط سفارش در انتظار پرداخت قابل لغو است. رسید ارسال‌شده باید توسط پشتیبانی بررسی شود.');
       await conn.execute("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status='pending_payment'", [orderId]);
       await conn.execute("UPDATE campaign_capacity_reservations SET status='released' WHERE order_id=? AND status='held'", [orderId]);
