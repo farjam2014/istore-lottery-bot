@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const { normalizePhone, validPhone, normalizeInstagram, validInstagram, validFullName } = require('./domain');
 
-function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, campaignService, bankCardService }) {
+function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, campaignService, bankCardService, drawService }) {
   const searchModes = new Map();
   const editModes = new Map();
   const pending = new Map();
@@ -13,13 +13,13 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   const completedCallbackOrder = [];
   const isAdmin = (q) => String(q?.from?.id || '') === String(adminId) && q?.message?.chat?.type === 'private';
   const menu = [
-    [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 شرکت‌کنندگان', callback_data: 'adm:entries:0' }],
-    [{ text: '🎟 کدها و خروجی', callback_data: 'adm:export' }, { text: '⚙️ کمپین قدیمی', callback_data: 'adm:campaign' }],
+    [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 مشتریان', callback_data: 'adm:participants' }],
+    [{ text: '🎟 خروجی کدها', callback_data: 'adm:export' }, { text: '🧩 کمپین‌ها', callback_data: 'adm:campaigns' }],
     [{ text: '🧩 مدیریت کمپین‌ها', callback_data: 'adm:campaigns' }],
     [{ text: '💳 مدیریت کارت‌های بانکی', callback_data: 'adm:cards' }],
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
-    [{ text: '🏆 قرعه‌کشی', callback_data: 'adm:draw' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
+    [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔎 جستجو', callback_data: 'adm:search' }, { text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
   const keyboard = (rows) => ({ inline_keyboard: rows });
@@ -58,36 +58,87 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     );
   }
   async function stats(chat) {
-    const [[legacy]] = await db.query("SELECT COUNT(*) total, SUM(status='active') active, SUM(status='inactive') inactive, SUM(status='deleted') deleted FROM lottery_entries");
-    const [[legacyToday]] = await db.query("SELECT COUNT(*) today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
     const [[sessions]] = await db.query("SELECT COUNT(*) pending FROM telegram_sessions");
     const [[webhooks]] = await db.query("SELECT COUNT(*) failed FROM webhook_inbox WHERE status='failed'");
     const [[outbox]] = await db.query("SELECT COUNT(*) failed FROM telegram_notification_outbox WHERE status='failed'");
     const [[campaigns]] = await db.query("SELECT COUNT(*) total, SUM(status='open') open, SUM(status='draft') draft, SUM(status='paused') paused, SUM(status='closed') closed FROM campaigns");
     const [[participants]] = await db.query("SELECT COUNT(*) total, SUM(status='active') active FROM participants");
-    const [[entryFunnel]] = await db.query("SELECT COUNT(*) total, SUM(status='active') completed, SUM(status='pending') pending, SUM(status='inactive') inactive, SUM(status IN ('cancelled','disqualified')) excluded FROM campaign_entries");
+    const [[entries]] = await db.query("SELECT COUNT(*) total, SUM(status='active') active, SUM(status='pending') pending FROM campaign_entries");
     const [[codes]] = await db.query("SELECT COUNT(*) total FROM campaign_codes WHERE status='active'");
     const [[orders]] = await db.query("SELECT COUNT(*) total, SUM(status='pending_payment') pending, SUM(status='receipt_submitted') receipts, SUM(status='approved') approved, SUM(status='rejected') rejected FROM payment_orders");
     const [revenue] = await db.query("SELECT currency,SUM(amount) total FROM payment_transactions WHERE status='confirmed' GROUP BY currency ORDER BY currency");
     const [[profileRequests]] = await db.query("SELECT COUNT(*) pending FROM profile_change_requests WHERE status='pending'");
-    const [[draw]] = await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");
     const money = revenue.length ? revenue.map(x => Number(x.total || 0).toLocaleString('en-US')+' '+x.currency).join(' · ') : '۰';
     return adminMessage({ chat_id: chat, text:
-      '📊 داشبورد مدیریتی iStore\n\n' +
+      '📊 داشبورد مدیریتی USTORE\n\n' +
       '🧩 کمپین‌ها: '+Number(campaigns.total||0)+' | باز: '+Number(campaigns.open||0)+' | پیش‌نویس: '+Number(campaigns.draft||0)+' | متوقف: '+Number(campaigns.paused||0)+' | بسته: '+Number(campaigns.closed||0)+
-      '\n👥 پروفایل‌های چندکمپینی: '+Number(participants.total||0)+' | فعال: '+Number(participants.active||0)+
-      '\n🧭 عضویت کمپین: '+Number(entryFunnel.completed||0)+' تکمیل‌شده از '+Number(entryFunnel.total||0)+' | معلق: '+Number(entryFunnel.pending||0)+' | غیرفعال/حذف‌شده: '+(Number(entryFunnel.inactive||0)+Number(entryFunnel.excluded||0))+' | نرخ تکمیل: '+(Number(entryFunnel.total||0)?Math.round(Number(entryFunnel.completed||0)*100/Number(entryFunnel.total)):0)+'٪'+
+      '\n👥 پروفایل مشتریان: '+Number(participants.total||0)+' | فعال: '+Number(participants.active||0)+
+      '\n🧭 عضویت کمپین: '+Number(entries.active||0)+' فعال از '+Number(entries.total||0)+' | معلق: '+Number(entries.pending||0)+
       '\n🎟 کدهای فعال: '+Number(codes.total||0)+
       '\n💳 سفارش‌ها: '+Number(orders.total||0)+' | منتظر پرداخت: '+Number(orders.pending||0)+' | رسید در انتظار: '+Number(orders.receipts||0)+
-      '\n✅ پرداخت‌های تأییدشده: '+Number(orders.approved||0)+' | ردشده: '+Number(orders.rejected||0)+
-      '\n💰 مجموع تراکنش تأییدشده (به تفکیک ارز): '+money+
+      '\n✅ پرداخت تأییدشده: '+Number(orders.approved||0)+' | ردشده: '+Number(orders.rejected||0)+
+      '\n💰 تراکنش تأییدشده: '+money+
       '\n📝 درخواست اصلاح پروفایل معلق: '+Number(profileRequests.pending||0)+
-      '\n\n📦 سیستم قدیمی\n👥 پرونده‌ها: '+Number(legacy.total||0)+' | فعال: '+Number(legacy.active||0)+' | غیرفعال: '+Number(legacy.inactive||0)+' | حذف منطقی: '+Number(legacy.deleted||0)+
-      '\n📅 ثبت‌نام قدیمی امروز: '+Number(legacyToday.today||0)+
       '\n⌛ نشست نیمه‌کاره: '+Number(sessions.pending||0)+
-      '\n⚠️ خطاهای Webhook: '+Number(webhooks.failed||0)+' | اعلان ناموفق: '+Number(outbox.failed||0)+
-      '\n🏆 قرعه‌کشی قدیمی: '+(draw?.setting_value==='true'?'انجام شده':'انجام نشده'),
-      reply_markup: keyboard([[{text:'🧩 کمپین‌ها',callback_data:'adm:campaigns'},{text:'💳 سفارش‌ها',callback_data:'adm:orders'}],[{text:'📝 درخواست‌های اصلاح',callback_data:'adm:profile-requests'},{text:'🧾 رخدادها',callback_data:'adm:audit'}],[{text:'📈 گزارش کمپین‌ها',callback_data:'adm:reports'}],[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]]) });
+      '\n⚠️ خطاهای Webhook: '+Number(webhooks.failed||0)+' | اعلان ناموفق: '+Number(outbox.failed||0),
+      reply_markup: keyboard([[{text:'🧩 کمپین‌ها',callback_data:'adm:campaigns'},{text:'👥 مشتریان',callback_data:'adm:participants'}],[{text:'💳 سفارش‌ها',callback_data:'adm:orders'},{text:'🏆 قرعه‌کشی',callback_data:'adm:draws'}],[{text:'📝 درخواست‌های اصلاح',callback_data:'adm:profile-requests'},{text:'🧾 رخدادها',callback_data:'adm:audit'}],[{text:'📈 گزارش کمپین‌ها',callback_data:'adm:reports'}],[{text:'↩️ منوی اصلی',callback_data:'adm:home'}]]) });
+  }
+  async function participantList(chat, page=0) {
+    const p=Math.max(0,Math.min(10000,Number(page)||0));
+    const [rows]=await db.execute(`SELECT p.id,p.full_name,p.phone,p.instagram,p.status,
+      COUNT(DISTINCT ce.id) AS campaign_count,COUNT(DISTINCT cc.id) AS active_codes
+      FROM participants p
+      LEFT JOIN campaign_entries ce ON ce.participant_id=p.id
+      LEFT JOIN campaign_codes cc ON cc.participant_id=p.id AND cc.status='active'
+      GROUP BY p.id,p.full_name,p.phone,p.instagram,p.status
+      ORDER BY p.id DESC LIMIT 8 OFFSET ?`,[p*8]);
+    const buttons=rows.map(x=>[{text:(x.status==='active'?'✅ ':'⏸ ')+String(x.full_name).slice(0,24)+' · '+Number(x.active_codes)+' کد',callback_data:'adm:participant:'+x.id}]);
+    const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:participants:'+(p-1)});if(rows.length===8)nav.push({text:'بعدی ➡️',callback_data:'adm:participants:'+(p+1)});if(nav.length)buttons.push(nav);
+    buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:participants:0'},{text:'🏠 منو',callback_data:'adm:home'}]);
+    return adminMessage({chat_id:chat,text:'👥 مشتریان USTORE · صفحه '+(p+1)+'\nهر ردیف یک پروفایل اصلی است؛ عضویت‌ها و کدها متعلق به کمپین‌ها هستند.',reply_markup:keyboard(buttons)});
+  }
+  async function participantDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه مشتری نامعتبر است.'});
+    const [[p]]=await db.execute('SELECT id,telegram_user_id,chat_id,full_name,phone,instagram,status,created_at FROM participants WHERE id=? LIMIT 1',[id]);
+    if(!p)return adminMessage({chat_id:chat,text:'مشتری پیدا نشد.'});
+    const [rows]=await db.execute(`SELECT c.name,ce.status,COUNT(cc.id) AS codes
+      FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id
+      LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active'
+      WHERE ce.participant_id=? GROUP BY c.id,c.name,ce.status ORDER BY c.id DESC LIMIT 20`,[id]);
+    const memberships=rows.length?rows.map(x=>'• '+x.name+' · '+x.status+' · '+x.codes+' کد').join('\n'):'هنوز در کمپینی عضو نشده است.';
+    return adminMessage({chat_id:chat,text:'👤 پروفایل مشتری #'+p.id+'\n\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram+'\nTelegram ID: '+p.telegram_user_id+'\nوضعیت: '+p.status+'\nثبت: '+p.created_at+'\n\nعضویت کمپین‌ها:\n'+memberships,reply_markup:keyboard([[{text:p.status==='active'?'⏸ غیرفعال‌سازی':'✅ فعال‌سازی',callback_data:'adm:participant-status:'+p.id+':'+(p.status==='active'?'inactive':'active')}],[{text:'↩️ فهرست مشتریان',callback_data:'adm:participants:0'},{text:'🏠 منو',callback_data:'adm:home'}]])});
+  }
+  async function campaignDrawList(chat) {
+    const [rows]=await db.execute("SELECT id,name,status,draw_method FROM campaigns WHERE status IN ('closed','drawn') ORDER BY id DESC LIMIT 30");
+    if(!rows.length)return adminMessage({chat_id:chat,text:'برای قرعه‌کشی، ابتدا یک کمپین را ببندید. کمپین بسته‌شده در این فهرست نمایش داده می‌شود.',reply_markup:keyboard([[{text:'مدیریت کمپین‌ها',callback_data:'adm:campaigns'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
+    const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.name+' · '+x.status,callback_data:'adm:draw-campaign:'+x.id}]);
+    buttons.push([{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
+    return adminMessage({chat_id:chat,text:'🏆 انتخاب کمپین برای مشاهده یا اجرای قرعه‌کشی:',reply_markup:keyboard(buttons)});
+  }
+  async function campaignDrawAction(chat,campaignId) {
+    if(!/^\\d+$/.test(String(campaignId)))return adminMessage({chat_id:chat,text:'شناسه کمپین نامعتبر است.'});
+    const [[campaign]]=await db.execute('SELECT id,name,status,draw_method FROM campaigns WHERE id=? LIMIT 1',[campaignId]);
+    if(!campaign)return adminMessage({chat_id:chat,text:'کمپین پیدا نشد.'});
+    const [draws]=await db.execute('SELECT id,draw_number,status,method,snapshot_hash FROM campaign_draws WHERE campaign_id=? ORDER BY draw_number DESC LIMIT 5',[campaignId]);
+    const buttons=[];
+    if(campaign.status==='closed')buttons.push([{text:'📸 آماده‌سازی snapshot قرعه‌کشی',callback_data:'adm:draw-prepare:'+campaignId}]);
+    for(const d of draws)buttons.push([{text:'قرعه‌کشی #'+d.draw_number+' · '+d.status,callback_data:'adm:draw-view:'+d.id}]);
+    buttons.push([{text:'↩️ فهرست کمپین‌ها',callback_data:'adm:draws'}]);
+    return adminMessage({chat_id:chat,text:'🏆 '+campaign.name+'\nوضعیت: '+campaign.status+'\nروش: '+campaign.draw_method+'\n\nبرای قرعه‌کشی، ابتدا snapshot واجدان شرایط ثبت می‌شود.',reply_markup:keyboard(buttons)});
+  }
+  async function prepareCampaignDraw(chat,campaignId) {
+    try {
+      const result=await drawService.prepareDraw(Number(campaignId));
+      if(result.method==='system'||result.method==='hybrid'){
+        const selected=await drawService.runSystemDraw(result.drawId);
+        return adminMessage({chat_id:chat,text:'🎲 نتیجه اولیه آماده شد و هنوز نهایی نیست.\nقرعه‌کشی: #'+result.drawId+'\nواجدان: '+result.candidates+'\nSnapshot SHA-256: '+result.snapshotHash+'\n\nبرندگان تا تأیید نهایی قطعی نیستند.',reply_markup:keyboard([[{text:'✅ تأیید نتیجه',callback_data:'adm:draw-approve:'+result.drawId}],[{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+campaignId}]])});
+      }
+      return adminMessage({chat_id:chat,text:'Snapshot قرعه‌کشی #'+result.drawId+' آماده شد. تعداد واجدان: '+result.candidates+'\nروش کمپین گردونه زنده است؛ نتایج باید از مسیر ثبت نتیجه زنده و با شواهد ثبت شوند. هیچ برنده‌ای خودکار انتخاب نشده است.',reply_markup:keyboard([[{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+campaignId}]])});
+    } catch(e) { return adminMessage({chat_id:chat,text:'آماده‌سازی قرعه‌کشی انجام نشد: '+e.message}); }
+  }
+  async function approveCampaignDraw(chat,drawId) {
+    try { await drawService.approveDraw(Number(drawId)); return adminMessage({chat_id:chat,text:'✅ نتیجه قرعه‌کشی تأیید و کمپین نهایی شد.',reply_markup:keyboard([[{text:'🏆 قرعه‌کشی‌ها',callback_data:'adm:draws'}],[{text:'📊 داشبورد',callback_data:'adm:stats'}]])}); }
+    catch(e) { return adminMessage({chat_id:chat,text:'تأیید نتیجه انجام نشد: '+e.message}); }
   }
   async function entries(chat, page, status = 'all', period = 'all') {
     const p = Math.max(0, Math.min(10000, Number(page) || 0));
@@ -493,6 +544,37 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(data.startsWith('adm:campaign-card-confirm:')){const [, ,campaignId,cardId]=data.split(':');if(!/^\\d+$/.test(campaignId)||!/^\\d+$/.test(cardId))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});pending.set(String(adminId),{type:'campaign-card',campaignId,cardId,expires:Date.now()+60000});const card=await bankCardService.getCard(Number(cardId),{activeOnly:true});return adminMessage({chat_id:chat,text:'تغییر کارت کمپین به «'+card.label+' · '+card.card_number.slice(-4)+'» را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید تغییر',callback_data:'adm:campaign-card-apply:'+campaignId+':'+cardId},{text:'لغو',callback_data:'adm:campaign-detail:'+campaignId}]])});}
     if(data.startsWith('adm:campaign-card-apply:')){const [, ,campaignId,cardId]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='campaign-card'||p.campaignId!==campaignId||p.cardId!==cardId||p.expires<Date.now())return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.assignCampaignCard(Number(campaignId),Number(cardId),'changed via Telegram admin panel');return campaignDetail(chat,campaignId);}
     if (data==='adm:home') return home(chat);
+    if (data==='adm:participants') return participantList(chat,0);
+    if (data.startsWith('adm:participants:')) return participantList(chat,data.split(':')[2]);
+    if (data.startsWith('adm:participant:')) return participantDetail(chat,data.slice('adm:participant:'.length));
+    if (data.startsWith('adm:participant-status:')) {
+      const [, , id, status]=data.split(':');
+      if(!/^\\d+$/.test(id)||!['active','inactive'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
+      const conn=await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [[current]]=await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE',[id]);
+        if(!current)throw new Error('مشتری پیدا نشد.');
+        if(current.status===status)throw new Error('وضعیت از قبل همین مقدار است.');
+        await conn.execute('UPDATE participants SET status=? WHERE id=?',[status,id]);
+        await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),status==='active'?'activate_participant':'deactivate_participant','participant',id,JSON.stringify({from:current.status,to:status,source:'telegram'})]);
+        await conn.commit();
+        return participantDetail(chat,id);
+      } catch(e) { await conn.rollback();return adminMessage({chat_id:chat,text:'تغییر وضعیت انجام نشد: '+e.message}); }
+      finally { conn.release(); }
+    }
+    if (data==='adm:draws') return campaignDrawList(chat);
+    if (data.startsWith('adm:draw-campaign:')) return campaignDrawAction(chat,data.slice('adm:draw-campaign:'.length));
+    if (data.startsWith('adm:draw-prepare:')) return prepareCampaignDraw(chat,data.slice('adm:draw-prepare:'.length));
+    if (data.startsWith('adm:draw-approve:')) return approveCampaignDraw(chat,data.slice('adm:draw-approve:'.length));
+    if (data.startsWith('adm:draw-view:')) {
+      const id=data.slice('adm:draw-view:'.length);
+      const [[d]]=await db.execute('SELECT id,campaign_id,draw_number,status,method,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1',[id]);
+      if(!d)return adminMessage({chat_id:chat,text:'قرعه‌کشی پیدا نشد.'});
+      const [winners]=await db.execute('SELECT winner_rank,winner_type,participant_id,code,selection_method FROM draw_winners WHERE draw_id=? ORDER BY winner_rank',[id]);
+      const body=winners.length?winners.map(w=>'رتبه '+w.winner_rank+' · '+w.winner_type+' · مشتری #'+w.participant_id+' · '+(w.code||'بدون کد')).join('\\n'):'نتیجه هنوز انتخاب نشده است.';
+      return adminMessage({chat_id:chat,text:'قرعه‌کشی #'+d.draw_number+' · '+d.status+'\\nSnapshot: '+(d.snapshot_hash||'-')+'\\n\\n'+body,reply_markup:keyboard(d.status==='pending_approval'?[[{text:'تأیید نتیجه',callback_data:'adm:draw-approve:'+id}],[{text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]]:[[ {text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]])});
+    }
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:reports') return campaignReports(chat);
     if (data==='adm:campaign') return campaign(chat);
