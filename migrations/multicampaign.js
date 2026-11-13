@@ -25,6 +25,7 @@ async function migrateMultiCampaign(db) {
       capacity INT UNSIGNED NULL,
       payment_mode ENUM('free','manual_transfer','provider') NOT NULL DEFAULT 'free',
       amount_minor BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      max_codes_per_participant INT UNSIGNED NULL DEFAULT 1,
       currency CHAR(3) NOT NULL DEFAULT 'IRR',
       settings JSON NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -61,7 +62,6 @@ async function migrateMultiCampaign(db) {
       code VARCHAR(32) NOT NULL,
       status ENUM('active','revoked') NOT NULL DEFAULT 'active',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_issued_codes_entry(entry_id),
       UNIQUE KEY uq_issued_codes_campaign_code(campaign_id,code),
       UNIQUE KEY uq_issued_codes_sequence(campaign_id,sequence_no),
       CONSTRAINT fk_issued_codes_campaign FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
@@ -73,10 +73,13 @@ async function migrateMultiCampaign(db) {
       mode ENUM('manual_transfer','provider') NOT NULL,
       status ENUM('pending','approved','rejected','failed','refunded') NOT NULL DEFAULT 'pending',
       amount_minor BIGINT UNSIGNED NOT NULL,
+      quantity INT UNSIGNED NOT NULL DEFAULT 1,
       currency CHAR(3) NOT NULL DEFAULT 'IRR',
       provider_reference VARCHAR(160) NULL,
       reviewed_by VARCHAR(80) NULL,
       reviewed_at DATETIME NULL,
+      telegram_chat_id VARCHAR(80) NULL,
+      business_connection_id VARCHAR(255) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uq_campaign_payment_provider_ref(mode,provider_reference),
@@ -89,7 +92,9 @@ async function migrateMultiCampaign(db) {
       storage_key VARCHAR(255) NOT NULL,
       mime_type VARCHAR(100) NOT NULL,
       file_size INT UNSIGNED NOT NULL,
-      sha256 CHAR(64) NOT NULL,
+      sha256 CHAR(64) NULL,
+      telegram_file_id VARCHAR(255) NULL,
+      telegram_file_unique_id VARCHAR(255) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uq_payment_proof_storage(storage_key),
       CONSTRAINT fk_payment_proofs_payment FOREIGN KEY(payment_id) REFERENCES campaign_payments(id)
@@ -117,6 +122,29 @@ async function migrateMultiCampaign(db) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   ];
   for (const sql of ddl) await db.query(sql);
+  const [campaignColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns'"
+  );
+  if (!campaignColumns.some(column => column.COLUMN_NAME === 'max_codes_per_participant')) {
+    await db.query('ALTER TABLE campaigns ADD COLUMN max_codes_per_participant INT UNSIGNED NULL DEFAULT 1 AFTER amount_minor');
+  }
+  const [paymentSchemaColumns] = await db.execute(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_payments'"
+  );
+  if (!paymentSchemaColumns.some(column => column.COLUMN_NAME === 'quantity')) {
+    await db.query('ALTER TABLE campaign_payments ADD COLUMN quantity INT UNSIGNED NOT NULL DEFAULT 1 AFTER amount_minor');
+  }
+  if (!paymentSchemaColumns.some(column => column.COLUMN_NAME === 'telegram_chat_id')) {
+    await db.query('ALTER TABLE campaign_payments ADD COLUMN telegram_chat_id VARCHAR(80) NULL AFTER reviewed_at');
+  }
+  if (!paymentSchemaColumns.some(column => column.COLUMN_NAME === 'business_connection_id')) {
+    await db.query('ALTER TABLE campaign_payments ADD COLUMN business_connection_id VARCHAR(255) NULL AFTER telegram_chat_id');
+  }
+  const [codeIndexes] = await db.execute(
+    "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='issued_codes' AND INDEX_NAME='uq_issued_codes_entry'"
+  );
+  if (codeIndexes.length) await db.query('ALTER TABLE issued_codes DROP INDEX uq_issued_codes_entry');
+
   const [sessionColumns] = await db.execute(
     "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lottery_sessions'"
   );
