@@ -11,9 +11,9 @@ function makeCampaignCode(campaignId, sequence, secret) {
 }
 
 /**
- * Creates at most one entry per Telegram identity and campaign.
- * Manual/provider payments deliberately remain pending and receive no code.
- * Provider payment confirmation must be implemented as a separately authenticated webhook.
+ * Keeps one profile/entry per Telegram identity and campaign. Free campaigns
+ * issue one ticket; paid campaigns can issue multiple tickets against approved payments.
+ * Provider payment confirmation still requires a separately authenticated webhook.
  */
 async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret, quantity = 1) {
   await conn.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)', [campaignId]);
