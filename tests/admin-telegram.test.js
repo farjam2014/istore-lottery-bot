@@ -31,7 +31,7 @@ function harness() {
       if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deletion_reason')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09121111111', instagram: 'ali.new', raffle_code: 'LOT-ABCDEFGH', status: 'active', created_at: 'now' }]];
       if (sql.includes('SELECT raffle_code,action,actor,created_at FROM lottery_code_history')) return [[]];
       if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
-      if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[]];
+      if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[{full_name:'=HYPERLINK("https://bad.example")',phone:'09120000000',instagram:'safe.user',raffle_code:'LOT-CSVTEST',status:'inactive',created_at:'2026-11-14 10:00:00'}]];
       if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
       return [{ affectedRows: 1 }];
     },
@@ -53,6 +53,7 @@ function harness() {
     async getConnection() { return conn; }
   };
   const telegram = [];
+  const documents = [];
   const tg = async (method, payload) => { telegram.push({ method, payload }); return { ok: true }; };
   const cardRows=new Map();
   const bankCardService={
@@ -64,11 +65,11 @@ function harness() {
     async deleteCard(id){calls.push({sql:'DELETE_BANK_CARD',id});if(!cardRows.has(Number(id)))throw new Error('کارت پیدا نشد.');cardRows.delete(Number(id));}
   };
   const admin = createAdminTelegram({
-    db, tg, tgDocument: async () => ({ ok: true }), bankCardService,
+    db, tg, tgDocument: async (...args) => { documents.push(args); return { ok: true }; }, bankCardService,
     adminId: '12345', registrationOpen: async () => false,
     campaignService: { async createCampaign(input) { calls.push({ sql: 'CREATE_CAMPAIGN', input }); return { id: 88, slug: input.slug }; }, async updateDraftCampaign(id,input) { calls.push({ sql: 'UPDATE_DRAFT_CAMPAIGN', id, input }); return { id, slug: input.slug }; } }
   });
-  return { admin, calls, telegram };
+  return { admin, calls, telegram, documents };
 }
 
 
@@ -240,7 +241,7 @@ test('draw history is reachable from the Telegram draw menu', async () => {
   assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('هنوز قرعه‌کشی ثبت‌شده‌ای وجود ندارد')));
 });
 
-test('filtered CSV export uses parameterized status and valid date windows', async () => {
+test('filtered CSV export uses parameterized status, valid date windows and spreadsheet-safe cells', async () => {
   const h = harness();
   await h.admin.handleMessage({from:{id:12345},chat:{id:12345,type:'private'},text:'/export inactive 30d'});
   const query = h.calls.find(x => x.sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries'));
@@ -248,8 +249,25 @@ test('filtered CSV export uses parameterized status and valid date windows', asy
   assert.match(query.sql,/status = \?/);
   assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 30 DAY\)/);
   assert.deepEqual(query.params,['inactive']);
+  assert.equal(h.documents.length,1);
+  assert.equal(h.documents[0][1],'istore-lottery.csv');
+  assert.match(h.documents[0][2],/\'=HYPERLINK/);
+  assert.match(h.documents[0][2],/LOT-CSVTEST/);
 });
 
+
+test('CSV export exposes inline status and date filters before sending a document', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'export-menu',data:'adm:export',from:message.from,message:{chat:message.chat}});
+  await h.admin.handleCallback({id:'export-status',data:'adm:export:active',from:message.from,message:{chat:message.chat}});
+  const markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
+  assert.ok(markup.flat().some(b=>b.callback_data==='adm:export-run:active:7d'));
+  await h.admin.handleCallback({id:'export-period',data:'adm:export-run:active:7d',from:message.from,message:{chat:message.chat}});
+  const query=h.calls.find(x=>x.sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries'));
+  assert.ok(query.sql.includes('DATE_SUB(NOW(), INTERVAL 7 DAY)'));
+  assert.deepEqual(query.params,['active']);
+  assert.equal(h.documents.length,1);
+});
 
 test('campaign creation uses a step-by-step wizard and final review before saving', async () => {
   const h=harness();
