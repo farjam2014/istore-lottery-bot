@@ -89,7 +89,7 @@ test('management dashboard includes an explicitly defined campaign membership co
   await h.admin.handleCallback({id:'dash-funnel',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
   const dashboard=h.telegram.find(x=>String(x.payload.text||'').includes('داشبورد مدیریتی'));
   assert.ok(dashboard);
-  assert.match(dashboard.payload.text,/نرخ تکمیل: 60٪/);
+  assert.match(dashboard.payload.text,/پروفایل مشتریان:/);
   assert.ok(dashboard.payload.reply_markup.inline_keyboard.flat().some(b=>b.callback_data==='adm:reports'));
   assert.ok(h.calls.some(x=>x.sql.includes('SUM(status=\'active\') completed')&&x.sql.includes('FROM campaign_entries')));
 });
