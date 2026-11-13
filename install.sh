@@ -15,14 +15,8 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ کد خطا: $rc"
 . /etc/os-release
 [[ "$ID" == ubuntu && "$(cut -d. -f1 <<< "$VERSION_ID")" == 24 ]] || die "فقط Ubuntu 24 پشتیبانی می‌شود."
 cat <<'NOTICE'
-این نصب برای محیط آزمایشی است و نصب را از ابتدا انجام می‌دهد:
-- دیتابیس istore_lottery در صورت وجود حذف و دوباره ساخته می‌شود.
-- فایل‌های برنامه قبلی در /opt/istore-lottery-bot جایگزین می‌شوند.
-- از دیتابیس یا فایل‌های قبلی بک‌آپ گرفته نمی‌شود.
-- رمز دیتابیس و رمز پنل به‌صورت تصادفی ساخته و فقط در فایل .env ذخیره می‌شوند.
+نصب محیط آزمایشی: از دیتابیس بک‌آپ گرفته نمی‌شود. دیتابیس موجود حذف نمی‌شود و Migrationها روی آن اجرا می‌شوند. رمز دیتابیس و رمز پنل تصادفی تولید می‌شوند و فقط در فایل .env قرار می‌گیرند.
 NOTICE
-read -r -p "برای تأیید حذف دیتابیس و فایل‌های نصب قبلی، دقیقاً RESET istore_lottery را وارد کنید: " RESET_CONFIRM
-[[ "$RESET_CONFIRM" == "RESET istore_lottery" ]] || die "تأیید انجام نشد؛ هیچ دیتابیس یا فایلی حذف نشد."
 read -r -p "دامنه (مثلاً example.com): " DOMAIN
 read -r -p "ایمیل دریافت SSL: " EMAIL
 read -r -s -p "Telegram Bot Token: " BOT_TOKEN
@@ -71,7 +65,7 @@ log "توقف سرویس آزمایشی قبلی و جایگزینی فایل‌
 systemctl disable --now "$SERVICE" 2>/dev/null || true
 if [[ -e "$APP_DIR" || -L "$APP_DIR" ]]; then
   [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر حذف نامعتبر است."
-  rm -rf -- "$APP_DIR"
+  mv "$APP_DIR" "/opt/istore-lottery-previous-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP_DIR"
 cd "$APP_DIR"
@@ -98,7 +92,7 @@ ENV
 chmod 600 "$APP_DIR/.env"
 if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
 chown -R root:istorebot "$APP_DIR"
-chmod 600 "$APP_DIR/.env"
+chmod 640 "$APP_DIR/.env"
 log "ساخت جداول دیتابیس تازه"
 mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
 npm run migrate
