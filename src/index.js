@@ -346,6 +346,7 @@ await reply(String(ticket.chat_id),String(ticket.business_connection_id||""),"�
 await db.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=? AND status='open'",[answer,String(uid),ticketId]);
 return reply(chat,conn,"پاسخ تیکت #"+ticketId+" ارسال شد.");
 }
+}
 
 app.get("/",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","index.html")));
 app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,database:"connected"})}catch{r.status(503).json({ok:false,database:"unavailable"})}});
