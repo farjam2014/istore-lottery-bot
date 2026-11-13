@@ -245,6 +245,9 @@ function createCampaignService({ db, adminId }) {
           [String(adminId),String(note).slice(0,255),orderId]
         );
         await conn.execute("UPDATE payment_orders SET status='rejected',reviewed_by=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?", [String(adminId),orderId]);
+        const [[recipient]] = await conn.execute('SELECT p.chat_id,p.business_connection_id FROM participants p WHERE p.id=? LIMIT 1',[order.participant_id]);
+        if(recipient?.chat_id) await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['payment-rejected:'+orderId,'payment_rejected',JSON.stringify({method:'sendMessage',payload:{chat_id:String(recipient.chat_id),...(recipient.business_connection_id?{business_connection_id:String(recipient.business_connection_id)}:{}),text:'❌ رسید پرداخت سفارش شما تأیید نشد. برای پیگیری با پشتیبانی فروشگاه تماس بگیرید.'}})]);
+
       }
       await conn.execute(
         'INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',
@@ -376,6 +379,9 @@ function createCampaignService({ db, adminId }) {
     if (!participant) throw new Error('پروفایل فعال پیدا نشد.');
     if (String(participant.old_value) === nextValue) throw new Error('مقدار جدید با مقدار فعلی یکسان است.');
     const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,status) VALUES(?,?,?,?,'pending')", [participantId,field,String(participant.old_value),nextValue]);
+    const [[recipient]]=await db.execute('SELECT chat_id FROM participants WHERE id=? LIMIT 1',[participantId]);
+    if(recipient?.chat_id) await db.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['profile-change:'+result.insertId,'profile_change_requested',JSON.stringify({method:'sendMessage',payload:{chat_id:String(adminId),text:'📝 درخواست اصلاح پروفایل جدید\nشناسه: '+result.insertId+'\nشرکت‌کننده: '+participantId+'\nفیلد: '+field+'\nمقدار قبلی: '+participant.old_value+'\nمقدار درخواستی: '+nextValue+'\nبرای بررسی به پنل تلگرام بروید: /panel'}})]);
+
     return { id: result.insertId, status: 'pending' };
   }
 
