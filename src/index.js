@@ -94,10 +94,6 @@ if(openCampaign){
   const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
   if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
   await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
-  const userText="✅ پروفایل شما برای شرکت در کمپین‌ها ثبت شد.\nبرای مشاهده کمپین‌های فعال، همین‌جا «کمپین‌ها» را ارسال کنید.";
-  const profileUserPayload={chat_id:String(chat),text:userText};
-  if(businessConnection)profileUserPayload.business_connection_id=String(businessConnection);
-  await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["campaign-profile:"+uid+":"+crypto.randomUUID(),"campaign_profile_created",JSON.stringify({method:"sendMessage",payload:profileUserPayload})]);
   await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["campaign-profile-admin:"+uid+":"+crypto.randomUUID(),"campaign_profile_created_admin",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:"👤 پروفایل کمپین جدید ثبت شد.\nTelegram ID: "+uid+"\nنام: "+name+"\nموبایل: "+phone+"\nاینستاگرام: @"+inst}})]);
   await conn.commit();
   return null;
