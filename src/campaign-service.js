@@ -88,10 +88,15 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       [campaign.id, participant.id]
     );
     if (existing && existing.status === 'inactive' && existing.payment_status === 'rejected' && campaign.payment_mode === 'manual_transfer') {
-      const unitPrice = Number(campaign.amount_minor);
+      const [[priorCodes]] = await conn.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[existing.id]);
+      const [[priorPending]] = await conn.execute("SELECT COALESCE(SUM(quantity),0) AS total FROM campaign_payments WHERE entry_id=? AND status='pending'",[existing.id]);
+      const maxCodes = campaign.max_codes_per_participant == null ? null : Number(campaign.max_codes_per_participant);
+      if (maxCodes !== null && Number(priorCodes.total)+Number(priorPending.total)+requestedQuantity>maxCodes) throw Object.assign(new Error('CODE_LIMIT_EXCEEDED'), { code: 'CODE_LIMIT_EXCEEDED' });
+      const totalAmount = Number(campaign.amount_minor) * requestedQuantity;
+      if (!Number.isSafeInteger(totalAmount)) throw Object.assign(new Error('PAYMENT_AMOUNT_TOO_LARGE'), { code: 'PAYMENT_AMOUNT_TOO_LARGE' });
       const [retryPayment] = await conn.execute(
         "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)",
-        [existing.id, 'manual_transfer', 'pending', unitPrice * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+        [existing.id, 'manual_transfer', 'pending', totalAmount, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
       await conn.execute("UPDATE campaign_entries SET status='pending_payment',payment_status='pending' WHERE id=?", [existing.id]);
       await conn.commit();
