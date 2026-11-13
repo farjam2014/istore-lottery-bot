@@ -438,7 +438,7 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[request]] = await conn.execute('SELECT * FROM profile_change_requests WHERE id=? FOR UPDATE', [requestId]);
       if (!request || request.status !== 'pending') throw new Error('درخواست اصلاح پیدا نشد یا قبلاً بررسی شده است.');
-      const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [request.participant_id]);
+      const [[participant]] = await conn.execute('SELECT id,status,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE', [request.participant_id]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل فعال نیست.');
       if (approve) {
         const allowed = new Set(['full_name','phone','instagram']);
@@ -447,6 +447,20 @@ function createCampaignService({ db, adminId }) {
       }
       await conn.execute("UPDATE profile_change_requests SET status=?,reviewed_by=?,reviewed_at=UTC_TIMESTAMP(),review_note=? WHERE id=?", [approve?'approved':'rejected',String(adminId),String(note).slice(0,255),requestId]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),approve?'approve_profile_change':'reject_profile_change','profile_change_request',String(requestId),JSON.stringify({participant_id:request.participant_id,field:request.field_name,old_value:request.old_value,new_value:request.requested_value,note})]);
+      if (participant.chat_id) {
+        const statusText = approve ? 'تأیید شد و اطلاعات شما به‌روزرسانی شد.' : 'رد شد. برای پیگیری با پشتیبانی USTORE تماس بگیرید.';
+        await conn.execute(
+          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+          ['profile-change-reviewed:'+requestId,'profile_change_reviewed',JSON.stringify({
+            method:'sendMessage',
+            payload:{
+              chat_id:String(participant.chat_id),
+              ...(participant.business_connection_id ? {business_connection_id:String(participant.business_connection_id)} : {}),
+              text:'📋 نتیجه درخواست اصلاح پروفایل #'+requestId+'\\n'+statusText
+            }
+          })]
+        );
+      }
       await conn.commit();
       return { id: requestId, status: approve?'approved':'rejected' };
     } catch (error) {
