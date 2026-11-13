@@ -241,10 +241,6 @@ function createCampaignService({ db, adminId }) {
 
   async function joinFreeCampaign({ campaignId, telegramUserId, chatId, fullName, phone, instagram, quantity = 1 }) {
     const qty = assertInteger(quantity, 'تعداد کد', 1, 1000);
-    const name = String(fullName || '').trim().replace(/\\s+/g, ' ');
-    const normalizedPhone = normalizePhone(phone);
-    const normalizedInstagram = normalizeInstagram(instagram);
-    if (!validFullName(name) || !validPhone(normalizedPhone) || !validInstagram(normalizedInstagram)) throw new Error('اطلاعات پروفایل معتبر نیست.');
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
@@ -258,6 +254,10 @@ function createCampaignService({ db, adminId }) {
         participantId = existingParticipant.id;
         await conn.execute('UPDATE participants SET chat_id=? WHERE id=?', [String(chatId),participantId]);
       } else {
+        const name = String(fullName || '').trim().replace(/\\s+/g, ' ');
+        const normalizedPhone = normalizePhone(phone);
+        const normalizedInstagram = normalizeInstagram(instagram);
+        if (!validFullName(name) || !validPhone(normalizedPhone) || !validInstagram(normalizedInstagram)) throw new Error('اطلاعات پروفایل معتبر نیست.');
         const [created] = await conn.execute(
           "INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,'active')",
           [String(telegramUserId),String(chatId),name,normalizedPhone,normalizedInstagram]
