@@ -304,3 +304,26 @@ test('customer cannot cancel a paid or receipt-submitted order', async () => {
     /فقط سفارش در انتظار پرداخت قابل لغو است/
   );
 });
+
+
+test('replayed customer cancellation returns the already-cancelled order without repeating writes', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const calls = [];
+  const conn = {
+    async beginTransaction() {},
+    async commit() { calls.push('COMMIT'); },
+    async rollback() { calls.push('ROLLBACK'); },
+    release() {},
+    async execute(sql) {
+      calls.push(sql);
+      if (sql.includes('SELECT id,campaign_id,entry_id,status FROM payment_orders')) {
+        return [[{ id: 53, campaign_id: 3, entry_id: 12, status: 'cancelled' }]];
+      }
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  const result = await service.cancelManualOrder({ orderId: 53, participantId: 9 });
+  assert.deepEqual(result, { id: 53, status: 'cancelled', duplicate: true });
+  assert.deepEqual(calls, ['SELECT id,campaign_id,entry_id,status FROM payment_orders WHERE id=? AND participant_id=? FOR UPDATE', 'COMMIT']);
+});
