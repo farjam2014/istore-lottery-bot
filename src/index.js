@@ -542,7 +542,7 @@ app.get("/admin",(q,r)=>isAdmin(q)?r.sendFile(path.join(__dirname,"..","public",
 app.get("/api/admin/campaigns",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT c.id,c.slug,c.title,c.status,c.starts_at,c.ends_at,c.capacity,c.payment_mode,
-           c.amount_minor,c.currency,c.created_at,
+           c.amount_minor,c.max_codes_per_participant,c.currency,c.created_at,
            COUNT(DISTINCT e.id) AS entries_count, EXISTS(SELECT 1 FROM campaign_draws cd WHERE cd.campaign_id=c.id) AS drawn,
            SUM(e.status='active') AS active_count,
            SUM(e.status='pending_payment') AS pending_payment_count
@@ -558,13 +558,20 @@ app.get("/api/admin/campaigns/:id/entries",admin,async(q,r)=>{
   const params=[id],where=["e.campaign_id=?"];
   if(term){where.push("(pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR ic.code LIKE ?)");const like="%"+term+"%";params.push(like,like,like,like)}
   const filter=where.join(" AND ");
-  const [[count]]=await db.execute(`SELECT COUNT(*) total FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active' WHERE ${filter}`,params);
+  const [[count]]=await db.execute(
+    `SELECT COUNT(*) total FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
+     WHERE e.campaign_id=? AND (?='' OR pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR EXISTS(SELECT 1 FROM issued_codes sx WHERE sx.entry_id=e.id AND sx.status='active' AND sx.code LIKE ?))`,
+    [id,term,"%"+term+"%","%"+term+"%","%"+term+"%","%"+term+"%"]
+  );
   const [rows]=await db.execute(
-    `SELECT e.id,e.status,e.payment_status,e.created_at,pt.full_name,pt.phone,pt.instagram,ic.code
+    `SELECT e.id,e.status,e.payment_status,e.created_at,pt.full_name,pt.phone,pt.instagram,
+       GROUP_CONCAT(ic.code ORDER BY ic.sequence_no,ic.id SEPARATOR ', ') AS codes,
+       COUNT(ic.id) AS code_count
      FROM campaign_entries e JOIN participants pt ON pt.id=e.participant_id
      LEFT JOIN issued_codes ic ON ic.entry_id=e.id AND ic.status='active'
-     WHERE ${filter} ORDER BY e.id DESC LIMIT ? OFFSET ?`,
-    [...params,limit,offset]
+     WHERE e.campaign_id=? AND (?='' OR pt.full_name LIKE ? OR pt.phone LIKE ? OR pt.instagram LIKE ? OR EXISTS(SELECT 1 FROM issued_codes sx WHERE sx.entry_id=e.id AND sx.status='active' AND sx.code LIKE ?))
+     GROUP BY e.id ORDER BY e.id DESC LIMIT ? OFFSET ?`,
+    [id,term,"%"+term+"%","%"+term+"%","%"+term+"%","%"+term+"%",limit,offset]
   );
   r.json({total:Number(count.total),entries:rows,limit,offset});
 });
