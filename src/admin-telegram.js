@@ -13,12 +13,11 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   const menu = [
     [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 مشتریان', callback_data: 'adm:participants' }],
     [{ text: '🎟 خروجی کدها', callback_data: 'adm:export' }, { text: '🧩 کمپین‌ها', callback_data: 'adm:campaigns' }],
-    [{ text: '🧩 مدیریت کمپین‌ها', callback_data: 'adm:campaigns' }],
     [{ text: '💳 مدیریت کارت‌های بانکی', callback_data: 'adm:cards' }],
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
     [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
-    [{ text: '🔎 جستجو', callback_data: 'adm:search' }, { text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
+    [{ text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
   const keyboard = (rows) => ({ inline_keyboard: rows });
   async function adminMessage(payload) {
@@ -445,7 +444,6 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     }
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:reports') return campaignReports(chat);
-    if (data==='adm:campaign') return campaign(chat);
     if (data==='adm:campaigns') return campaignList(chat);
     if (data==='adm:campaign-filter') return campaignFilter(chat);
     if (data.startsWith('adm:campaigns:')) { const [, , status='all', page='0']=data.split(':'); return campaignList(chat,page,status); }
@@ -562,6 +560,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (text.toLowerCase()==='/newcampaign') return createCampaignPrompt(m.chat.id);
     if (text.toLowerCase()==='/cancel') { pending.delete(String(adminId)); return home(m.chat.id,'عملیات لغو شد.'); }
   }
+  const handleCallback = processCallback;
   return { handleCallback, handleMessage };
 }
 module.exports = { createAdminTelegram };
