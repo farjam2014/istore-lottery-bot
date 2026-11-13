@@ -444,7 +444,7 @@ app.get("/api/admin/campaigns",admin,async(_q,r)=>{
   const [rows]=await db.query(`
     SELECT c.id,c.slug,c.title,c.status,c.starts_at,c.ends_at,c.capacity,c.payment_mode,
            c.amount_minor,c.currency,c.created_at,
-           COUNT(DISTINCT e.id) AS entries_count,
+           COUNT(DISTINCT e.id) AS entries_count, EXISTS(SELECT 1 FROM campaign_draws cd WHERE cd.campaign_id=c.id) AS drawn,
            SUM(e.status='active') AS active_count,
            SUM(e.status='pending_payment') AS pending_payment_count
     FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id
