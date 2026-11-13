@@ -539,6 +539,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       };
       if(!valid[field.key]())return tg('sendMessage',{chat_id:m.chat.id,text:'مقدار نامعتبر است. '+field.hint+'\\nدوباره ارسال کن؛ فرم پاک نمی‌شود.'});
       wizard.values[field.key]=field.key==='payment_mode'?value.toLowerCase():value;
+      if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
       if(wizard.step<campaignWizardFields.length-1){wizard.step++;return tg('sendMessage',{chat_id:m.chat.id,text:campaignWizardPrompt(wizard)});}
