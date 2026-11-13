@@ -29,6 +29,12 @@ curl -fsS https://YOUR_DOMAIN/health
 
 Send `/panel` to the bot from the configured admin account for Telegram admin controls.
 
+## Participant accounts and Telegram password recovery
+
+- Participant portal: `/account.html` supports phone/password registration and login. Registration requires an active participant profile and a prior private `/start` to the bot from the same Telegram account.
+- Password recovery requests are sent to the configured admin in Telegram for approval. Approval sends a one-time reset link to the user's private bot chat; links expire after 15 minutes.
+- Set `PUBLIC_SITE_URL` in `.env` to the site's HTTPS origin. The installer writes this automatically for fresh installations.
+
 ## Known limitations
 
 - Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
