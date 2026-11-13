@@ -122,7 +122,8 @@ test('registration callback is answered once after durable confirmation', () => 
   const start = source.indexOf('async function handleCallbackQuery(q)');
   const end = source.indexOf('async function handlePrivateUpdate(update)', start);
   const handler = source.slice(start, end);
-  const registrationHandler = handler.slice(handler.indexOf('if(verifyConfirmationPayload'), handler.indexOf("if(String(q.data||'').startsWith('campaign:join:')"));
+  const confirmStart = handler.indexOf('if(verifyConfirmationPayload');
+  const registrationHandler = handler.slice(confirmStart, handler.indexOf("if(String(q.data||'').startsWith('campaign:details:')", confirmStart));
   assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3);
   assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
   assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
@@ -160,7 +161,7 @@ test('campaign payment session schema binds one pending order to a Telegram Busi
 test('campaign-only profile onboarding is allowed while legacy registration is closed', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(!legacyRegistrationOpen\)\{\s*const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+  assert.match(source, /const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);\n  assert.match(source, /if\(!legacyRegistrationOpen\)throw Object\.assign\(new Error\("REGISTRATION_CLOSED"\)/);
   assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
   assert.match(source, /if\(!await registrationOpen\(\)\)\{const \[\[campaignOpen\]\]=await db\.execute\("SELECT id FROM campaigns WHERE status='open'/);
 });
