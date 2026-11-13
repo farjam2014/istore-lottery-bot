@@ -57,7 +57,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
        WHERE p.telegram_user_id<>?
          AND e.status IN ('active','pending_payment')
          AND c.status='active'
-         AND (p.phone=? OR LOWER(p.instagram)=LOWER(?))
+         AND (p.phone=? OR p.instagram=?)
        LIMIT 1 FOR UPDATE`,
       [String(telegramUserId), phone, instagram]
     );
@@ -92,10 +92,10 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       if (Number(count.total) >= Number(campaign.capacity)) throw Object.assign(new Error('CAMPAIGN_FULL'), { code: 'CAMPAIGN_FULL' });
     }
 
-    if (campaign.payment_mode !== 'free') {
+    if (!['free', 'manual_transfer'].includes(campaign.payment_mode)) {
       throw Object.assign(new Error('PAYMENT_MODE_UNAVAILABLE'), { code: 'PAYMENT_MODE_UNAVAILABLE' });
     }
-    const requiresApproval = false;
+    const requiresApproval = campaign.payment_mode === 'manual_transfer';
     const [entryResult] = await conn.execute(
       `INSERT INTO campaign_entries(campaign_id,participant_id,status,payment_status)
        VALUES(?,?,?,?)`,
@@ -168,4 +168,32 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
   }
 }
 
-module.exports = { makeCampaignCode, joinCampaign, approveManualPayment };
+async function rejectManualPayment({ db, paymentId, reviewer, reason = 'رسید تأیید نشد' }) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[payment]] = await conn.execute(
+      `SELECT p.id,p.entry_id,p.mode,p.status FROM campaign_payments p WHERE p.id=? FOR UPDATE`, [paymentId]
+    );
+    if (!payment || payment.mode !== 'manual_transfer' || payment.status !== 'pending') {
+      throw Object.assign(new Error('PAYMENT_NOT_REVIEWABLE'), { code: 'PAYMENT_NOT_REVIEWABLE' });
+    }
+    await conn.execute(
+      "UPDATE campaign_payments SET status='rejected',reviewed_by=?,reviewed_at=NOW() WHERE id=?",
+      [String(reviewer), paymentId]
+    );
+    await conn.execute(
+      "UPDATE campaign_entries SET status='inactive',payment_status='rejected' WHERE id=? AND status='pending_payment'",
+      [payment.entry_id]
+    );
+    await conn.commit();
+    return { entryId: payment.entry_id, rejected: true, reason };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+module.exports = { makeCampaignCode, joinCampaign, approveManualPayment, rejectManualPayment };
