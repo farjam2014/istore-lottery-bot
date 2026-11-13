@@ -87,6 +87,7 @@ buttons.push([{text:"👤 حساب من و کدها",callback_data:"participant:
 buttons.push([{text:"🔄 تازه‌سازی فهرست کمپین‌ها",callback_data:"campaign:list"}]);
 buttons.push([{text:"👤 حساب و پروفایل",callback_data:"participant:account"},{text:"🎟 کدهای من",callback_data:"participant:codes"}]);
 buttons.push([{text:"📝 ساخت پروفایل",callback_data:"profile:create"},{text:"💬 پشتیبانی",callback_data:"support:start"}]);
+buttons.push([{text:"💳 سفارش‌های من",callback_data:"participant:orders"},{text:"🎫 تیکت‌های من",callback_data:"participant:tickets"}]);
 return reply(chat,connection,campaigns.length?"دسترسی فعال شد. از منوی USTORE استفاده کنید:":"دسترسی فعال شد. کمپین فعالی نیست؛ می‌توانید پروفایل بسازید یا با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:buttons}});
 }
 }
@@ -316,7 +317,7 @@ if(m.contact){
 }
 if(m.photo?.length||m.document){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
-  if(!paymentSession)return;
+  if(!paymentSession)return reply(chat,conn,"برای ثبت رسید، ابتدا از بخش «سفارش‌های من» سفارش در انتظار پرداخت را انتخاب و نشست آن را بازیابی کنید.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
   try{
     const photo=m.photo?.length?m.photo[m.photo.length-1]:null;
     const document=m.document||null;
