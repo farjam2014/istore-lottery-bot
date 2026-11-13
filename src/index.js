@@ -3,6 +3,7 @@ const express=require("express"), mysql=require("mysql2/promise"), crypto=requir
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const {createAdminTelegram}=require("./admin-telegram");
+const {createCampaignService}=require("./campaign-service");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -11,6 +12,7 @@ app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.s
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
 const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,charset:"utf8mb4"});
+const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
 const [rows]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' LIMIT 1");
@@ -406,6 +408,30 @@ if(!equal(q.body.password||"",adminPass)){a.count++;a.until=a.count>=8?now+15*60
 loginAttempts.delete(ip);const p=Buffer.from(JSON.stringify({exp:Date.now()+4*3600000})).toString("base64url");r.setHeader("Set-Cookie",`istore_admin=${p}.${signed(p)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=14400`);r.redirect("/admin")});
 app.post("/admin/logout",(_q,r)=>{r.setHeader("Set-Cookie","istore_admin=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0");r.redirect("/admin/login")});
 app.get("/admin",(q,r)=>isAdmin(q)?r.sendFile(path.join(__dirname,"..","public","admin.html")):r.redirect("/admin/login"));
+app.get("/api/admin/campaigns",admin,async(_q,r)=>{
+const [rows]=await db.query("SELECT id,slug,name,status,payment_mode,price_per_code,currency,max_participants,max_codes,max_codes_per_participant,draw_basis,winner_count,alternate_count,draw_method,starts_at,ends_at,created_at FROM campaigns ORDER BY id DESC LIMIT 200");
+r.json({campaigns:rows});
+});
+app.post("/api/admin/campaigns",admin,async(q,r)=>{
+try{const result=await campaignService.createCampaign(q.body||{});r.status(201).json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+try{const result=await campaignService.setCampaignStatus(Number(q.params.id),String(q.body.status||""),String(q.body.reason||""));await audit("admin","campaign_status","campaign",q.params.id,{status:result.status,reason:q.body.reason||""});r.json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
+app.get("/api/admin/payment-orders",admin,async(q,r)=>{
+const status=String(q.query.status||"receipt_submitted");
+if(!["pending_payment","receipt_submitted","approved","rejected","expired","cancelled"].includes(status))return r.status(400).json({error:"فیلتر وضعیت نامعتبر است."});
+const [rows]=await db.execute("SELECT o.id,o.order_ref,o.campaign_id,c.name AS campaign_name,o.participant_id,p.full_name,p.phone,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,o.created_at FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.status=? ORDER BY o.created_at ASC LIMIT 200",[status]);
+r.json({orders:rows});
+});
+app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
+try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
+catch(e){r.status(400).json({error:e.message});}
+});
 app.get("/api/admin/stats",admin,async(_q,r)=>{const [[a]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active'");const [[b]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");const [[c]]=await db.query("SELECT COUNT(*) total FROM lottery_sessions");const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");const [[f]]=await db.execute("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");r.json({total:a.total,today:b.total,pending:c.total,failedUpdates:f.total,open:await registrationOpen(),drawn:d?.setting_value==='true'})});
 app.get("/api/admin/entries",admin,async(q,r)=>{const term=String(q.query.q||"").slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.min(1000000,Math.max(0,Number(q.query.offset)||0));const [rows]=await db.execute(`SELECT id,full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE status<>'deleted' AND (?='' OR full_name LIKE ? OR phone LIKE ? OR instagram LIKE ? OR raffle_code LIKE ?) ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}`,[term,like,like,like,like]);r.json({entries:rows,limit,offset})});
 async function audit(adminId,action,type,id,details={}){await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)])}
