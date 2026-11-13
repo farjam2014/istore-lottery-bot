@@ -98,23 +98,32 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: retryPayment.insertId, quantity: requestedQuantity, code: null, codes: [] };
     }
     if (existing) {
-      const [[existingCodes]] = await conn.execute(
+      const [existingCodes] = await conn.execute(
         "SELECT code FROM issued_codes WHERE entry_id=? AND status='active' ORDER BY sequence_no,id", [existing.id]
       );
       if (campaign.payment_mode === 'free' || existing.status === 'pending_payment') {
-        const [[pendingPayment]] = existing.status === 'pending_payment'
-          ? await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id])
-          : [null];
+        let pendingPayment = null;
+        if (existing.status === 'pending_payment') {
+          const [[row]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [existing.id]);
+          pendingPayment = row || null;
+        }
         await conn.commit();
         return { entryId: existing.id, existing: true, status: existing.status, paymentStatus: existing.payment_status, paymentId: pendingPayment?.id || null, code: existingCodes?.[0]?.code || null, codes: existingCodes.map(x => x.code) };
       }
       if (campaign.payment_mode !== 'manual_transfer') throw Object.assign(new Error('PAYMENT_MODE_UNAVAILABLE'), { code: 'PAYMENT_MODE_UNAVAILABLE' });
-      const currentCount = existingCodes.length;
+      const [[pendingTotals]] = await conn.execute(
+        "SELECT COALESCE(SUM(quantity),0) AS total FROM campaign_payments WHERE entry_id=? AND status='pending'", [existing.id]
+      );
+      const currentCount = existingCodes.length + Number(pendingTotals.total);
       const maxCodes = campaign.max_codes_per_participant == null ? null : Number(campaign.max_codes_per_participant);
       if (maxCodes !== null && currentCount + requestedQuantity > maxCodes) throw Object.assign(new Error('CODE_LIMIT_EXCEEDED'), { code: 'CODE_LIMIT_EXCEEDED' });
+      const [[alreadyPending]] = await conn.execute("SELECT id FROM campaign_payments WHERE entry_id=? AND status='pending' LIMIT 1 FOR UPDATE",[existing.id]);
+      if (alreadyPending) throw Object.assign(new Error('PAYMENT_ALREADY_PENDING'), { code: 'PAYMENT_ALREADY_PENDING' });
+      const totalAmount = Number(campaign.amount_minor) * requestedQuantity;
+      if (!Number.isSafeInteger(totalAmount)) throw Object.assign(new Error('PAYMENT_AMOUNT_TOO_LARGE'), { code: 'PAYMENT_AMOUNT_TOO_LARGE' });
       const [paymentResult] = await conn.execute(
         "INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)",
-        [existing.id, 'manual_transfer', 'pending', Number(campaign.amount_minor) * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+        [existing.id, 'manual_transfer', 'pending', totalAmount, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
       await conn.commit();
       return { entryId: existing.id, existing: true, status: 'pending_payment', paymentStatus: 'pending', paymentId: paymentResult.insertId, quantity: requestedQuantity, code: null, codes: [] };
@@ -135,6 +144,8 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     if (campaign.payment_mode === 'free' && requestedQuantity !== 1) throw Object.assign(new Error('FREE_CAMPAIGN_SINGLE_CODE'), { code: 'FREE_CAMPAIGN_SINGLE_CODE' });
     const maxCodes = campaign.payment_mode === 'free' ? 1 : (campaign.max_codes_per_participant == null ? null : Number(campaign.max_codes_per_participant));
     if (maxCodes !== null && requestedQuantity > maxCodes) throw Object.assign(new Error('CODE_LIMIT_EXCEEDED'), { code: 'CODE_LIMIT_EXCEEDED' });
+    const totalAmount = Number(campaign.amount_minor) * requestedQuantity;
+    if (requiresApproval && !Number.isSafeInteger(totalAmount)) throw Object.assign(new Error('PAYMENT_AMOUNT_TOO_LARGE'), { code: 'PAYMENT_AMOUNT_TOO_LARGE' });
     const [entryResult] = await conn.execute(
       `INSERT INTO campaign_entries(campaign_id,participant_id,status,payment_status)
        VALUES(?,?,?,?)`,
@@ -144,7 +155,7 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
     if (requiresApproval) {
       await conn.execute(
         'INSERT INTO campaign_payments(entry_id,mode,status,amount_minor,currency,quantity,telegram_chat_id,business_connection_id) VALUES(?,?,?,?,?,?,?,?)',
-        [entryId, campaign.payment_mode, 'pending', Number(campaign.amount_minor) * requestedQuantity, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
+        [entryId, campaign.payment_mode, 'pending', totalAmount, campaign.currency, requestedQuantity, String(chatId), businessConnectionId ? String(businessConnectionId) : null]
       );
       const paymentId = (await conn.execute("SELECT LAST_INSERT_ID() AS id"))[0][0].id;
       await conn.commit();
@@ -184,11 +195,9 @@ async function approveManualPayment({ db, paymentId, reviewer, codeSecret }) {
       "SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='active'",
       [payment.campaign_id]
     );
-    if (payment.capacity !== null && Number(count.total) >= Number(payment.capacity)) {
+    if (payment.entry_status === 'pending_payment' && payment.capacity !== null && Number(count.total) >= Number(payment.capacity)) {
       throw Object.assign(new Error('CAMPAIGN_FULL'), { code: 'CAMPAIGN_FULL' });
     }
-    const [[entry]] = await conn.execute("SELECT id FROM campaign_entries WHERE id=? FOR UPDATE",[payment.entry_id]);
-    const [[alreadyPaid]] = await conn.execute("SELECT COALESCE(SUM(quantity),0) AS total FROM campaign_payments WHERE entry_id=? AND status='approved'",[payment.entry_id]);
     const [[thisPayment]] = await conn.execute("SELECT quantity FROM campaign_payments WHERE id=?",[paymentId]);
     const quantity = Number(thisPayment.quantity || 1);
     const codes = await issueCodeInTransaction(conn, payment.campaign_id, payment.entry_id, codeSecret, quantity);
@@ -224,9 +233,10 @@ async function rejectManualPayment({ db, paymentId, reviewer, reason = 'رسید
       "UPDATE campaign_payments SET status='rejected',reviewed_by=?,reviewed_at=NOW() WHERE id=?",
       [String(reviewer), paymentId]
     );
+    const [[activeCodes]] = await conn.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[payment.entry_id]);
     await conn.execute(
-      "UPDATE campaign_entries SET status='inactive',payment_status='rejected' WHERE id=? AND status='pending_payment'",
-      [payment.entry_id]
+      "UPDATE campaign_entries SET status=?,payment_status=? WHERE id=?",
+      [Number(activeCodes.total)>0?'active':'inactive', Number(activeCodes.total)>0?'approved':'rejected', payment.entry_id]
     );
     await conn.commit();
     return { entryId: payment.entry_id, rejected: true, reason };
