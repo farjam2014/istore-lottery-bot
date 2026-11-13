@@ -214,8 +214,8 @@ if(String(q.data||'').startsWith('campaign:join:')){
       return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد. کدهای قرعه‌کشی در پیام جداگانه برایتان ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
-    const card=await bankCardService.currentCampaignCard(Number(campaignId));
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity:1});
+    const card=order.card;
     await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
     const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card.card_number+'\nبه نام: '+card.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
     if(sent) await bankCardService.recordDelivery({orderId:order.id,card});
