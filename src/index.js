@@ -143,23 +143,54 @@ async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
+if(String(q.data||"").startsWith("camp:select:")){
+  const campaignId=String(q.data).slice("camp:select:".length);
+  if(!/^\\d+$/.test(campaignId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"کمپین نامعتبر است.",show_alert:true});
+  const [[campaign]]=await db.execute("SELECT id,slug,title,payment_mode FROM campaigns WHERE id=? AND status='active'",[campaignId]);
+  if(!campaign)return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این کمپین دیگر فعال نیست.",show_alert:true});
+  await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال بررسی اطلاعات..."});
+  const connection=String(q.message?.business_connection_id||"");
+  const [[profile]]=await db.execute("SELECT full_name,phone,instagram FROM participants WHERE telegram_user_id=?",[uid]);
+  if(profile){
+    try{
+      const result=await joinCampaign({db,telegramUserId:uid,fullName:profile.full_name,phone:profile.phone,instagram:profile.instagram,chatId:chat,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+      const message=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\\n🎟 کد اختصاصی: "+result.code:
+        result.status==="pending_payment"?"🧾 درخواست شما برای «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+      return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
+    }catch(e){
+      const message=e.code==="CAMPAIGN_FULL"?"ظرفیت این کمپین تکمیل شده است.":e.code==="CAMPAIGN_NOT_OPEN"?"این کمپین دیگر قابل ثبت‌نام نیست.":"ثبت‌نام انجام نشد؛ لطفاً بعداً تلاش کنید.";
+      return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:message});
+    }
+  }
+  await putSession(uid,chat,"name",null,null,connection,null,Number(campaign.id));
+  return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text:"🎉 برای شرکت در «"+campaign.title+"»، نام و نام خانوادگی خود را ارسال کنید.\\nبرای لغو، «لغو» را بفرستید."});
+}
 if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
 const s=await session(uid);
 if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||"")){
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
 }
-if(!await registrationOpen()){
+if(!s.campaign_id&&!await registrationOpen()){
 await delSession(uid);
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌نام به پایان رسیده است.",show_alert:true});
 }
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
 try{
+if(s.campaign_id){
+  const [[campaign]]=await db.execute("SELECT slug,title FROM campaigns WHERE id=? AND status='active'",[s.campaign_id]);
+  if(!campaign)throw Object.assign(new Error("CAMPAIGN_NOT_OPEN"),{code:"CAMPAIGN_NOT_OPEN"});
+  const result=await joinCampaign({db,telegramUserId:uid,fullName:s.full_name,phone:s.phone,instagram:s.instagram,chatId:s.chat_id,campaignSlug:campaign.slug,codeSecret:process.env.CAMPAIGN_CODE_SECRET});
+  await delSession(uid);
+  const text=result.code?"✅ ثبت‌نام شما در «"+campaign.title+"» کامل شد.\\n🎟 کد اختصاصی: "+result.code:
+    result.status==="pending_payment"?"🧾 درخواست شما در «"+campaign.title+"» ثبت شد. پس از پرداخت و تأیید مدیر، کد صادر می‌شود.":"شما قبلاً در این کمپین ثبت‌نام کرده‌اید.";
+  return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text});
+}
 await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
 await delSession(uid);
 return;
 }catch(e){
 console.error("Lottery confirmation error:",e.message);
-const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
+const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"||e.code==="CAMPAIGN_NOT_OPEN"?"❌ مهلت ثبت‌نام این کمپین به پایان رسیده است.":e.code==="CAMPAIGN_FULL"?"❌ ظرفیت کمپین تکمیل شده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
