@@ -100,6 +100,9 @@ async function main() {
     const { up: migrateBankCards } = require('./bank-cards');
     const bankCardResult = await migrateBankCards(db);
     console.log('BANK_CARD_MIGRATION', JSON.stringify(bankCardResult));
+    const { up: migrateAccountAuth } = require('./account-auth');
+    const accountAuthResult = await migrateAccountAuth(db);
+    console.log('ACCOUNT_AUTH_MIGRATION', JSON.stringify(accountAuthResult));
     console.log('MIGRATIONS_OK');
   } finally {
     try {
