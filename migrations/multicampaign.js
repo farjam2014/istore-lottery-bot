@@ -126,11 +126,12 @@ async function migrateMultiCampaign(db) {
   }
 
   const [[legacyDuplicateInstagram]] = await db.query(
-    "SELECT LOWER(instagram) instagram,COUNT(*) total FROM lottery_entries GROUP BY LOWER(instagram) HAVING COUNT(*)>1 LIMIT 1"
+    "SELECT LOWER(TRIM(LEADING '@' FROM instagram)) instagram,COUNT(*) total FROM lottery_entries GROUP BY LOWER(TRIM(LEADING '@' FROM instagram)) HAVING COUNT(*)>1 LIMIT 1"
   );
   if (legacyDuplicateInstagram) {
     throw new Error('Legacy lottery_entries contains duplicate Instagram ID "' + legacyDuplicateInstagram.instagram + '". Resolve duplicate profiles before migrating.');
   }
+  await db.query("UPDATE participants SET instagram=LOWER(TRIM(LEADING '@' FROM instagram))");
   const [[duplicateInstagram]] = await db.query(
     "SELECT instagram,COUNT(*) total FROM participants GROUP BY instagram HAVING COUNT(*)>1 LIMIT 1"
   );
@@ -172,7 +173,7 @@ async function migrateMultiCampaign(db) {
   // Idempotent backfill; preserve every legacy code exactly as it was.
   await db.query(`
     INSERT INTO participants(telegram_user_id,full_name,phone,instagram)
-    SELECT e.telegram_user_id,e.full_name,e.phone,e.instagram
+    SELECT e.telegram_user_id,e.full_name,e.phone,LOWER(TRIM(LEADING '@' FROM e.instagram))
     FROM lottery_entries e
     LEFT JOIN participants p ON p.telegram_user_id=e.telegram_user_id
     WHERE p.id IS NULL
