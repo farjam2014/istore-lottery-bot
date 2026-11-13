@@ -463,8 +463,8 @@ app.post("/api/admin/campaigns",admin,async(q,r)=>{
     return r.status(400).json({error:"شناسه یا عنوان کمپین معتبر نیست."});
   if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1||capacity>10000000))
     return r.status(400).json({error:"ظرفیت باید عدد صحیح مثبت یا خالی باشد."});
-  if(!["free","manual_transfer"].includes(mode))
-    return r.status(400).json({error:"این روش پرداخت هنوز فعال و تأیید نشده است."});
+  if(mode!=="free")
+    return r.status(400).json({error:"فعلاً فقط کمپین رایگان فعال است؛ پرداخت تا تکمیل رسید و گردش تأیید غیرفعال مانده است."});
   if(!Number.isSafeInteger(amount)||amount<0||! /^[A-Z]{3}$/.test(currency)||(mode==="free"&&amount!==0)||(mode!=="free"&&amount<1))
     return r.status(400).json({error:"مبلغ یا واحد پول نامعتبر است."});
   try{
