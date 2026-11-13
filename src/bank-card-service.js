@@ -31,6 +31,26 @@ function createBankCardService({db,adminId}) {
     if(!r.affectedRows) throw new Error('کارت پیدا نشد.');
     return {id:Number(id)};
   }
+  async function deleteCard(id) {
+    const conn=await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[card]]=await conn.execute('SELECT id FROM bank_cards WHERE id=? FOR UPDATE',[id]);
+      if(!card) throw new Error('کارت پیدا نشد.');
+      const [[usage]]=await conn.execute(
+        'SELECT (SELECT COUNT(*) FROM campaigns WHERE current_payment_card_id=?) campaigns, (SELECT COUNT(*) FROM campaign_payment_card_history WHERE card_id=?) history, (SELECT COUNT(*) FROM payment_order_card_deliveries WHERE card_id=?) deliveries',
+        [id,id,id]
+      );
+      if(Number(usage.campaigns)||Number(usage.history)||Number(usage.deliveries)) {
+        throw new Error('این کارت در کمپین یا سوابق پرداخت استفاده شده و قابل حذف نیست. برای جلوگیری از خراب‌شدن سوابق، آن را غیرفعال کنید.');
+      }
+      const [result]=await conn.execute('DELETE FROM bank_cards WHERE id=?',[id]);
+      if(!result.affectedRows) throw new Error('کارت پیدا نشد.');
+      await conn.commit();
+      return {id:Number(id)};
+    } catch(e) { await conn.rollback(); throw e; }
+    finally { conn.release(); }
+  }
   async function setCardStatus(id,status) {
     if(!['active','inactive'].includes(status)) throw new Error('وضعیت کارت نامعتبر است.');
     const [r]=await db.execute('UPDATE bank_cards SET status=?,updated_by=? WHERE id=?',[status,String(adminId),id]);
@@ -79,6 +99,6 @@ function createBankCardService({db,adminId}) {
     const [rows]=await db.execute('SELECT card_label_snapshot,bank_name_snapshot,RIGHT(card_number_snapshot,4) last4,cardholder_name_snapshot,sent_at FROM payment_order_card_deliveries WHERE order_id=? ORDER BY id DESC',[orderId]);
     return rows;
   }
-  return {addCard,listCards,getCard,updateCard,setCardStatus,assignCampaignCard,currentCampaignCard,recordDelivery,deliveries,campaignHistory,suggestCard};
+  return {addCard,listCards,getCard,updateCard,setCardStatus,deleteCard,assignCampaignCard,currentCampaignCard,recordDelivery,deliveries,campaignHistory,suggestCard};
 }
 module.exports={createBankCardService,normalizeCardNumber,maskCard};
