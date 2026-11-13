@@ -7,9 +7,10 @@ APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
 DB_NAME="istore_lottery"
 DB_USER="istore_lottery"
+STAGE_DIR="/opt/.istore-lottery-preflight-$"
 log(){ printf '\n[iStore] %s\n' "$*"; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
-trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ کد خطا: $rc" >&2' EXIT
+trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ فایل پیش‌آزمون در $STAGE_DIR باقی مانده و کد خطا: $rc" >&2' EXIT
 [[ $EUID -eq 0 ]] || die "با root یا sudo اجرا کنید."
 [[ "$APP_DIR" == "/opt/istore-lottery-bot" && "$DB_NAME" == "istore_lottery" ]] || die "مسیرهای نصب غیرمنتظره‌اند."
 . /etc/os-release
@@ -47,36 +48,38 @@ log "اعتبارسنجی توکن تلگرام"
 ME="$(curl -fsS --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" || true)"
 [[ "$(printf '%s' "$ME" | jq -r '.ok // false')" == true ]] || die "توکن تلگرام معتبر نیست."
 BOT_USERNAME="$(printf '%s' "$ME" | jq -r '.result.username')"
-log "ساخت رمزهای تصادفی؛ رمزها در ترمینال چاپ نمی‌شوند"
+log "دریافت نسخه و آزمون کامل پیش از هر تغییر مخرب"
+[[ ! -e "$STAGE_DIR" ]] || die "مسیر پیش‌آزمون از قبل وجود دارد: $STAGE_DIR"
+git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR"
+cd "$STAGE_DIR"
+npm ci --omit=dev
+env -u MYSQL_TEST_HOST -u MYSQL_TEST_USER -u MYSQL_TEST_PASSWORD -u MYSQL_TEST_PORT npm test
+log "آزمون‌ها موفق بودند؛ اکنون نصب آماده مرحله جایگزینی است"
 DB_PASSWORD="$(openssl rand -hex 32)"
 ADMIN_PASSWORD="$(openssl rand -hex 32)"
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 SESSION_SECRET="$(openssl rand -hex 48)"
-log "توقف سرویس قبلی پیش از بازسازی دیتابیس"
-systemctl disable --now "$SERVICE" 2>/dev/null || true
-
-log "حذف قطعی دیتابیس و کاربر قبلی"
 read -r -p "برای تأیید حذف غیرقابل‌بازگشت دیتابیس istore_lottery عبارت DELETE istore_lottery را وارد کنید: " DB_DELETE_CONFIRM
-[[ "$DB_DELETE_CONFIRM" == "DELETE istore_lottery" ]] || die "تأیید حذف انجام نشد؛ هیچ دیتابیسی حذف نشد."
+[[ "$DB_DELETE_CONFIRM" == "DELETE istore_lottery" ]] || die "تأیید حذف انجام نشد؛ سرویس و دیتابیس قبلی دست‌نخورده ماندند."
 unset DB_DELETE_CONFIRM
+log "توقف سرویس قبلی"
+systemctl disable --now "$SERVICE" 2>/dev/null || true
+log "بازسازی دیتابیس"
 mysql --protocol=socket -uroot <<SQL
 DROP DATABASE IF EXISTS istore_lottery;
 DROP USER IF EXISTS 'istore_lottery'@'localhost';
 CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON istore_lottery.* TO 'istore_lottery'@'localhost';
+GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
-log "جایگزینی فایل‌های برنامه در همان مسیر قبلی"
+log "جایگزینی نسخه آزموده‌شده در مسیر اصلی برنامه"
 if [[ -e "$APP_DIR" || -L "$APP_DIR" ]]; then
-  [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر حذف نامعتبر است."
+  [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر جابه‌جایی نامعتبر است."
   mv "$APP_DIR" "/opt/istore-lottery-previous-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
-git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP_DIR"
+mv "$STAGE_DIR" "$APP_DIR"
 cd "$APP_DIR"
-log "نصب وابستگی‌ها و اجرای تست‌ها"
-npm ci --omit=dev
-npm test
 log "ساخت فایل محرمانه .env"
 cat > "$APP_DIR/.env" <<ENV
 BOT_TOKEN=$BOT_TOKEN
