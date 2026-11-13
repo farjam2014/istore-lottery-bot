@@ -214,28 +214,45 @@ if(q.data==='campaign:list'){
 }
 if(String(q.data||'').startsWith('campaign:join:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
-  if(!uid||!chat||!/^\d+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
-  await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال بررسی کمپین...'});
+  if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
+  await tg('answerCallbackQuery',{callback_query_id:q.id});
   try{
-    let [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
+    const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
     if(!participant){
       await putSession(uid,chat,"name",null,null,connection);
       return reply(chat,connection,"برای شرکت در کمپین، ابتدا پروفایل دائمی خود را تکمیل کنید.\\n\\nنام و نام خانوادگی خود را ارسال کنید. این اطلاعات فقط یک‌بار دریافت می‌شود و برای کمپین‌های بعدی محفوظ می‌ماند.");
     }
-    if(!participant||participant.status!=='active')throw new Error('پروفایل فعال پیدا نشد.');
-    await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
-    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
+    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
+    const max=Math.max(1,Math.min(80,Number(campaign.max_codes_per_participant)||1));
+    const rows=[];
+    for(let n=1;n<=max;n+=4)rows.push(Array.from({length:Math.min(4,max-n+1)},(_,i)=>({text:String(n+i)+' کد',callback_data:'campaign:quantity:'+campaign.id+':'+(n+i)})));
+    await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
+    return tg('sendMessage',{chat_id:chat,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:{inline_keyboard:rows}});
+  }catch(e){return reply(chat,connection,'❌ امکان ادامه ثبت‌نام وجود ندارد: '+e.message);}
+}
+if(String(q.data||'').startsWith('campaign:quantity:')){
+  const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||'');
+  const parts=String(q.data).split(':'),campaignId=parts[2]||'',quantity=Number(parts[3]);
+  if(!uid||!chat||!/^[0-9]+$/.test(campaignId)||!Number.isInteger(quantity)||quantity<1||quantity>80)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'تعداد انتخابی نامعتبر است.',show_alert:true});
+  await tg('answerCallbackQuery',{callback_query_id:q.id,text:'در حال ثبت درخواست...'});
+  try{
+    const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+    if(!participant)throw new Error('پروفایل فعال پیدا نشد؛ دوباره کمپین را انتخاب کنید.');
+    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+    if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
+    if(quantity>Number(campaign.max_codes_per_participant))throw new Error('تعداد انتخابی از سقف مجاز کمپین بیشتر است.');
+    await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
     if(campaign.payment_mode==='free'){
-      const result=await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity:1});
-      return reply(chat,connection,'🎉 عضویت شما در کمپین «'+campaign.name+'» انجام شد. کدهای قرعه‌کشی در پیام جداگانه برایتان ارسال می‌شوند.');
+      await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity});
+      return reply(chat,connection,'🎉 درخواست عضویت شما در کمپین «'+campaign.name+'» با '+quantity+' کد ثبت شد. کدها در پیام جداگانه برایتان ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
-    const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity:1});
+    const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity});
     const card=order.card;
     await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
-    const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nشماره سفارش: '+order.orderRef+'\nمبلغ: '+order.total+' '+order.currency+'\n\nشماره کارت: '+card.card_number+'\nبه نام: '+card.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
-    if(sent) { try { await bankCardService.recordDelivery({orderId:order.id,card}); } catch(deliveryError) { console.error('Payment card delivery audit failed for order '+order.id+':',deliveryError.message); } }
+    const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\\nکمپین: '+campaign.name+'\\nتعداد کد: '+quantity+'\\nشماره سفارش: '+order.orderRef+'\\nمبلغ: '+order.total+' '+order.currency+'\\n\\nشماره کارت: '+card.card_number+'\\nبه نام: '+card.cardholder_name+'\\n\\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
+    if(sent){try{await bankCardService.recordDelivery({orderId:order.id,card});}catch(deliveryError){console.error('Payment card delivery audit failed for order '+order.id+':',deliveryError.message);}}
     return sent;
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
