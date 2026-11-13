@@ -218,10 +218,8 @@ if(String(q.data||'').startsWith('campaign:join:')){
   try{
     let [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
     if(!participant){
-      const [[legacy]]=await db.execute("SELECT telegram_user_id,full_name,phone,instagram FROM lottery_entries WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
-      if(!legacy)return tg('sendMessage',{chat_id:chat,business_connection_id:connection,text:'برای استفاده از کمپین‌ها ابتدا پروفایل خود را با ارسال «لاتاری» تکمیل کنید؛ سپس «کمپین‌ها» را بفرستید.'});
-      await db.execute("INSERT IGNORE INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[uid,chat,connection,legacy.full_name,legacy.phone,legacy.instagram]);
-      [[participant]]=await db.execute('SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1',[uid]);
+      await putSession(uid,chat,"name",null,null,connection);
+      return reply(chat,connection,"برای شرکت در کمپین، ابتدا پروفایل دائمی خود را تکمیل کنید.\\n\\nنام و نام خانوادگی خود را ارسال کنید. این اطلاعات فقط یک‌بار دریافت می‌شود و برای کمپین‌های بعدی محفوظ می‌ماند.");
     }
     if(!participant||participant.status!=='active')throw new Error('پروفایل فعال پیدا نشد.');
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
@@ -293,6 +291,15 @@ async function handleUpdate(update){
 const m=update.business_message;
 if(!m?.from||!m.chat||m.from.is_bot||m.chat.type!=="private")return;
 const uid=String(m.from.id),chat=String(m.chat.id),conn=String(m.business_connection_id||""),t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
+if(m.contact){
+  const s=await session(uid);
+  if(!s||s.step!=="awaiting_contact"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
+  if(!m.contact.user_id||String(m.contact.user_id)!==uid)return reply(chat,conn,"❌ فقط شماره متعلق به حساب تلگرام خودتان پذیرفته می‌شود.");
+  const phone=normalizePhone(m.contact.phone_number||"");
+  if(!validPhone(phone))return reply(chat,conn,"شماره دریافت‌شده معتبر نیست. لطفاً دوباره از دکمه اشتراک‌گذاری شماره استفاده کنید.");
+  await putSession(uid,chat,"instagram",s.full_name,phone,conn);
+  return reply(chat,conn,"✅ شماره موبایل تأیید شد.\\nحالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
+}
 if(m.photo?.length){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
   if(!paymentSession)return;
@@ -347,7 +354,7 @@ return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت�
 if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
 if(lower==="لاتاری"||lower==="/start"){const legacyOpen=await registrationOpen();const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!legacyOpen&&!campaignOpen)return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);if(!legacyOpen)return reply(chat,conn,"🎉 برای شرکت در کمپین‌های فعال، ابتدا پروفایل خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید؛ سپس شماره موبایل خودتان را با دکمه رسمی تلگرام تأیید می‌کنید.\nپس از ثبت پروفایل، با ارسال «کمپین‌ها» می‌توانید کمپین موردنظر را انتخاب کنید.",{reply_markup:registrationKeyboard()});return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nنام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو وارد کنید؛ اطلاعات پروفایل تلگرام شما دریافت نمی‌شود.\n\nبرای لغو ثبت‌نام از دکمه زیر استفاده کنید.",{reply_markup:registrationKeyboard()})}
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!campaignOpen){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}}
-if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);const keyboard=[[{text:"▶️ ادامه ثبت‌نام و ارسال شماره موبایل",url:link}]];const back=storeReturnButton();if(back)keyboard.push([back]);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"✅ نام و نام خانوادگی شما ثبت شد. برای ادامه، دکمه شیشه‌ای زیر را بزنید و شماره موبایل خودتان را در ربات به اشتراک بگذارید. پس از ارسال شماره، با دکمه بازگشت به همین گفتگوی فروشگاه برگردید.",reply_markup:{inline_keyboard:keyboard}})}
+if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);return reply(chat,conn,"✅ نام ثبت شد. حالا دکمه زیر را بزنید تا شماره موبایل متعلق به حساب خودتان را مستقیماً در همین ربات به اشتراک بگذارید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}})}
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
 if(s.step==="awaiting_confirmation"){
 return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
@@ -355,29 +362,9 @@ return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای
 if(s.step==="instagram"){
 const inst=normalizeInstagram(t);
 if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است؛ فقط حروف انگلیسی، عدد، نقطه و زیرخط مجاز است.");
-const old=await entry(uid);
-if(old&&old.status==="active"){await delSession(uid);return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید. کد شما: "+old.raffle_code)}
-if(process.env.CONTACT_PHONE){
-try{
-await tg("sendContact",{
-chat_id:chat,
-business_connection_id:conn,
-phone_number:process.env.CONTACT_PHONE,
-first_name:"موبایل مهدی زاده",
-last_name:"iStore"
-});
-}catch(e){console.error("Contact card error:",e.message);return reply(chat,conn,"⚠️ فعلاً ارسال کارت مخاطب ممکن نشد. لطفاً دوباره آیدی اینستاگرام خود را ارسال کنید؛ اطلاعات قبلی حفظ شده است.")}
-}
 await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
-return tg("sendMessage",{
-chat_id:chat,
-business_connection_id:conn,
-text:"📇 کارت مخاطب فروشگاه ارسال شد. برای ادامه ثبت‌نام و دریافت کد قرعه‌کشی، دکمه زیر را بزن.",
-reply_markup:{inline_keyboard:[[
-{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}
-]]}
-});
-}}
+return tg("sendMessage",{chat_id:chat,text:"🔎 لطفاً اطلاعات پروفایل خود را بررسی و تأیید کنید:\\n\\nنام: "+s.full_name+"\\nموبایل: "+s.phone+"\\nاینستاگرام: @"+inst+"\\n\\nبا تأیید، پروفایل دائمی شما ساخته می‌شود.",reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:makeConfirmationPayload(uid,chat,conn)}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
+}
 app.get("/",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","index.html")));
 app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,database:"connected"})}catch{r.status(503).json({ok:false,database:"unavailable"})}});
 app.get("/admin/login",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","login.html")));
