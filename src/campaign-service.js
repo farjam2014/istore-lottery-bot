@@ -15,12 +15,12 @@ function makeCampaignCode(campaignId, sequence, secret) {
  * Provider payment confirmation must be implemented as a separately authenticated webhook.
  */
 async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret) {
-  await conn.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_value) VALUES(?,0)', [campaignId]);
+  await conn.execute('INSERT IGNORE INTO campaign_sequences(campaign_id,last_sequence) VALUES(?,0)', [campaignId]);
   const [[sequenceRow]] = await conn.execute(
-    'SELECT last_value FROM campaign_sequences WHERE campaign_id=? FOR UPDATE', [campaignId]
+    'SELECT last_sequence FROM campaign_sequences WHERE campaign_id=? FOR UPDATE', [campaignId]
   );
-  const sequence = Number(sequenceRow.last_value) + 1;
-  await conn.execute('UPDATE campaign_sequences SET last_value=? WHERE campaign_id=?', [sequence, campaignId]);
+  const sequence = Number(sequenceRow.last_sequence) + 1;
+  await conn.execute('UPDATE campaign_sequences SET last_sequence=? WHERE campaign_id=?', [sequence, campaignId]);
   const code = makeCampaignCode(campaignId, sequence, codeSecret);
   await conn.execute(
     "INSERT INTO issued_codes(campaign_id,entry_id,sequence_no,code,status) VALUES(?,?,?,?, 'active')",
