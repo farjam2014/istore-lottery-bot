@@ -223,7 +223,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return tg('sendMessage',{chat_id:chat,text:'💳 سفارش‌های نیازمند اقدام\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function orderDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه سفارش نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return tg('sendMessage',{chat_id:chat,text:'شناسه سفارش نامعتبر است.'});
     const [[o]]=await db.execute('SELECT o.*,c.name campaign_name,p.full_name,p.phone,p.instagram,p.chat_id,p.business_connection_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? LIMIT 1',[id]);
     if(!o)return tg('sendMessage',{chat_id:chat,text:'سفارش پیدا نشد.'});
     const [receipts]=await db.execute('SELECT id,telegram_file_id,declared_tracking_ref,submitted_at,review_status FROM payment_receipts WHERE order_id=? ORDER BY id DESC LIMIT 3',[id]);
@@ -241,7 +241,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:campaigns') return campaignList(chat);
     if (data==='adm:orders') return orderList(chat);
     if (data.startsWith('adm:order:')) return orderDetail(chat,data.slice('adm:order:'.length));
-    if (data.startsWith('adm:order-confirm:')) { const [, , id, action]=data.split(':'); if(!/^\\d+$/.test(id)||!['approve','reject'].includes(action)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'order-review',id,action,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:(action==='approve'?'تأیید':'رد')+' پرداخت سفارش #'+id+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید نهایی',callback_data:'adm:order-apply:'+id+':'+action},{text:'بازگشت',callback_data:'adm:order:'+id}]])}); }
+    if (data.startsWith('adm:order-confirm:')) { const [, , id, action]=data.split(':'); if(!/^\d+$/.test(id)||!['approve','reject'].includes(action)) return tg('sendMessage',{chat_id:chat,text:'درخواست نامعتبر است.'}); pending.set(String(adminId),{type:'order-review',id,action,expires:Date.now()+60000}); return tg('sendMessage',{chat_id:chat,text:(action==='approve'?'تأیید':'رد')+' پرداخت سفارش #'+id+' را تأیید می‌کنید؟',reply_markup:keyboard([[{text:'تأیید نهایی',callback_data:'adm:order-apply:'+id+':'+action},{text:'بازگشت',callback_data:'adm:order:'+id}]])}); }
     if (data.startsWith('adm:order-apply:')) { const [, , id, action]=data.split(':'); const p=pending.get(String(adminId)); pending.delete(String(adminId)); if(!p||p.type!=='order-review'||p.id!==id||p.action!==action||p.expires<Date.now()) return tg('sendMessage',{chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'}); try { await campaignService.reviewManualPayment({orderId:Number(id),approve:action==='approve',note:'Reviewed via Telegram admin panel'}); await audit(action==='approve'?'approve_payment':'reject_payment','payment_order',id,{source:'telegram'}); await tg('sendMessage',{chat_id:chat,text:action==='approve'?'✅ پرداخت تأیید و کدها صادر شدند.':'پرداخت رد شد.',reply_markup:keyboard([[{text:'سفارش‌های در انتظار',callback_data:'adm:orders'}]])}); return orderDetail(chat,id); } catch(e) { return tg('sendMessage',{chat_id:chat,text:'بررسی سفارش انجام نشد: '+e.message}); } }
     if (data==='adm:campaign-create') return createCampaignPrompt(chat);
     if (data.startsWith('adm:campaign-detail:')) return campaignDetail(chat,data.slice('adm:campaign-detail:'.length));
