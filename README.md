@@ -39,13 +39,12 @@ Send `/panel` to the bot from the configured admin account for Telegram admin co
 
 ## Multi-campaign development (feature branch)
 
-The `feature/multicampaign-architecture` branch adds an additive multi-campaign schema, a transactional campaign join service, admin campaign APIs/UI, and manual-payment review scaffolding. It is not yet a production-ready replacement for the legacy Telegram registration and draw flows.
+The `feature/multicampaign-architecture` branch adds an additive multi-campaign schema, Telegram campaign selection and registration, transactional campaign joins, campaign admin APIs/UI, and isolated campaign draws. It is not yet a production-ready release.
 
 Before using this branch:
 - Set `CAMPAIGN_CODE_SECRET` to a cryptographically random secret of at least 32 characters. Never commit it or paste it into chat.
 - Keep `REGISTRATION_OPEN=false`; campaign Telegram onboarding and campaign-scoped draw integration are still in progress.
-- Payment-provider mode is intentionally unavailable. Manual-transfer approval is an administrative action and must only happen after independently verifying receipt of funds.
-- Payment-proof file upload/storage and user notification after payment review are not yet implemented.
+- All paid modes (manual transfer and payment provider) are intentionally disabled. Payment-proof upload/storage, payment instructions, and end-to-end payment review must be completed before enabling them.
 - Run the migration only after reviewing a verified backup and testing against a disposable database. The migration is additive and retains the legacy tables.
 - Do not use the existing installer to deploy this feature branch; it currently targets the legacy branch and performs broader host changes.
 
