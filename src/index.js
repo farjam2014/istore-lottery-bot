@@ -471,6 +471,22 @@ if(!["pending_payment","receipt_submitted","approved","rejected","expired","canc
 const [rows]=await db.execute("SELECT o.id,o.order_ref,o.campaign_id,c.name AS campaign_name,o.participant_id,p.full_name,p.phone,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,o.created_at FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.status=? ORDER BY o.created_at ASC LIMIT 200",[status]);
 r.json({orders:rows});
 });
+app.get("/api/admin/payment-orders/:id/receipt",admin,async(q,r)=>{
+if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
+const [rows]=await db.execute("SELECT telegram_file_id FROM payment_receipts WHERE order_id=? ORDER BY submitted_at DESC LIMIT 1",[q.params.id]);
+if(!rows.length)return r.status(404).json({error:"رسیدی برای این سفارش ثبت نشده است."});
+try{
+const file=await tg("getFile",{file_id:rows[0].telegram_file_id});
+if(!file?.file_path)throw new Error("Telegram file path missing");
+const response=await fetch("https://api.telegram.org/file/bot"+token+"/"+file.file_path);
+if(!response.ok)throw new Error("Telegram receipt download failed");
+const bytes=Buffer.from(await response.arrayBuffer());
+if(bytes.length>12*1024*1024)return r.status(413).json({error:"حجم رسید بیش از حد مجاز است."});
+const ext=String(file.file_path).split(".").pop().toLowerCase();
+const mime=ext==="png"?"image/png":ext==="webp"?"image/webp":ext==="pdf"?"application/pdf":"image/jpeg";
+r.setHeader("Content-Type",mime);r.setHeader("Content-Disposition","inline; filename=payment-receipt."+ext);r.setHeader("Cache-Control","private, no-store");return r.send(bytes);
+}catch(e){console.error("Receipt preview error:",e.message);return r.status(502).json({error:"دریافت تصویر رسید از تلگرام انجام نشد."});}
+});
 app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
 if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
 try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
