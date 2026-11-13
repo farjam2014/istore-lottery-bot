@@ -453,7 +453,7 @@ app.get("/api/admin/campaigns",admin,async(_q,r)=>{
   r.json({campaigns:rows});
 });
 app.get("/api/admin/campaigns/:id/entries",admin,async(q,r)=>{
-  const id=Number(q.params.id),limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.max(0,Number(q.query.offset)||0);
+  const id=Number(q.params.id),limit=Math.min(100,Math.max(1,Math.floor(Number(q.query.limit)||50))),offset=Math.max(0,Math.floor(Number(q.query.offset)||0));
   const term=String(q.query.q||"").trim().slice(0,80);
   if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(offset))return r.status(400).json({error:"شناسه یا صفحه‌بندی نامعتبر است."});
   const params=[id],where=["e.campaign_id=?"];
