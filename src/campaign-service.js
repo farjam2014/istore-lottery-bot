@@ -22,14 +22,20 @@ async function issueCodeInTransaction(conn, campaignId, entryId, codeSecret, qua
   );
   const sequence = Number(sequenceRow.last_sequence) + 1;
   const codes = [];
+  const rows = [];
   for (let i = 0; i < quantity; i++) {
     const nextSequence = sequence + i;
     const code = makeCampaignCode(campaignId, nextSequence, codeSecret);
-    await conn.execute(
-      "INSERT INTO issued_codes(campaign_id,entry_id,sequence_no,code,status) VALUES(?,?,?,?, 'active')",
-      [campaignId, entryId, nextSequence, code]
-    );
     codes.push(code);
+    rows.push([campaignId, entryId, nextSequence, code, 'active']);
+  }
+  for (let offset = 0; offset < rows.length; offset += 500) {
+    const batch = rows.slice(offset, offset + 500);
+    const placeholders = batch.map(() => '(?,?,?,?,?)').join(',');
+    await conn.execute(
+      `INSERT INTO issued_codes(campaign_id,entry_id,sequence_no,code,status) VALUES ${placeholders}`,
+      batch.flat()
+    );
   }
   await conn.execute('UPDATE campaign_sequences SET last_sequence=? WHERE campaign_id=?', [sequence + quantity - 1, campaignId]);
   return codes;
