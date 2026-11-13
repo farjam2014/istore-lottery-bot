@@ -22,7 +22,8 @@
   <div class="tools" style="margin:12px 0">
     <input id="campaignCapacity" type="number" min="1" placeholder="ظرفیت (خالی = نامحدود)">
     <select id="campaignPayment" onchange="togglePaymentFields()"><option value="free">رایگان</option><option value="manual_transfer">کارت‌به‌کارت با رسید</option></select>
-    <input id="campaignAmount" type="number" min="0" placeholder="مبلغ به ریال (رایگان: صفر)" value="0">
+    <input id="campaignAmount" type="number" min="0" placeholder="قیمت هر کد به ریال (رایگان: صفر)" value="0">
+    <input id="campaignMaxCodes" type="number" min="1" max="1000000" placeholder="سقف کد هر نفر (خالی = نامحدود)">
     <input id="campaignCardNumber" inputmode="numeric" maxlength="19" placeholder="شماره کارت ۱۶ رقمی">
     <input id="campaignCardHolder" placeholder="نام صاحب کارت">
     <input id="campaignBankName" placeholder="نام بانک (اختیاری)">
@@ -78,7 +79,7 @@ async function loadCampaigns(){
 }
 function togglePaymentFields(){
   const manual=document.getElementById('campaignPayment').value==='manual_transfer';
-  for(const id of ['campaignAmount','campaignCardNumber','campaignCardHolder','campaignBankName'])document.getElementById(id).hidden=!manual&&id!=='campaignAmount';
+  for(const id of ['campaignAmount','campaignCardNumber','campaignCardHolder','campaignBankName','campaignMaxCodes'])document.getElementById(id).hidden=!manual&&id!=='campaignAmount';
   if(!manual)document.getElementById('campaignAmount').value='0';
 }
 async function createCampaign(){
@@ -88,10 +89,10 @@ async function createCampaign(){
   const payment_mode=document.getElementById('campaignPayment').value;
   const amount_minor=Number(document.getElementById('campaignAmount').value||0);
   try{
-    await api('/api/admin/campaigns',{method:'POST',body:JSON.stringify({slug,title,capacity:capacity===''?null:Number(capacity),payment_mode,amount_minor,currency:'IRR',card_number:document.getElementById('campaignCardNumber').value,card_holder:document.getElementById('campaignCardHolder').value,bank_name:document.getElementById('campaignBankName').value})});
+    await api('/api/admin/campaigns',{method:'POST',body:JSON.stringify({slug,title,capacity:capacity===''?null:Number(capacity),payment_mode,amount_minor,currency:'IRR',card_number:document.getElementById('campaignCardNumber').value,card_holder:document.getElementById('campaignCardHolder').value,bank_name:document.getElementById('campaignBankName').value,max_codes_per_participant:document.getElementById('campaignMaxCodes').value===''?null:Number(document.getElementById('campaignMaxCodes').value)})});
     document.getElementById('campaignSlug').value='';document.getElementById('campaignTitle').value='';
     document.getElementById('campaignCapacity').value='';
-    document.getElementById('campaignCardNumber').value='';document.getElementById('campaignCardHolder').value='';document.getElementById('campaignBankName').value='';
+    document.getElementById('campaignCardNumber').value='';document.getElementById('campaignCardHolder').value='';document.getElementById('campaignBankName').value='';document.getElementById('campaignMaxCodes').value='';
     message('پیش‌نویس کمپین ساخته شد.');await loadCampaigns();await loadAudit();
   }catch(e){message(e.message)}
 }
@@ -138,7 +139,7 @@ async function loadCampaignPayments(){
     if(!d.payments.length){el.textContent='پرداخت معلقی وجود ندارد.';return}
     for(const p of d.payments){
       const box=document.createElement('div');box.className='card';
-      const info=document.createElement('p');info.textContent=p.campaign_title+' · '+p.full_name+' · '+p.phone+' · '+p.amount_minor+' '+p.currency+' · '+(p.has_proof?'رسید دریافت شده':'هنوز رسیدی دریافت نشده؛ رسید را در تلگرام بررسی کنید');box.appendChild(info);
+      const info=document.createElement('p');info.textContent=p.campaign_title+' · '+p.full_name+' · '+p.phone+' · '+p.quantity+' کد · '+p.amount_minor+' '+p.currency+' · '+(p.has_proof?'رسید دریافت شده':'هنوز رسیدی دریافت نشده؛ رسید را در تلگرام بررسی کنید');box.appendChild(info);
       const b=document.createElement('button');b.textContent='تأیید پرداخت و صدور کد';b.disabled=!p.has_proof;b.onclick=async()=>{
         if(!confirm('رسید را خارج از سامانه بررسی کرده‌اید و مبلغ واقعاً دریافت شده است؟'))return;
         try{const result=await api('/api/admin/campaign-payments/'+p.payment_id+'/approve',{method:'POST',body:'{}'});info.textContent+=' · تأیید شد · کد: '+result.code;b.disabled=true;await loadCampaigns();await loadAudit()}catch(e){message(e.message)}
