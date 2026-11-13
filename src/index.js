@@ -331,7 +331,7 @@ const phone=normalizePhone(m.contact.phone_number||"");
 if(!validPhone(phone)){
 return tg("sendMessage",{chat_id:chat,text:"شماره دریافت‌شده معتبر نیست. دوباره شماره خودتان را ارسال کنید."});
 }
-await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id);
+await putSession(uid,s.chat_id,"instagram",s.full_name,phone,s.business_connection_id,null,s.campaign_id||null);
 await reply(s.chat_id,s.business_connection_id,"✅ شماره موبایل شما دریافت شد.\nحالا آیدی اینستاگرام خود را وارد کنید؛ مثال: @example");
 return tg("sendMessage",{chat_id:chat,text:"✅ شماره شما با موفقیت ثبت شد.\n\nبه گفتگوی قبلی با فروشگاه برگردید و آیدی اینستاگرام خود را ارسال کنید.",reply_markup:{remove_keyboard:true}});
 }
@@ -381,10 +381,21 @@ const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE 
 return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\\n\\n👥 شرکت‌کنندگان: "+a.total+"\\n🎟 تعداد کدها: "+a.codes+"\\n🔑 کدهای یکتا: "+a.unique_codes+"\\n📅 ثبت‌نام امروز: "+b.today);
 }
 if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
-if(lower==="لاتاری"||lower==="/start"){if(!await registrationOpen())return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nپس از فالو کردن صفحه، نام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\n\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.")}
+if(lower==="لاتاری"||lower==="/start"){
+const [campaigns]=await db.execute("SELECT id,title,payment_mode FROM campaigns WHERE status='active' AND (starts_at IS NULL OR starts_at<=NOW()) AND (ends_at IS NULL OR ends_at>=NOW()) ORDER BY id DESC LIMIT 20");
+if(campaigns.length){
+const rows=campaigns.map(c=>[{text:(c.payment_mode==="free"?"🎁 ":"🧾 ")+c.title,callback_data:"camp:select:"+c.id}]);
+return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"🎉 کمپین موردنظر برای شرکت را انتخاب کنید:",reply_markup:{inline_keyboard:rows}});
+}
+if(!await registrationOpen())return reply(chat,conn,"در حال حاضر کمپین فعالی برای ثبت‌نام وجود ندارد.");
+const old=await entry(uid);
+if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\\nکد شما: "+old.raffle_code);
+await putSession(uid,chat,"name",null,null,conn);
+return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\\n\\nنام و نام خانوادگی خود را ارسال کنید تا مراحل ثبت‌نام آغاز شود.\\n\\nبرای لغو ثبت‌نام، عبارت «لغو» را ارسال کنید.");
+}
 const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}
-if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
-if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
+if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn,null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"نام شما ثبت شد. برای ارسال شماره موبایل، دکمه زیر را بزنید و در ربات بازشده گزینه «اشتراک‌گذاری شماره من» را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"📱 ارسال شماره موبایل",url:link}]]}})}
+if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null,s.campaign_id||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
 if(s.step==="awaiting_confirmation"){
 return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
 }
@@ -403,7 +414,7 @@ first_name:"موبایل مهدی زاده",
 last_name:"iStore"
 });
 }catch(e){console.error("Contact card error:",e.message);return reply(chat,conn,"⚠️ فعلاً ارسال کارت مخاطب ممکن نشد. لطفاً دوباره آیدی اینستاگرام خود را ارسال کنید؛ اطلاعات قبلی حفظ شده است.")}
-await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
+await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst,s.campaign_id||null);
 return tg("sendMessage",{
 chat_id:chat,
 business_connection_id:conn,
