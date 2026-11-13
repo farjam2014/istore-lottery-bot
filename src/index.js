@@ -172,10 +172,24 @@ if(q.data==='participant:orders'){
   const [rows]=await db.execute("SELECT o.id,o.order_ref,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,c.name AS campaign_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
   const labels={pending_payment:"در انتظار پرداخت",receipt_submitted:"رسید در حال بررسی",approved:"تأییدشده",rejected:"ردشده",expired:"منقضی",cancelled:"لغوشده"};
   const lines=rows.map((o,i)=>(i+1)+") "+o.campaign_name+"\nسفارش: "+o.order_ref+" | تعداد: "+o.quantity+" | مبلغ: "+Number(o.total_snapshot).toLocaleString("en-US")+" "+o.currency+"\nوضعیت: "+(labels[o.status]||o.status)+(o.status==="pending_payment"?"\nمهلت: "+new Date(o.expires_at).toLocaleString("fa-IR"):""));
-  const buttons=rows.filter(o=>o.status==="pending_payment").map(o=>[{text:"📤 ادامه پرداخت "+o.order_ref,callback_data:"order:resume:"+o.id}]);
+  const buttons=rows.filter(o=>o.status==="pending_payment").flatMap(o=>[
+    [{text:"📤 ادامه پرداخت "+o.order_ref,callback_data:"order:resume:"+o.id}],
+    [{text:"✖️ لغو سفارش "+o.order_ref,callback_data:"order:cancel:"+o.id}]
+  ]);
   buttons.push([{text:"🎟 کدهای من",callback_data:"participant:codes"},{text:"👤 حساب من",callback_data:"participant:account"}]);
   buttons.push([{text:"🏠 منوی اصلی",callback_data:"participant:home"}]);
   return reply(chat,String(q.message?.business_connection_id||""),lines.length?"💳 سفارش‌های شما\n\n"+lines.join("\n\n"):"هنوز سفارشی ثبت نکرده‌اید.",{reply_markup:{inline_keyboard:buttons}});
+}
+if(String(q.data||"").startsWith("order:cancel:")){
+  const orderId=String(q.data.split(":")[2]||"");
+  if(!/^\\d+$/.test(orderId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"شناسه سفارش نامعتبر است.",show_alert:true});
+  await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال لغو سفارش..."});
+  try{
+    const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+    if(!participant)throw new Error("پروفایل فعال پیدا نشد.");
+    await campaignService.cancelManualOrder({orderId:Number(orderId),participantId:participant.id});
+    return reply(chat,String(q.message?.business_connection_id||""),"سفارش لغو شد و ظرفیت رزروشده آزاد شد.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}],[{text:"🧩 کمپین‌ها",callback_data:"campaign:list"}]]}});
+  }catch(e){return reply(chat,String(q.message?.business_connection_id||""),"لغو سفارش انجام نشد: "+e.message);}
 }
 if(String(q.data||"").startsWith("order:resume:")){
   const orderId=String(q.data.split(":")[2]||"");
