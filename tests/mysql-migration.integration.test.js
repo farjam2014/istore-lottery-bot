@@ -110,6 +110,47 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
         database
       });
       try {
+        const { joinCampaign } = require('../src/campaign-service');
+        const [campaignResult] = await idempotency.execute(
+          "INSERT INTO campaigns(slug,title,status,capacity,payment_mode) VALUES('integration-capacity','Integration Capacity','active',1,'free')"
+        );
+        const pool = mysql.createPool({
+          host: process.env.MYSQL_TEST_HOST,
+          port: Number(process.env.MYSQL_TEST_PORT || 3306),
+          user: process.env.MYSQL_TEST_USER,
+          password: process.env.MYSQL_TEST_PASSWORD,
+          database,
+          connectionLimit: 3
+        });
+        try {
+          const args = {
+            db: pool,
+            telegramUserId: '987654322',
+            fullName: 'Campaign Participant',
+            phone: '09123456780',
+            instagram: 'campaign_user',
+            chatId: '987654322',
+            campaignSlug: 'integration-capacity',
+            codeSecret: 'integration-test-secret-at-least-32-characters'
+          };
+          const firstJoin = await joinCampaign(args);
+          assert.equal(firstJoin.status, 'active');
+          assert.match(firstJoin.code, /^IS-[A-F0-9]{16}$/);
+          const repeatJoin = await joinCampaign(args);
+          assert.equal(repeatJoin.existing, true);
+          assert.equal(repeatJoin.code, firstJoin.code);
+          await assert.rejects(
+            joinCampaign({ ...args, telegramUserId: '987654323', fullName: 'Second Participant', phone: '09123456781', instagram: 'second_user', chatId: '987654323' }),
+            error => error.code === 'CAMPAIGN_FULL'
+          );
+          const [[issuedCount]] = await idempotency.execute(
+            "SELECT COUNT(*) AS total FROM issued_codes WHERE campaign_id=?",
+            [campaignResult.insertId]
+          );
+          assert.equal(Number(issuedCount.total), 1);
+        } finally {
+          await pool.end();
+        }
         const [[counts]] = await idempotency.execute(
           "SELECT (SELECT COUNT(*) FROM participants WHERE telegram_user_id=987654321) AS profiles, (SELECT COUNT(*) FROM campaign_entries WHERE legacy_entry_id=(SELECT id FROM lottery_entries WHERE telegram_user_id=987654321)) AS entries, (SELECT COUNT(*) FROM issued_codes WHERE code='LOT-LEGACY1') AS codes"
         );
