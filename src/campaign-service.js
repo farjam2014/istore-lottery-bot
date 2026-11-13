@@ -93,44 +93,4 @@ async function joinCampaign({ db, telegramUserId, fullName, phone, instagram, ch
   }
 }
 
-async function approveManualPayment({ db, paymentId, reviewer }) {
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [[payment]] = await conn.execute(
-      `SELECT p.*,e.campaign_id,e.status AS entry_status,c.status AS campaign_status
-       FROM campaign_payments p
-       JOIN campaign_entries e ON e.id=p.entry_id
-       JOIN campaigns c ON c.id=e.campaign_id
-       WHERE p.id=? FOR UPDATE`, [paymentId]
-    );
-    if (!payment || payment.mode !== 'manual_transfer' || payment.status !== 'pending') {
-      throw Object.assign(new Error('PAYMENT_NOT_REVIEWABLE'), { code: 'PAYMENT_NOT_REVIEWABLE' });
-    }
-    if (payment.campaign_status !== 'active') throw Object.assign(new Error('CAMPAIGN_NOT_OPEN'), { code: 'CAMPAIGN_NOT_OPEN' });
-    await conn.execute(
-      "UPDATE campaign_payments SET status='approved',reviewed_by=?,reviewed_at=NOW() WHERE id=?",
-      [String(reviewer), paymentId]
-    );
-    await conn.execute(
-      "UPDATE campaign_entries SET status='active',payment_status='approved' WHERE id=?",
-      [payment.entry_id]
-    );
-    const [[sequenceRow]] = await conn.execute(
-      'SELECT last_value FROM campaign_sequences WHERE campaign_id=? FOR UPDATE', [payment.campaign_id]
-    );
-    const sequence = Number(sequenceRow.last_value) + 1;
-    await conn.execute('UPDATE campaign_sequences SET last_value=? WHERE campaign_id=?', [sequence, payment.campaign_id]);
-    // Approval route must call issueCodeInTransaction with the server secret; this method intentionally
-    // does not issue a code until code-secret management is wired into the admin boundary.
-    await conn.commit();
-    return { entryId: payment.entry_id, approved: true, sequenceReserved: sequence };
-  } catch (error) {
-    await conn.rollback();
-    throw error;
-  } finally {
-    conn.release();
-  }
-}
-
-module.exports = { makeCampaignCode, joinCampaign, approveManualPayment };
+module.exports = { makeCampaignCode, joinCampaign };
