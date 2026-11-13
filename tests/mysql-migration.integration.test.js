@@ -191,6 +191,20 @@ test('schema and migrations upgrade a legacy status enum safely', { skip: !enabl
           assert.equal(approved.codes.length, 3);
           const [[issuedTotal]] = await idempotency.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[pending.entryId]);
           assert.equal(Number(issuedTotal.total),3);
+          const additionalPending = await joinCampaign({ ...manualArgs, quantity: 2 });
+          assert.equal(additionalPending.status, 'pending_payment');
+          await assert.rejects(
+            joinCampaign({ ...manualArgs, campaignSlug: 'integration-manual', quantity: 1 }),
+            error => error.code === 'PAYMENT_ALREADY_PENDING'
+          );
+          await idempotency.execute(
+            "INSERT INTO campaign_payment_proofs(payment_id,storage_key,mime_type,file_size,sha256,telegram_file_id) VALUES(?,?,?,?,?,?)",
+            [additionalPending.paymentId, 'telegram:additional-file', 'image/jpeg', 100, 'c'.repeat(64), 'additional-file']
+          );
+          const additionalApproved = await approveManualPayment({ db: pool, paymentId: additionalPending.paymentId, reviewer: 'admin', codeSecret: args.codeSecret });
+          assert.equal(additionalApproved.codes.length, 2);
+          const [[fiveCodes]] = await idempotency.execute("SELECT COUNT(*) AS total FROM issued_codes WHERE entry_id=? AND status='active'",[pending.entryId]);
+          assert.equal(Number(fiveCodes.total),5);
 
           const rejectedPending = await joinCampaign({ ...manualArgs, telegramUserId: '987654328', fullName: 'Retry Transfer User', phone: '09123456784', instagram: 'retry_user', chatId: '987654328' });
           await idempotency.execute(
