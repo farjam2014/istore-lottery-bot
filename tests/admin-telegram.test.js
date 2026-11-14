@@ -313,7 +313,7 @@ test('system draw preparation exposes commitment before execution and result vie
   assert.match(prepare,/adm:draw-run:/);
   assert.doesNotMatch(prepare,/drawService\.runSystemDraw/);
   assert.match(source,/seedReveal=proof\?\.seed\|\|'-'/);
-  assert.match(source,/Seed reveal: '\+seedReveal/);
+  assert.match(source,/Seed reveal: '\+seedReveal/);\n  assert.match(source,/مدرک گردونه: '\+\(liveEvidence\?\.reference_uri/);
 });
 
 test('prepared system draws can be resumed from the Telegram admin campaign view', () => {
