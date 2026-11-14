@@ -237,14 +237,16 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'💬 تیکت‌های پشتیبانی · '+status+' · صفحه '+(p+1),reply_markup:keyboard(buttons)});
   }
   async function supportDetail(chat,id) {
-    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
     const [[ticket]]=await db.execute('SELECT id,telegram_user_id,chat_id,business_connection_id,message,status,admin_reply,replied_at,created_at FROM customer_support_tickets WHERE id=? LIMIT 1',[id]);
     if(!ticket)return adminMessage({chat_id:chat,text:'تیکت پیدا نشد.'});
+    const [messages]=await db.execute('SELECT sender_type,sender_id,message,created_at FROM customer_support_messages WHERE ticket_id=? ORDER BY id ASC LIMIT 100',[id]);
+    const history=messages.length?messages.map(m=>(m.sender_type==='customer'?'👤 مشتری':m.sender_type==='admin'?'🛠 مدیر':'⚙️ سیستم')+' · '+m.created_at+'\\n'+m.message).join('\\n\\n'):'تاریخچه پیام‌ها هنوز در دسترس نیست؛ پیام اولیه: '+ticket.message;
     const buttons=[];
     if(ticket.status!=='closed')buttons.push([{text:'🔒 بستن تیکت',callback_data:'adm:support-close:'+id}]);
     else buttons.push([{text:'↻ بازگشایی تیکت',callback_data:'adm:support-reopen:'+id}]);
     buttons.push([{text:'✍️ راهنمای پاسخ',callback_data:'adm:support-reply-help:'+id},{text:'↩️ فهرست',callback_data:'adm:support'}]);
-    return adminMessage({chat_id:chat,text:'💬 تیکت #'+ticket.id+' · '+ticket.status+'\nکاربر: '+ticket.telegram_user_id+'\nثبت: '+ticket.created_at+'\n\nپیام مشتری:\n'+ticket.message+'\n\nآخرین پاسخ مدیر:\n'+(ticket.admin_reply||'هنوز پاسخی ثبت نشده است.')+'\n\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'💬 گفت‌وگوی پشتیبانی #'+ticket.id+' · '+ticket.status+'\\nکاربر: '+ticket.telegram_user_id+'\\nثبت: '+ticket.created_at+'\\n\\n'+history+'\\n\\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
   }
   async function setSupportStatus(chat,id,status) {
     if(!/^\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
