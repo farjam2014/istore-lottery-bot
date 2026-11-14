@@ -650,7 +650,7 @@ if(actorId){
  const rate=await consumeTelegramRateLimit(db,{userId:actorId,bucket,limit,windowMs:60000,blockMs:5000});
  if(rate.limited){
   const retryMs=Math.max(100,Math.min(3600000,rate.retryAfterMs));
-  await db.execute("UPDATE webhook_inbox SET received_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",[retryMs*1000,'rate_limited:'+bucket+':'+retryMs,String(u.update_id)]);
+  await db.execute("UPDATE webhook_inbox SET received_at=DATE_ADD(NOW(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",[retryMs*1000,'rate_limited:'+bucket+':'+retryMs,String(u.update_id)]);
   await db.execute("INSERT IGNORE INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?)",[String(u.update_id),actorId,bucket,correlationId,retryMs]);
  }
 }
