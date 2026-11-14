@@ -313,7 +313,7 @@ if(m.contact){
   if(!m.contact.user_id||String(m.contact.user_id)!==uid)return reply(chat,conn,"❌ فقط شماره متعلق به حساب تلگرام خودتان پذیرفته می‌شود.");
   const phone=normalizePhone(m.contact.phone_number||"");
   if(!validPhone(phone))return reply(chat,conn,"شماره دریافت‌شده معتبر نیست. لطفاً دوباره از دکمه اشتراک‌گذاری شماره استفاده کنید.");
-  if(s.step==="profile_change_phone_contact"){try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field:"phone",value:phone});await delSession(uid);return reply(chat,conn,"درخواست اصلاح شماره ثبت شد. شناسه: "+request.id,{reply_markup:{remove_keyboard:true}});}catch(e){return reply(chat,conn,"اصلاح شماره ثبت نشد: "+e.message,{reply_markup:{remove_keyboard:true}});}}
+  if(s.step==="profile_change_phone_contact"){try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field:"phone",value:phone,telegramMessageId:m.message_id});await delSession(uid);return reply(chat,conn,"درخواست اصلاح شماره ثبت شد. شناسه: "+request.id,{reply_markup:{remove_keyboard:true}});}catch(e){return reply(chat,conn,"اصلاح شماره ثبت نشد: "+e.message,{reply_markup:{remove_keyboard:true}});}}
   await putSession(uid,chat,"profile_instagram",s.full_name,phone,conn);
   return reply(chat,conn,"شماره موبایل تأیید شد. حالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
 }
@@ -369,7 +369,7 @@ return reply(chat,conn,"اطلاعات را بررسی کنید:\nنام: "+curr
 }
 if(currentSession?.step==="profile_change_full_name"||currentSession?.step==="profile_change_instagram"){
 const field=currentSession.step==="profile_change_full_name"?"full_name":"instagram";
-try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field,value:t});await delSession(uid);return reply(chat,conn,"درخواست اصلاح ثبت شد؛ پس از بررسی مدیر اعمال می‌شود. شناسه: "+request.id);}catch(e){return reply(chat,conn,"درخواست اصلاح ثبت نشد: "+e.message);}
+try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field,value:t,telegramMessageId:m.message_id});await delSession(uid);return reply(chat,conn,"درخواست اصلاح ثبت شد؛ پس از بررسی مدیر اعمال می‌شود. شناسه: "+request.id);}catch(e){return reply(chat,conn,"درخواست اصلاح ثبت نشد: "+e.message);}
 }
 if(currentSession?.step==="support_message"){
 if(t.length<5||t.length>2000)return reply(chat,conn,"پیام باید بین ۵ تا ۲۰۰۰ نویسه باشد.");
@@ -395,7 +395,7 @@ if(profileChangeMatch){
   try{
     const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
     if(!participant)return reply(chat,conn,'پروفایل کمپین شما پیدا نشد. ابتدا «لاتاری» را تکمیل کنید و دوباره تلاش کنید.');
-    const request=await campaignService.requestProfileChange({participantId:participant.id,field:fieldMap[profileChangeMatch[1]],value:profileChangeMatch[2].trim()});
+    const request=await campaignService.requestProfileChange({participantId:participant.id,field:fieldMap[profileChangeMatch[1]],value:profileChangeMatch[2].trim(),telegramMessageId:m.message_id});
     return reply(chat,conn,'📝 درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیر نتیجه اعلام می‌شود.\nشناسه درخواست: '+request.id);
   }catch(e){return reply(chat,conn,'❌ درخواست اصلاح ثبت نشد: '+e.message);}
 }
