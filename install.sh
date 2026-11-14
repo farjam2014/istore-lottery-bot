@@ -24,13 +24,11 @@ read -r -s -p "Telegram Bot Token: " BOT_TOKEN
 echo
 read -r -p "Telegram numeric Admin ID: " ADMIN_ID
 read -r -p "شماره تماس فروشگاه با کد کشور (اختیاری): " CONTACT_PHONE
-read -r -p "لینک تلگرام فروشگاه مثل https://t.me/store (اختیاری): " STORE_TELEGRAM_URL
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]] || die "دامنه نامعتبر است."
 [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "ایمیل نامعتبر است."
 [[ "$BOT_TOKEN" =~ ^[0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]] || die "توکن نامعتبر است."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || die "Admin ID نامعتبر است."
 if [[ -n "$CONTACT_PHONE" && ! "$CONTACT_PHONE" =~ ^\+?[0-9]{8,15}$ ]]; then die "شماره تماس نامعتبر است."; fi
-if [[ -n "$STORE_TELEGRAM_URL" && ! "$STORE_TELEGRAM_URL" =~ ^https://t\.me/[A-Za-z0-9_]{5,32}/?$ ]]; then die "لینک تلگرام فروشگاه نامعتبر است."; fi
 SERVER_IP="$(hostname -I | awk '{print $1}')"
 DNS_IP="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')"
 [[ -n "$DNS_IP" && "$DNS_IP" == "$SERVER_IP" ]] || die "دامنه باید به IP همین سرور اشاره کند (DNS=$DNS_IP / Server=$SERVER_IP)."
@@ -94,8 +92,6 @@ DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 ADMIN_ID=$ADMIN_ID
 CONTACT_PHONE=$CONTACT_PHONE
-STORE_TELEGRAM_URL=$STORE_TELEGRAM_URL
-REGISTRATION_OPEN=false
 ENV
 chmod 600 "$APP_DIR/.env"
 if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
@@ -173,7 +169,7 @@ WEBHOOK_URL="https://$DOMAIN/telegram/$WEBHOOK_SECRET"
 WH="$(curl -fsS --max-time 30 -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
   --data-urlencode "url=$WEBHOOK_URL" \
   --data-urlencode "secret_token=$WEBHOOK_SECRET" \
-  --data-urlencode 'allowed_updates=["message","business_message","business_connection","callback_query"]')"
+  --data-urlencode 'allowed_updates=["message","callback_query"]')"
 [[ "$(printf '%s' "$WH" | jq -r '.ok // false')" == true ]] || die "ثبت webhook ناموفق: $(printf '%s' "$WH" | jq -r '.description // "unknown"')"
 for _ in $(seq 1 30); do
   curl -fsS --max-time 3 http://127.0.0.1:3000/health | jq -e '.ok == true and .database == "connected"' >/dev/null 2>&1 && break
