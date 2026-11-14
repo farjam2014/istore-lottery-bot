@@ -1,8 +1,9 @@
 "use strict";
 const crypto = require("node:crypto");
 const { runWithCorrelation } = require("./correlation-context");
+const { consumeTelegramRateLimit, identifyTelegramActor, rateLimitBucket } = require("./telegram-rate-limit");
 
-function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000 }) {
+function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000, rateLimit = consumeTelegramRateLimit, adminId = null }) {
   if (!db || !handlers) throw new Error("db and handlers are required");
 
   let busy = false;
@@ -37,8 +38,34 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         }
 
         item = rows[0];
-        item.processingToken = crypto.randomUUID();
         item.correlationId = item.correlation_id || crypto.randomUUID();
+        const update = typeof item.payload === "string" ? JSON.parse(item.payload) : item.payload;
+        const actorId = identifyTelegramActor(update);
+        if (actorId) {
+          const bucket = rateLimitBucket(update);
+          const isAdminActor = adminId != null && actorId === String(adminId);
+          const quota = await rateLimit(db, {
+            userId: actorId,
+            bucket,
+            limit: isAdminActor ? 120 : (bucket === "callback" ? 50 : 25),
+            windowMs: 60000,
+            blockMs: 5000
+          });
+          if (quota.limited) {
+            const retryMs = Math.max(100, Math.min(3600000, Number(quota.retryAfterMs) || 5000));
+            await conn.execute(
+              "UPDATE webhook_inbox SET received_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",
+              [retryMs * 1000, "rate_limited:" + bucket + ":" + retryMs, item.update_id]
+            );
+            await conn.execute(
+              "INSERT IGNORE INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?)",
+              [item.update_id, actorId, bucket, item.correlationId, retryMs]
+            );
+            await conn.commit();
+            return false;
+          }
+        }
+        item.processingToken = crypto.randomUUID();
 
         await conn.execute(
           "UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=?,correlation_id=COALESCE(correlation_id,?) WHERE update_id=? AND status='pending'",
