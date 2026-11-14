@@ -262,8 +262,8 @@ function createCampaignService({ db, adminId }) {
         throw new Error('برای این سفارش قبلاً رسید ارسال شده و در انتظار بررسی مدیر است.');
       }
       if (order.status !== 'pending_payment') throw new Error('این سفارش در انتظار دریافت رسید نیست.');
-      const [[reservation]] = await conn.execute("SELECT id,status,expires_at FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE", [orderId]);
-      if (!reservation || reservation.status !== 'held' || new Date(reservation.expires_at).getTime() <= Date.now()) throw new Error('مهلت رزرو ظرفیت تمام شده است.');
+      const [[reservation]] = await conn.execute("SELECT id,status,(expires_at>UTC_TIMESTAMP()) AS not_expired FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE", [orderId]);
+      if (!reservation || reservation.status !== 'held' || Number(reservation.not_expired) !== 1) throw new Error('مهلت رزرو ظرفیت تمام شده است.');
       await conn.execute(
         'INSERT INTO payment_receipts(order_id,telegram_file_id,telegram_file_unique_id,declared_tracking_ref) VALUES(?,?,?,?)',
         [orderId,fileId,fileUniqueId,trackingReference]
@@ -287,8 +287,20 @@ function createCampaignService({ db, adminId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
+      // Use one lock order across reservation and payment paths:
+      // campaign -> participant -> order -> capacity reservation.
+      // This avoids deadlocks with reserveManualOrder, which already holds
+      // the campaign and participant rows before inspecting pending orders.
+      const [[identity]] = await conn.execute('SELECT campaign_id,participant_id FROM payment_orders WHERE id=? LIMIT 1', [orderId]);
+      if (!identity) throw new Error('سفارش پیدا نشد.');
+      const [[campaign]] = await conn.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE', [identity.campaign_id]);
+      if (!campaign) throw new Error('کمپین سفارش پیدا نشد.');
+      const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [identity.participant_id]);
+      if (!participant || participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
       const [[order]] = await conn.execute('SELECT * FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
-      if (!order || order.status !== 'receipt_submitted') throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
+      if (!order || Number(order.campaign_id) !== Number(identity.campaign_id) || Number(order.participant_id) !== Number(identity.participant_id) || order.status !== 'receipt_submitted') {
+        throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
+      }
       const [[reservation]] = await conn.execute('SELECT * FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
       if (!reservation || reservation.status !== 'held') throw new Error('رزرو سفارش دیگر معتبر نیست.');
       const [[receipt]] = await conn.execute(
@@ -296,10 +308,7 @@ function createCampaignService({ db, adminId }) {
         [order.expires_at,orderId]
       );
       if (!receipt || !receipt.submitted_in_time) throw new Error('رسید پس از پایان مهلت سفارش ارسال شده یا رسید معتبری برای بررسی وجود ندارد.');
-      const [[campaign]] = await conn.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE', [order.campaign_id]);
       if (approve) {
-        const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [order.participant_id]);
-        if (!participant || participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
         await conn.execute(
           "INSERT INTO payment_transactions(order_id,provider,provider_reference,amount,currency,status,verified_by) VALUES(?,'manual',?,?,?,'confirmed',?)",
@@ -501,19 +510,38 @@ function createCampaignService({ db, adminId }) {
 
   async function expireReservations() {
     const conn = await db.getConnection();
+    const result = { reservationsExpired: 0, ordersExpired: 0 };
     try {
       await conn.beginTransaction();
-      const [reservations] = await conn.execute(
-        "UPDATE campaign_capacity_reservations r SET r.status='expired' WHERE r.status='held' AND r.expires_at<=UTC_TIMESTAMP() AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.id=r.order_id AND o.status='receipt_submitted')"
+      // Lock payment orders first, matching submitReceipt/reviewManualPayment,
+      // then lock their reservations. Updating reservations first can deadlock
+      // against a receipt upload that already owns the order row.
+      const [expiredOrders] = await conn.execute(
+        "SELECT id,entry_id FROM payment_orders WHERE status='pending_payment' AND expires_at<=UTC_TIMESTAMP() ORDER BY id FOR UPDATE SKIP LOCKED"
       );
-      const [orders] = await conn.execute(
-        "UPDATE payment_orders o JOIN campaign_capacity_reservations r ON r.order_id=o.id SET o.status='expired' WHERE r.status='expired' AND o.status='pending_payment' AND o.expires_at<=UTC_TIMESTAMP()"
-      );
+      for (const order of expiredOrders) {
+        const [[reservation]] = await conn.execute(
+          "SELECT id,status,(expires_at<=UTC_TIMESTAMP()) AS is_expired FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE",
+          [order.id]
+        );
+        if (!reservation || reservation.status !== 'held' || Number(reservation.is_expired) !== 1) continue;
+        const [reservationUpdate] = await conn.execute(
+          "UPDATE campaign_capacity_reservations SET status='expired' WHERE id=? AND status='held' AND expires_at<=UTC_TIMESTAMP()",
+          [reservation.id]
+        );
+        if (reservationUpdate.affectedRows !== 1) continue;
+        result.reservationsExpired++;
+        const [orderUpdate] = await conn.execute(
+          "UPDATE payment_orders SET status='expired' WHERE id=? AND status='pending_payment' AND expires_at<=UTC_TIMESTAMP()",
+          [order.id]
+        );
+        result.ordersExpired += Number(orderUpdate.affectedRows || 0);
+      }
       await conn.execute(
         "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')"
       );
       await conn.commit();
-      return { reservationsExpired: reservations.affectedRows, ordersExpired: orders.affectedRows };
+      return result;
     } catch (error) {
       await conn.rollback();
       throw error;
