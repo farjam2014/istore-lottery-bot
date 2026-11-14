@@ -353,6 +353,34 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       assert.equal(first.allowed,true);
       assert.equal(second.allowed,true);
       assert.equal(third.allowed,false,'persistent MySQL rate limit must reject request above quota');
+      const concurrentLimits=await Promise.all(Array.from({length:8},()=>consumeTelegramRateLimit(pool,{userId:'930002',bucket:'parallel',limit:3,windowMs:60000})));
+      assert.equal(concurrentLimits.filter(x=>x.allowed).length,3,'concurrent requests must not exceed the MySQL quota');
+      assert.equal(concurrentLimits.filter(x=>x.limited).length,5);
+
+      // Recover an abandoned processing lease and finish it exactly once.
+      const webhookCorrelation='123e4567-e89b-42d3-a456-426614174098';
+      await pool.execute(
+        "INSERT INTO webhook_inbox(update_id,payload,status,attempts,processing_started_at,processing_token,correlation_id) VALUES(?,?,'processing',0,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 600 SECOND),?,?)",
+        [940001,JSON.stringify({update_id:940001,business_message:{from:{id:940002},text:'recovered'}}),'123e4567-e89b-42d3-a456-426614174097',webhookCorrelation]
+      );
+      const {createWebhookQueue}=require('../src/webhook-queue');
+      const {getCorrelationId}=require('../src/correlation-context');
+      let recovered=0,observedCorrelation=null;
+      const webhookQueue=createWebhookQueue({
+        db:pool,leaseMs:1000,heartbeatMs:1000,
+        handlers:{business:async()=>{recovered++;observedCorrelation=getCorrelationId();}},
+        logger:{error(...args){throw new Error(args.join(' '));}}
+      });
+      assert.equal(await webhookQueue.processOne(),false,'stale lease is deferred for retry backoff');
+      await new Promise(resolve=>setTimeout(resolve,1100));
+      assert.equal(await webhookQueue.processOne(),true,'stale webhook must be reclaimed and processed');
+      assert.equal(recovered,1);
+      assert.equal(observedCorrelation,webhookCorrelation);
+      const [[webhookState]]=await pool.execute("SELECT status,correlation_id FROM webhook_inbox WHERE update_id=940001");
+      assert.equal(webhookState.status,'done');
+      assert.equal(webhookState.correlation_id,webhookCorrelation);
+      const [[processedUpdate]]=await pool.execute("SELECT COUNT(*) AS total FROM processed_updates WHERE update_id=940001");
+      assert.equal(Number(processedUpdate.total),1);
     } finally {
       await pool.end();
     }
