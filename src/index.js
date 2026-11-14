@@ -288,8 +288,12 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
     if(quantity>Number(campaign.max_codes_per_participant))throw new Error('تعداد انتخابی از سقف مجاز کمپین بیشتر است.');
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
     if(campaign.payment_mode==='free'){
-      await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity});
-      return reply(chat,connection,'🎉 درخواست عضویت شما در کمپین «'+campaign.name+'» با '+quantity+' کد ثبت شد. کدها در پیام جداگانه برایتان ارسال می‌شوند.');
+      const joined=await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity});
+      if(joined.duplicate){
+        const codes=(joined.codes||[]).join('\\n');
+        return reply(chat,connection,'ℹ️ شما قبلاً در کمپین «'+campaign.name+'» ثبت‌نام کرده‌اید؛ کد جدیدی صادر نشد.'+(codes?'\\n\\n🎟 کدهای ثبت‌شده شما:\\n'+codes:'\\n\\nهنوز کد فعالی برای این عضویت ثبت نشده است.'));
+      }
+      return reply(chat,connection,'🎉 درخواست عضویت شما در کمپین «'+campaign.name+'» با '+quantity+' کد ثبت شد. کدها از طریق پیام جداگانه ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity});
