@@ -3,14 +3,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAdminTelegram } = require('../src/admin-telegram');
 
-function harness() {
+function harness({webhookStatus='failed',webhookProcessed=false}={}) {
   const calls=[];
   const conn={
     async beginTransaction(){calls.push({sql:'BEGIN'});},
     async commit(){calls.push({sql:'COMMIT'});},
     async rollback(){calls.push({sql:'ROLLBACK'});},
     release(){calls.push({sql:'RELEASE'});},
-    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
+    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];if(sql.includes('FROM webhook_inbox WHERE update_id=? FOR UPDATE'))return [[{update_id:123,status:webhookStatus,attempts:5,correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM processed_updates WHERE update_id=?'))return [webhookProcessed?[{update_id:123}]:[]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
     async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
   const db={
@@ -367,6 +367,22 @@ test('support ticket detail loads the durable conversation history', async () =>
   await h.admin.handleCallback({id:'support-thread-1',data:'adm:support-ticket:42',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:901}});
   assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages')&&x.params[0]==='42'));
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('گفت‌وگوی پشتیبانی #42')));
+});
+
+test('Telegram admin can recover a failed webhook and audit the retry', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'webhook-retry-1',data:'adm:webhook-retry:123',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:901}});
+  assert.ok(h.calls.some(x=>x.sql.includes("UPDATE webhook_inbox SET status='pending'")&&x.params[0]==='123'));
+  assert.ok(h.calls.some(x=>x.sql.includes("INSERT INTO admin_audit_log")&&x.params[1]==='retry_webhook'&&x.params[3]==='123'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف پردازش')));
+});
+
+test('webhook recovery does not replay an update already present in processed_updates', async () => {
+  const h=harness({webhookStatus:'failed',webhookProcessed:true});
+  await h.admin.handleCallback({id:'webhook-retry-processed',data:'adm:webhook-retry:123',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:902}});
+  assert.ok(h.calls.some(x=>x.sql.includes("SET status='done'")&&x.params[0]==='123'));
+  assert.equal(h.calls.some(x=>x.sql.includes("retry_webhook")),false);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('قبلاً پردازش شده بود')));
 });
 
 test('Telegram admin can requeue a failed notification with an audit record', async () => {
