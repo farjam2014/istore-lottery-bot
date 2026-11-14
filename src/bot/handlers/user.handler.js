@@ -73,13 +73,21 @@ async function showCampaignPage(ctx,page){
 }
 
 async function createProfileChangeRequest(ctx,field,value){
-  const [[pending]]=await pool.execute("SELECT id FROM profile_change_requests WHERE participant_id=(SELECT id FROM participants WHERE telegram_user_id=?) AND status='pending' LIMIT 1",[String(ctx.from.id)]);
-  if(pending)return ctx.reply('یک درخواست اصلاح اطلاعات شما هنوز در انتظار بررسی است. پس از تعیین تکلیف آن می‌توانید درخواست جدید ثبت کنید.');
-  const requestedProfile=JSON.stringify({field,value});
-  const [result]=await pool.execute("INSERT INTO profile_change_requests(participant_id,requested_profile,status) SELECT id,?,'pending' FROM participants WHERE telegram_user_id=?",[requestedProfile,String(ctx.from.id)]);
-  await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+  const c=await pool.getConnection();let requestId;
+  try{
+    await c.beginTransaction();
+    const [[participant]]=await c.execute('SELECT id FROM participants WHERE telegram_user_id=? FOR UPDATE',[String(ctx.from.id)]);
+    if(!participant)throw new Error('پروفایل کاربری پیدا نشد.');
+    const [[pending]]=await c.execute("SELECT id FROM profile_change_requests WHERE participant_id=? AND status='pending' LIMIT 1",[participant.id]);
+    if(pending){await c.rollback();return ctx.reply('یک درخواست اصلاح اطلاعات شما هنوز در انتظار بررسی است. پس از تعیین تکلیف آن می‌توانید درخواست جدید ثبت کنید.');}
+    const [result]=await c.execute("INSERT INTO profile_change_requests(participant_id,requested_profile,status) VALUES(?,?,'pending')",[participant.id,JSON.stringify({field,value})]);
+    requestId=result.insertId;
+    await c.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    await c.commit();
+  }catch(error){await c.rollback();throw error;}finally{c.release();}
   const [admins]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role='super_admin'");
   const recipients=new Set([...config.adminIds,...admins.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await ctx.telegram.sendMessage(String(id),'درخواست اصلاح پروفایل جدید\nمشتری: '+ctx.state.profile.full_name+'\nفیلد: '+field+'\nمقدار درخواستی: '+value,Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+result.insertId)]])).catch(()=>{});
-  return ctx.reply('درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیریت، نتیجه به شما اطلاع داده می‌شود.',userMenuKeyboard());
+  for(const id of recipients)await ctx.telegram.sendMessage(String(id),'درخواست اصلاح پروفایل جدید\nمشتری: '+ctx.state.profile.full_name+'\nفیلد: '+field+'\nمقدار درخواستی: '+value,Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+requestId)]])).catch(()=>{});
+  await ctx.reply('درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیریت، نتیجه به شما اطلاع داده می‌شود.',Markup.removeKeyboard());
+  return ctx.reply('درخواست شما در صف بررسی است.',Markup.inlineKeyboard([[Markup.button.callback('حساب کاربری','user:account')],[Markup.button.callback('پشتیبانی','user:support')]]));
 }
