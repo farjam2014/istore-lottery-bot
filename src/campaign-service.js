@@ -235,7 +235,7 @@ function createCampaignService({ db, adminId }) {
         const paymentText = '🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nتعداد کد: '+qty+'\nشماره سفارش: '+orderRef+'\nمبلغ: '+total+' '+campaign.currency+'\n\nشماره کارت: '+paymentCard.card_number+'\nبه نام: '+paymentCard.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو '+hold+' دقیقه است.';
         await conn.execute(
           "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
-          ['payment-instructions:'+order.insertId,'payment_instructions',JSON.stringify({method:'sendMessage',payload:{chat_id:String(participant.chat_id),...(participant.business_connection_id?{business_connection_id:String(participant.business_connection_id)}:{}),text:paymentText}})]
+          ['payment-instructions:'+order.insertId,'payment_instructions',JSON.stringify({method:'sendMessage',payload:{chat_id:String(participant.chat_id),...(participant.business_connection_id?{business_connection_id:String(participant.business_connection_id)}:{}),text:paymentText},delivery_card:{orderId:Number(order.insertId),card:{id:Number(paymentCard.id),label:paymentCard.label,bank_name:paymentCard.bank_name,card_number:paymentCard.card_number,cardholder_name:paymentCard.cardholder_name}}})]
         );
       }
       await conn.commit();
