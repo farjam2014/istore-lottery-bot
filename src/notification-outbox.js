@@ -1,7 +1,7 @@
 "use strict";
 const crypto=require("node:crypto");
 
-function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leaseMs=60000,heartbeatMs=20000,maxAttempts=5}){
+function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leaseMs=60000,heartbeatMs=Math.max(100,Math.floor(leaseMs/3)),maxAttempts=5}){
  if(!db||typeof send!=="function")throw new Error("db and send are required");
  let busy=false,timer=null;
  async function processOne(){
