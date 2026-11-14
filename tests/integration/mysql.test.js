@@ -282,4 +282,23 @@ test('MySQL integration: concurrent receipt approvals issue codes and financial 
   }finally{if(uid)await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[uid]);if(orderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[orderId]);}if(participantId){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[participantId]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[participantId]);await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);}if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
 });
 
+
+test('MySQL integration: last active database super admin cannot be deactivated or demoted',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {toggleAdminActive,changeAdminRole}=await import('../../src/modules/admin/admin-access.service.js');
+  const suffix=String(Date.now()).slice(-10);const ids=[String(760000000000n+BigInt(suffix)),String(770000000000n+BigInt(suffix))];
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO admin_users(telegram_user_id,role,is_active) VALUES(?,'super_admin',1),(?,'super_admin',1)",ids);
+    await toggleAdminActive({targetId:ids[0],actorId:'9000'});
+    const [[remaining]]=await pool.execute("SELECT COUNT(*) total FROM admin_users WHERE role='super_admin' AND is_active=1 AND telegram_user_id IN (?,?)",ids);
+    assert.equal(Number(remaining.total),1);
+    await assert.rejects(toggleAdminActive({targetId:ids[1],actorId:'9000'}),/آخرین مدیر کل فعال/);
+    await assert.rejects(changeAdminRole({targetId:ids[1],actorId:'9000',role:'finance_manager'}),/آخرین مدیر کل فعال/);
+    const [[last]]=await pool.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=?',[ids[1]]);
+    assert.equal(last.role,'super_admin');assert.equal(Number(last.is_active),1);
+  }finally{await pool.execute('DELETE FROM admin_role_events WHERE target_telegram_id IN (?,?)',ids);await pool.execute('DELETE FROM admin_users WHERE telegram_user_id IN (?,?)',ids);}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
