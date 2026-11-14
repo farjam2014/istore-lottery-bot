@@ -1,6 +1,6 @@
 'use strict';
 
-async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,windowMs=60000,blockMs=windowMs}={}) {
+async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,windowMs=60000,blockMs=windowMs,connection=null}={}) {
   const id=String(userId||'').trim();
   if(!id)return {allowed:true,limited:false,retryAfterMs:0};
   if(!/^\d{1,24}$/.test(id))return {allowed:false,limited:true,retryAfterMs:windowMs,reason:'invalid_user'};
@@ -8,9 +8,10 @@ async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,win
   const max=Math.max(1,Math.min(10000,Number(limit)||25));
   const window=Math.max(100,Math.min(3600000,Number(windowMs)||60000));
   const block=Math.max(100,Math.min(3600000,Number(blockMs)||window));
-  const conn=await db.getConnection();
+  const ownsConnection=!connection;
+  const conn=connection||await db.getConnection();
   try {
-    await conn.beginTransaction();
+    if(ownsConnection)await conn.beginTransaction();
     await conn.execute(
       'INSERT IGNORE INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,?,UTC_TIMESTAMP(3),0)',
       [id,safeBucket]
@@ -25,12 +26,12 @@ async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,win
         'UPDATE telegram_rate_limits SET window_started_at=UTC_TIMESTAMP(3),request_count=1,blocked_until=NULL WHERE telegram_user_id=? AND bucket=?',
         [id,safeBucket]
       );
-      await conn.commit();
+      if(ownsConnection)await conn.commit();
       return {allowed:true,limited:false,retryAfterMs:0,remaining:max-1};
     }
     if(Number(state.is_blocked)===1) {
       const retryAfterMs=Math.max(100,Math.ceil(Number(state.retry_us||0)/1000));
-      await conn.commit();
+      if(ownsConnection)await conn.commit();
       return {allowed:false,limited:true,retryAfterMs,remaining:0};
     }
     if(Number(state.request_count)>=max) {
@@ -38,20 +39,20 @@ async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,win
         'UPDATE telegram_rate_limits SET blocked_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MICROSECOND) WHERE telegram_user_id=? AND bucket=?',
         [block*1000,id,safeBucket]
       );
-      await conn.commit();
+      if(ownsConnection)await conn.commit();
       return {allowed:false,limited:true,retryAfterMs:block,remaining:0};
     }
     await conn.execute(
       'UPDATE telegram_rate_limits SET request_count=request_count+1 WHERE telegram_user_id=? AND bucket=?',
       [id,safeBucket]
     );
-    await conn.commit();
+    if(ownsConnection)await conn.commit();
     return {allowed:true,limited:false,retryAfterMs:0,remaining:max-Number(state.request_count)-1};
   } catch(error) {
-    await conn.rollback();
+    if(ownsConnection)await conn.rollback();
     throw error;
   } finally {
-    conn.release();
+    if(ownsConnection)conn.release();
   }
 }
 
