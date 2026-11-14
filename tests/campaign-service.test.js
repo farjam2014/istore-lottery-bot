@@ -369,14 +369,8 @@ test('manual payment approval refuses inactive participants before issuing codes
     release() { calls.push('RELEASE'); },
     async execute(sql, params = []) {
       calls.push({ sql, params });
-      if (sql.includes('SELECT * FROM payment_orders')) return [[{
-        id: 91, status: 'receipt_submitted', participant_id: 17, campaign_id: 4,
-        expires_at: '2030-01-01 00:00:00', entry_id: 23, quantity: 2,
-        total_snapshot: 500000, currency: 'IRR'
-      }]];
-      if (sql.includes('SELECT * FROM campaign_capacity_reservations')) return [[{ id: 33, status: 'held' }]];
-      if (sql.includes('AS submitted_in_time')) return [[{ id: 44, submitted_in_time: 1 }]];
-      if (sql.includes('SELECT status FROM campaigns')) return [[{ status: 'open' }]];
+      if (sql.includes('SELECT campaign_id,participant_id FROM payment_orders')) return [[{campaign_id:4,participant_id:17}]];
+      if (sql.includes('SELECT id,status FROM campaigns')) return [[{id:4,status:'open'}]];
       if (sql.includes('SELECT id,status FROM participants')) return [[{ id: 17, status: 'inactive' }]];
       throw new Error('Unexpected SQL: ' + sql);
     }
@@ -388,6 +382,11 @@ test('manual payment approval refuses inactive participants before issuing codes
   );
   assert.ok(calls.includes('ROLLBACK'));
   assert.ok(!calls.includes('COMMIT'));
+  const campaignLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT id,status FROM campaigns'));
+  const participantLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT id,status FROM participants'));
+  const orderLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT * FROM payment_orders'));
+  assert.ok(campaignLock>0&&participantLock>campaignLock,'payment review must lock campaign then participant');
+  assert.equal(orderLock,-1,'inactive participant is rejected before acquiring the order lock');
   assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO campaign_codes/.test(x.sql)), false);
   assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO payment_transactions/.test(x.sql)), false);
 });
