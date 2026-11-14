@@ -260,7 +260,14 @@ export function registerAdminHandlers(bot){
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,'payment_settings',JSON_OBJECT()) ON DUPLICATE KEY UPDATE step=VALUES(step),payload=VALUES(payload)",[String(ctx.from.id)]);
     await ctx.answerCbQuery();
-    return respond(ctx,'اطلاعات کارت را در ۴ خط ارسال کنید:\nنام بانک\nشماره کارت ۱۶ رقمی\nنام صاحب کارت\nتوضیحات یا -');
+    return respond(ctx,'اطلاعات کارت را در ۴ خط ارسال کنید:\n۱) نام بانک\n۲) شماره کارت ۱۶ رقمی\n۳) نام صاحب کارت\n۴) توضیحات یا -\n\nبرای خروج از این مرحله یکی از دکمه‌های زیر را بزنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو تنظیم کارت','admin:payment-settings:cancel'),Markup.button.callback('↩️ بازگشت به پنل','admin:home')]]));
+  });
+  bot.action('admin:payment-settings:cancel',async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await clearWizard(ctx.from.id);
+    await ctx.answerCbQuery('تنظیم کارت لغو شد.');
+    const admin=await getAdminRole(ctx.from.id);
+    return respond(ctx,'تنظیم کارت بانکی لغو شد. پنل مدیریت:',menu(admin?.role));
   });
 
   bot.action('admin:stats',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return respond(ctx,'گزارش‌ها و عملکرد مالی',Markup.inlineKeyboard([[Markup.button.callback('مشاهده گزارش جامع','admin:reports')],[Markup.button.callback('بازگشت','admin:home')]]));});
