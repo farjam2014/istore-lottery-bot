@@ -127,6 +127,9 @@ function createDrawService({ db, adminId }) {
 
   async function submitLiveWheelResults({ drawId, candidateReferences, externalReference, evidenceHash = null }) {
     if (!Array.isArray(candidateReferences) || !candidateReferences.length) throw new Error('فهرست نتایج گردونه خالی است.');
+    const evidenceReference=String(externalReference||'').trim();
+    if(evidenceReference.length<3||evidenceReference.length>255)throw new Error('برای ثبت نتیجه گردونه، لینک یا شناسه مدرک معتبر الزامی است.');
+    if(evidenceHash!=null&&!/^[a-f0-9]{64}$/i.test(String(evidenceHash)))throw new Error('هش مدرک باید SHA-256 معتبر ۶۴ رقمی باشد.');
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
@@ -147,11 +150,11 @@ function createDrawService({ db, adminId }) {
       }
       const required = Number(draw.winner_count) + Number(draw.alternate_count);
       if (selected.length !== required) throw new Error('تعداد نتایج گردونه باید دقیقاً برابر مجموع برندگان اصلی و ذخیره باشد.');
-      await storeWinners(conn,draw,candidates,selected,String(externalReference||'').slice(0,255));
+      await storeWinners(conn,draw,candidates,selected,evidenceReference);
       await conn.execute("UPDATE campaign_draws SET status='pending_approval',external_reference=? WHERE id=?", [String(externalReference||'').slice(0,255),drawId]);
       await conn.execute(
         'INSERT INTO draw_evidence(draw_id,evidence_type,reference_uri,content_hash,description,recorded_by) VALUES(?,?,?,?,?,?)',
-        [drawId,'live_wheel_result',String(externalReference||'').slice(0,500)||null,evidenceHash,JSON.stringify({selected:candidateReferences}),String(adminId)]
+        [drawId,'live_wheel_result',evidenceReference,evidenceHash,JSON.stringify({selected:candidateReferences}),String(adminId)]
       );
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),'submit_live_draw_result','campaign_draw',String(drawId),JSON.stringify({selected:candidateReferences,snapshot_hash:draw.snapshot_hash})]);
       await conn.commit();
@@ -172,6 +175,27 @@ function createDrawService({ db, adminId }) {
       if (Number(winnerCount.total) !== Number(draw.winner_count)+Number(draw.alternate_count)) throw new Error('تعداد نتایج ثبت‌شده ناقص است.');
       await conn.execute("UPDATE campaign_draws SET status='completed',approved_by=?,completed_at=UTC_TIMESTAMP() WHERE id=?", [String(adminId),drawId]);
       await conn.execute("UPDATE draw_winners SET approved_by=?,approved_at=UTC_TIMESTAMP() WHERE draw_id=?", [String(adminId),drawId]);
+      const [recipients]=await conn.execute(
+        'SELECT w.id,w.winner_rank,w.winner_type,w.participant_id,w.code,p.chat_id,p.business_connection_id,c.name AS campaign_name FROM draw_winners w JOIN participants p ON p.id=w.participant_id JOIN campaign_draws d ON d.id=w.draw_id JOIN campaigns c ON c.id=d.campaign_id WHERE w.draw_id=? ORDER BY w.winner_rank',
+        [drawId]
+      );
+      for(const winner of recipients){
+        if(!winner.chat_id)continue;
+        const role=winner.winner_type==='primary'?'برنده اصلی':'برنده ذخیره';
+        const code=winner.code?'\\nکد شرکت در قرعه‌کشی: '+winner.code:'';
+        const payload={
+          method:'sendMessage',
+          payload:{
+            chat_id:String(winner.chat_id),
+            ...(winner.business_connection_id?{business_connection_id:String(winner.business_connection_id)}:{}),
+            text:'🎉 نتیجه قرعه‌کشی USTORE\\n\\nتبریک! شما به‌عنوان '+role+' در کمپین «'+winner.campaign_name+'» انتخاب شده‌اید.\\nرتبه: '+winner.winner_rank+code+'\\n\\nبرای پیگیری با پشتیبانی ربات در ارتباط باشید.'
+          }
+        };
+        await conn.execute(
+          'INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)',
+          ['draw-winner:'+drawId+':'+winner.id,'draw_winner_announcement',JSON.stringify(payload)]
+        );
+      }
       await conn.execute("UPDATE campaigns SET status='drawn' WHERE id=?", [draw.campaign_id]);
       await conn.execute('INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(? ,\'closed\',\'drawn\',?,?)', [draw.campaign_id,String(adminId),'draw completed #'+drawId]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),'approve_draw','campaign_draw',String(drawId),JSON.stringify({snapshot_hash:draw.snapshot_hash})]);
