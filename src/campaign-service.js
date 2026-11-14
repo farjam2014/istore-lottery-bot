@@ -296,7 +296,7 @@ function createCampaignService({ db, adminId }) {
       const [[campaign]] = await conn.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE', [identity.campaign_id]);
       if (!campaign) throw new Error('کمپین سفارش پیدا نشد.');
       const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [identity.participant_id]);
-      if (!participant || participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
+      if (!participant) throw new Error('پروفایل شرکت‌کننده سفارش پیدا نشد.');
       const [[order]] = await conn.execute('SELECT * FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
       if (!order || Number(order.campaign_id) !== Number(identity.campaign_id) || Number(order.participant_id) !== Number(identity.participant_id) || order.status !== 'receipt_submitted') {
         throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
@@ -309,6 +309,7 @@ function createCampaignService({ db, adminId }) {
       );
       if (!receipt || !receipt.submitted_in_time) throw new Error('رسید پس از پایان مهلت سفارش ارسال شده یا رسید معتبری برای بررسی وجود ندارد.');
       if (approve) {
+        if (participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
         await conn.execute(
           "INSERT INTO payment_transactions(order_id,provider,provider_reference,amount,currency,status,verified_by) VALUES(?,'manual',?,?,?,'confirmed',?)",
