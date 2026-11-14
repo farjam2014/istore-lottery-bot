@@ -104,12 +104,13 @@ function createCampaignService({ db, adminId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [[campaign]] = await conn.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
+      const [[campaign]] = await conn.execute('SELECT id,status,starts_at,ends_at FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign) throw new Error('کمپین پیدا نشد.');
-      if (campaign.status === 'drawn' && nextStatus !== 'archived') throw new Error('کمپین قرعه‌کشی‌شده قابل بازگشایی نیست.');
-      if (campaign.status === 'archived' && nextStatus !== 'archived') throw new Error('کمپین آرشیوشده قابل فعال‌سازی نیست.');
-      if (nextStatus === 'open' && !['draft','scheduled','paused'].includes(campaign.status)) throw new Error('این تغییر وضعیت مجاز نیست.');
-      if (nextStatus === 'closed' && !['open','paused'].includes(campaign.status)) throw new Error('فقط کمپین باز یا متوقف‌شده قابل بستن است.');
+      const transitions={draft:['scheduled','open'],scheduled:['open','closed'],open:['paused','closed'],paused:['open','closed'],closed:[],drawn:['archived'],archived:[]};
+      if(campaign.status===nextStatus)throw new Error('وضعیت کمپین از قبل همین مقدار است.');
+      if(!(transitions[campaign.status]||[]).includes(nextStatus))throw new Error('تغییر وضعیت از '+campaign.status+' به '+nextStatus+' مجاز نیست.');
+      if (nextStatus === 'scheduled' && !campaign.starts_at) throw new Error('برای زمان‌بندی، کمپین باید زمان شروع داشته باشد.');
+      if (campaign.starts_at && campaign.ends_at && new Date(campaign.ends_at).getTime() <= new Date(campaign.starts_at).getTime()) throw new Error('زمان پایان باید بعد از زمان شروع باشد.');
       await conn.execute('UPDATE campaigns SET status=? WHERE id=?', [nextStatus,campaignId]);
       await conn.execute(
         'INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,?,?,?,?)',
@@ -121,6 +122,30 @@ function createCampaignService({ db, adminId }) {
       await conn.rollback();
       throw error;
     } finally { conn.release(); }
+  }
+
+  async function syncCampaignSchedule() {
+    const conn=await db.getConnection();
+    const result={opened:0,closed:0};
+    try{
+      await conn.beginTransaction();
+      const [rows]=await conn.execute(
+        "SELECT id,status,CASE WHEN ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP() THEN 'closed' ELSE 'open' END AS next_status FROM campaigns WHERE (status='scheduled' AND ((starts_at IS NOT NULL AND starts_at<=UTC_TIMESTAMP()) OR (ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()))) OR (status='open' AND ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) ORDER BY id FOR UPDATE"
+      );
+      for(const campaign of rows){
+        const nextStatus=campaign.next_status;
+        if(campaign.status===nextStatus)continue;
+        await conn.execute('UPDATE campaigns SET status=? WHERE id=? AND status=?',[nextStatus,campaign.id,campaign.status]);
+        await conn.execute(
+          'INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,?,?,?,?)',
+          [campaign.id,campaign.status,nextStatus,'system',nextStatus==='open'?'campaign start time reached':'campaign end time reached']
+        );
+        result[nextStatus==='open'?'opened':'closed']++;
+      }
+      await conn.commit();
+      return result;
+    }catch(error){await conn.rollback();throw error;}
+    finally{conn.release();}
   }
 
   async function reserveManualOrder({ campaignId, participantId, quantity, termsVersion = '1', holdMinutes = 30 }) {
@@ -135,8 +160,25 @@ function createCampaignService({ db, adminId }) {
       const [[paymentCard]] = await conn.execute("SELECT id,label,bank_name,card_number,cardholder_name,status FROM bank_cards WHERE id=? FOR UPDATE",[campaign.current_payment_card_id]);
       if (!paymentCard || paymentCard.status !== 'active') throw new Error('مدیر هنوز کارت فعال برای این کمپین انتخاب نکرده است.');
       if (qty > campaign.max_codes_per_participant) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
-      const [[participant]] = await conn.execute("SELECT id,status FROM participants WHERE id=? FOR UPDATE", [participantId]);
+      const [[participant]] = await conn.execute("SELECT id,status,telegram_user_id,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE", [participantId]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل شرکت‌کننده فعال نیست.');
+      const [[openOrder]] = await conn.execute(
+        "SELECT id,order_ref,status,quantity,total_snapshot,currency,campaign_id FROM payment_orders WHERE participant_id=? AND (status='receipt_submitted' OR (status='pending_payment' AND expires_at>UTC_TIMESTAMP())) ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        [participantId]
+      );
+      if (openOrder?.status === 'pending_payment') {
+        // Reuse only the exact logical order. Never return another campaign's
+        // order or silently accept a different quantity.
+        if (Number(openOrder.campaign_id) !== Number(campaignId)) {
+          throw new Error('برای شما سفارش پرداخت‌نشده دیگری در کمپین «'+openOrder.order_ref+'» وجود دارد. ابتدا همان سفارش را تکمیل یا از پشتیبانی پیگیری کنید.');
+        }
+        if (Number(openOrder.quantity) !== qty) {
+          throw new Error('برای این کمپین سفارش '+openOrder.order_ref+' با تعداد '+openOrder.quantity+' کد باز دارید. ابتدا همان سفارش را تکمیل کنید یا با پشتیبانی تماس بگیرید.');
+        }
+        await conn.commit();
+        return { id: openOrder.id, orderRef: openOrder.order_ref, quantity: Number(openOrder.quantity), total: Number(openOrder.total_snapshot), currency: openOrder.currency, duplicate: true };
+      }
+      if (openOrder) throw new Error('برای شما سفارش '+openOrder.order_ref+' رسید ارسال‌شده و در انتظار بررسی دارد.');
       const [[entry]] = await conn.execute(
         'SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',
         [campaignId,participantId]
@@ -178,12 +220,24 @@ function createCampaignService({ db, adminId }) {
       const [order] = await conn.execute(
         `INSERT INTO payment_orders(order_ref,campaign_id,participant_id,entry_id,quantity,unit_price_snapshot,total_snapshot,currency,terms_snapshot,status,expires_at)
          VALUES(?,?,?,?,?,?,?,?,?,'pending_payment',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))`,
-        [orderRef,campaignId,participantId,entryId,qty,unitPrice,total,campaign.currency,JSON.stringify({terms_version:termsVersion,refund_policy:'no_refund_after_payment_confirmation'}),hold]
+        [orderRef,campaignId,participantId,entryId,qty,unitPrice,total,campaign.currency,JSON.stringify({terms_version:termsVersion,refund_policy:'no_refund_after_payment_confirmation',payment_card:{label:paymentCard.label,bank_name:paymentCard.bank_name,card_number:paymentCard.card_number,cardholder_name:paymentCard.cardholder_name}}),hold]
       );
       await conn.execute(
         "INSERT INTO campaign_capacity_reservations(campaign_id,participant_id,order_id,participant_slots,code_slots,status,expires_at) VALUES(?,?,?,?,?,'held',DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? MINUTE))",
         [campaignId,participantId,order.insertId,participantSlots,qty,hold]
       );
+      // Persist session and payment instructions atomically with the order.
+      await conn.execute(
+        "INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)",
+        [String(participant.telegram_user_id),String(participant.chat_id || ''),String(participant.business_connection_id || ''),order.insertId]
+      );
+      if (participant.chat_id) {
+        const paymentText = '🧾 سفارش شما ثبت شد.\nکمپین: '+campaign.name+'\nتعداد کد: '+qty+'\nشماره سفارش: '+orderRef+'\nمبلغ: '+total+' '+campaign.currency+'\n\nشماره کارت: '+paymentCard.card_number+'\nبه نام: '+paymentCard.cardholder_name+'\n\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو '+hold+' دقیقه است.';
+        await conn.execute(
+          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+          ['payment-instructions:'+order.insertId,'payment_instructions',JSON.stringify({method:'sendMessage',payload:{chat_id:String(participant.chat_id),...(participant.business_connection_id?{business_connection_id:String(participant.business_connection_id)}:{}),text:paymentText},delivery_card:{orderId:Number(order.insertId),card:{id:Number(paymentCard.id),label:paymentCard.label,bank_name:paymentCard.bank_name,card_number:paymentCard.card_number,cardholder_name:paymentCard.cardholder_name}}})]
+        );
+      }
       await conn.commit();
       return { id: order.insertId, orderRef, quantity: qty, total, currency: campaign.currency, card: paymentCard };
     } catch (error) {
@@ -197,10 +251,19 @@ function createCampaignService({ db, adminId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [[order]] = await conn.execute('SELECT id,status,expires_at FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
-      if (!order || order.status !== 'pending_payment') throw new Error('این سفارش در انتظار دریافت رسید نیست.');
-      const [[reservation]] = await conn.execute("SELECT id,status,expires_at FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE", [orderId]);
-      if (!reservation || reservation.status !== 'held' || new Date(reservation.expires_at).getTime() <= Date.now()) throw new Error('مهلت رزرو ظرفیت تمام شده است.');
+      const [[order]] = await conn.execute('SELECT id,status,expires_at,participant_id FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
+      if (!order) throw new Error('سفارش پیدا نشد.');
+      if (order.status === 'receipt_submitted') {
+        const [[existingReceipt]] = await conn.execute('SELECT id,telegram_file_unique_id FROM payment_receipts WHERE order_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE',[orderId]);
+        if (existingReceipt && fileUniqueId && existingReceipt.telegram_file_unique_id === fileUniqueId) {
+          await conn.commit();
+          return { orderId, status: 'receipt_submitted', duplicate: true };
+        }
+        throw new Error('برای این سفارش قبلاً رسید ارسال شده و در انتظار بررسی مدیر است.');
+      }
+      if (order.status !== 'pending_payment') throw new Error('این سفارش در انتظار دریافت رسید نیست.');
+      const [[reservation]] = await conn.execute("SELECT id,status,(expires_at>UTC_TIMESTAMP()) AS not_expired FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE", [orderId]);
+      if (!reservation || reservation.status !== 'held' || Number(reservation.not_expired) !== 1) throw new Error('مهلت رزرو ظرفیت تمام شده است.');
       await conn.execute(
         'INSERT INTO payment_receipts(order_id,telegram_file_id,telegram_file_unique_id,declared_tracking_ref) VALUES(?,?,?,?)',
         [orderId,fileId,fileUniqueId,trackingReference]
@@ -208,7 +271,10 @@ function createCampaignService({ db, adminId }) {
       await conn.execute("UPDATE payment_orders SET status='receipt_submitted' WHERE id=?", [orderId]);
       const [[notify]] = await conn.execute('SELECT o.order_ref,o.total_snapshot,o.currency,c.name AS campaign_name,p.full_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=?',[orderId]);
       await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['receipt-submitted:'+orderId,'payment_receipt_submitted',JSON.stringify({method:'sendMessage',payload:{chat_id:String(process.env.ADMIN_ID),text:'🧾 رسید پرداخت جدید\nسفارش: '+notify.order_ref+' (#'+orderId+')\nکمپین: '+notify.campaign_name+'\nشرکت‌کننده: '+notify.full_name+'\nمبلغ: '+notify.total_snapshot+' '+notify.currency+'\nبرای بررسی به پنل تلگرام مراجعه کنید: /panel'}})]);
-
+      const [[recipient]] = await conn.execute('SELECT chat_id,business_connection_id FROM participants WHERE id=? LIMIT 1',[order.participant_id]);
+      if (recipient?.chat_id) {
+        await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['receipt-ack:'+orderId,'receipt_acknowledgement',JSON.stringify({method:'sendMessage',payload:{chat_id:String(recipient.chat_id),...(recipient.business_connection_id?{business_connection_id:String(recipient.business_connection_id)}:{}),text:'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.'}})]);
+      }
       await conn.commit();
       return { orderId, status: 'receipt_submitted' };
     } catch (error) {
@@ -221,8 +287,20 @@ function createCampaignService({ db, adminId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
+      // Use one lock order across reservation and payment paths:
+      // campaign -> participant -> order -> capacity reservation.
+      // This avoids deadlocks with reserveManualOrder, which already holds
+      // the campaign and participant rows before inspecting pending orders.
+      const [[identity]] = await conn.execute('SELECT campaign_id,participant_id FROM payment_orders WHERE id=? LIMIT 1', [orderId]);
+      if (!identity) throw new Error('سفارش پیدا نشد.');
+      const [[campaign]] = await conn.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE', [identity.campaign_id]);
+      if (!campaign) throw new Error('کمپین سفارش پیدا نشد.');
+      const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [identity.participant_id]);
+      if (!participant) throw new Error('پروفایل شرکت‌کننده سفارش پیدا نشد.');
       const [[order]] = await conn.execute('SELECT * FROM payment_orders WHERE id=? FOR UPDATE', [orderId]);
-      if (!order || order.status !== 'receipt_submitted') throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
+      if (!order || Number(order.campaign_id) !== Number(identity.campaign_id) || Number(order.participant_id) !== Number(identity.participant_id) || order.status !== 'receipt_submitted') {
+        throw new Error('سفارش رسید ارسال‌شده و قابل بررسی نیست.');
+      }
       const [[reservation]] = await conn.execute('SELECT * FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE', [orderId]);
       if (!reservation || reservation.status !== 'held') throw new Error('رزرو سفارش دیگر معتبر نیست.');
       const [[receipt]] = await conn.execute(
@@ -230,8 +308,8 @@ function createCampaignService({ db, adminId }) {
         [order.expires_at,orderId]
       );
       if (!receipt || !receipt.submitted_in_time) throw new Error('رسید پس از پایان مهلت سفارش ارسال شده یا رسید معتبری برای بررسی وجود ندارد.');
-      const [[campaign]] = await conn.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE', [order.campaign_id]);
       if (approve) {
+        if (participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
         await conn.execute(
           "INSERT INTO payment_transactions(order_id,provider,provider_reference,amount,currency,status,verified_by) VALUES(?,'manual',?,?,?,'confirmed',?)",
@@ -315,7 +393,6 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[campaign]] = await conn.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign || campaign.status !== 'open' || campaign.payment_mode !== 'free') throw new Error('کمپین رایگان در حال حاضر باز نیست.');
-      if (qty > Number(campaign.max_codes_per_participant)) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
       const [[existingParticipant]] = await conn.execute('SELECT * FROM participants WHERE telegram_user_id=? FOR UPDATE', [String(telegramUserId)]);
       let participantId;
       if (existingParticipant) {
@@ -335,6 +412,12 @@ function createCampaignService({ db, adminId }) {
       }
       const [[entry]] = await conn.execute('SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE', [campaignId,participantId]);
       if (entry && !['active','pending'].includes(entry.status)) throw new Error('وضعیت عضویت شما اجازه ورود مجدد به این کمپین را نمی‌دهد.');
+      if (entry?.status === 'active') {
+        const [existingCodes] = await conn.execute("SELECT code FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND status='active' ORDER BY id ASC",[campaignId,participantId]);
+        await conn.commit();
+        return { participantId, entryId: entry.id, codes: existingCodes.map(row => row.code), duplicate: true };
+      }
+      if (qty > Number(campaign.max_codes_per_participant)) throw new Error('تعداد کد از سقف مجاز بیشتر است.');
       const [[usage]] = await conn.execute(
         'SELECT COUNT(*) AS used FROM campaign_codes WHERE campaign_id=? AND participant_id=? AND status=\'active\'',
         [campaignId,participantId]
@@ -393,28 +476,80 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  async function expireReservations() {
+  async function cancelManualOrder({ orderId, participantId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [reservations] = await conn.execute(
-        "UPDATE campaign_capacity_reservations r SET r.status='expired' WHERE r.status='held' AND r.expires_at<=UTC_TIMESTAMP() AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.id=r.order_id AND o.status='receipt_submitted')"
+      const [[order]] = await conn.execute(
+        "SELECT id,campaign_id,entry_id,status FROM payment_orders WHERE id=? AND participant_id=? FOR UPDATE",
+        [orderId,participantId]
       );
-      const [orders] = await conn.execute(
-        "UPDATE payment_orders o JOIN campaign_capacity_reservations r ON r.order_id=o.id SET o.status='expired' WHERE r.status='expired' AND o.status='pending_payment' AND o.expires_at<=UTC_TIMESTAMP()"
-      );
+      if (!order) throw new Error('سفارش برای حساب شما پیدا نشد.');
+      if (order.status === 'cancelled') {
+        await conn.commit();
+        return { id: orderId, status: 'cancelled', duplicate: true };
+      }
+      if (order.status !== 'pending_payment') throw new Error('فقط سفارش در انتظار پرداخت قابل لغو است. رسید ارسال‌شده باید توسط پشتیبانی بررسی شود.');
+      await conn.execute("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status='pending_payment'", [orderId]);
+      await conn.execute("UPDATE campaign_capacity_reservations SET status='released' WHERE order_id=? AND status='held'", [orderId]);
       await conn.execute(
-        "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')"
+        "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.id=? AND e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')",
+        [order.entry_id]
+      );
+      await conn.execute("DELETE FROM campaign_payment_sessions WHERE order_id=?", [orderId]);
+      await conn.execute(
+        "INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",
+        ['customer:'+String(participantId),'cancel_order','payment_order',String(orderId),JSON.stringify({campaign_id:order.campaign_id})]
       );
       await conn.commit();
-      return { reservationsExpired: reservations.affectedRows, ordersExpired: orders.affectedRows };
+      return { id: orderId, status: 'cancelled' };
     } catch (error) {
       await conn.rollback();
       throw error;
     } finally { conn.release(); }
   }
 
-  async function requestProfileChange({ participantId, field, value }) {
+  async function expireReservations() {
+    const conn = await db.getConnection();
+    const result = { reservationsExpired: 0, ordersExpired: 0 };
+    try {
+      await conn.beginTransaction();
+      // Lock payment orders first, matching submitReceipt/reviewManualPayment,
+      // then lock their reservations. Updating reservations first can deadlock
+      // against a receipt upload that already owns the order row.
+      const [expiredOrders] = await conn.execute(
+        "SELECT id,entry_id FROM payment_orders WHERE status='pending_payment' AND expires_at<=UTC_TIMESTAMP() ORDER BY id FOR UPDATE SKIP LOCKED"
+      );
+      for (const order of expiredOrders) {
+        const [[reservation]] = await conn.execute(
+          "SELECT id,status,(expires_at<=UTC_TIMESTAMP()) AS is_expired FROM campaign_capacity_reservations WHERE order_id=? FOR UPDATE",
+          [order.id]
+        );
+        if (!reservation || reservation.status !== 'held' || Number(reservation.is_expired) !== 1) continue;
+        const [reservationUpdate] = await conn.execute(
+          "UPDATE campaign_capacity_reservations SET status='expired' WHERE id=? AND status='held' AND expires_at<=UTC_TIMESTAMP()",
+          [reservation.id]
+        );
+        if (reservationUpdate.affectedRows !== 1) continue;
+        result.reservationsExpired++;
+        const [orderUpdate] = await conn.execute(
+          "UPDATE payment_orders SET status='expired' WHERE id=? AND status='pending_payment' AND expires_at<=UTC_TIMESTAMP()",
+          [order.id]
+        );
+        result.ordersExpired += Number(orderUpdate.affectedRows || 0);
+      }
+      await conn.execute(
+        "UPDATE campaign_entries e SET e.status='cancelled' WHERE e.status='pending' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.entry_id=e.id AND o.status IN ('pending_payment','receipt_submitted','approved')) AND NOT EXISTS (SELECT 1 FROM campaign_codes c WHERE c.entry_id=e.id AND c.status='active')"
+      );
+      await conn.commit();
+      return result;
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally { conn.release(); }
+  }
+
+  async function requestProfileChange({ participantId, field, value, telegramMessageId = null }) {
     const fields = {
       full_name: v => { const x=String(v||'').trim().replace(/\\s+/g,' '); if(!validFullName(x)) throw new Error('نام معتبر نیست.'); return x; },
       phone: v => { const x=normalizePhone(v); if(!validPhone(x)) throw new Error('شماره موبایل معتبر نیست.'); return x; },
@@ -425,7 +560,7 @@ function createCampaignService({ db, adminId }) {
     const [[participant]] = await db.execute(`SELECT id,${field} AS old_value FROM participants WHERE id=? AND status='active' LIMIT 1`, [participantId]);
     if (!participant) throw new Error('پروفایل فعال پیدا نشد.');
     if (String(participant.old_value) === nextValue) throw new Error('مقدار جدید با مقدار فعلی یکسان است.');
-    const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,status) VALUES(?,?,?,?,'pending')", [participantId,field,String(participant.old_value),nextValue]);
+    const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,telegram_message_id,status) VALUES(?,?,?,?,?,'pending') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)", [participantId,field,String(participant.old_value),nextValue,telegramMessageId==null?null:Number(telegramMessageId)]);
     const [[recipient]]=await db.execute('SELECT chat_id FROM participants WHERE id=? LIMIT 1',[participantId]);
     if(recipient?.chat_id) await db.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['profile-change:'+result.insertId,'profile_change_requested',JSON.stringify({method:'sendMessage',payload:{chat_id:String(adminId),text:'📝 درخواست اصلاح پروفایل جدید\nشناسه: '+result.insertId+'\nشرکت‌کننده: '+participantId+'\nفیلد: '+field+'\nمقدار قبلی: '+participant.old_value+'\nمقدار درخواستی: '+nextValue+'\nبرای بررسی به پنل تلگرام بروید: /panel'}})]);
 
@@ -438,7 +573,7 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[request]] = await conn.execute('SELECT * FROM profile_change_requests WHERE id=? FOR UPDATE', [requestId]);
       if (!request || request.status !== 'pending') throw new Error('درخواست اصلاح پیدا نشد یا قبلاً بررسی شده است.');
-      const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [request.participant_id]);
+      const [[participant]] = await conn.execute('SELECT id,status,chat_id,business_connection_id FROM participants WHERE id=? FOR UPDATE', [request.participant_id]);
       if (!participant || participant.status !== 'active') throw new Error('پروفایل فعال نیست.');
       if (approve) {
         const allowed = new Set(['full_name','phone','instagram']);
@@ -447,6 +582,20 @@ function createCampaignService({ db, adminId }) {
       }
       await conn.execute("UPDATE profile_change_requests SET status=?,reviewed_by=?,reviewed_at=UTC_TIMESTAMP(),review_note=? WHERE id=?", [approve?'approved':'rejected',String(adminId),String(note).slice(0,255),requestId]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),approve?'approve_profile_change':'reject_profile_change','profile_change_request',String(requestId),JSON.stringify({participant_id:request.participant_id,field:request.field_name,old_value:request.old_value,new_value:request.requested_value,note})]);
+      if (participant.chat_id) {
+        const statusText = approve ? 'تأیید شد و اطلاعات شما به‌روزرسانی شد.' : 'رد شد. برای پیگیری با پشتیبانی USTORE تماس بگیرید.';
+        await conn.execute(
+          "INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",
+          ['profile-change-reviewed:'+requestId,'profile_change_reviewed',JSON.stringify({
+            method:'sendMessage',
+            payload:{
+              chat_id:String(participant.chat_id),
+              ...(participant.business_connection_id ? {business_connection_id:String(participant.business_connection_id)} : {}),
+              text:'📋 نتیجه درخواست اصلاح پروفایل #'+requestId+'\n'+statusText
+            }
+          })]
+        );
+      }
       await conn.commit();
       return { id: requestId, status: approve?'approved':'rejected' };
     } catch (error) {
@@ -456,7 +605,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, updateDraftCampaign, setCampaignStatus, reserveManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
+  return { createCampaign, updateDraftCampaign, setCampaignStatus, syncCampaignSchedule, reserveManualOrder, cancelManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };

@@ -99,52 +99,55 @@ test('a second migration process cannot enter until the first releases its lock'
 });
 
 
-test('legacy phone text step cannot bypass Telegram contact ownership verification', () => {
+test('customer phone is accepted only from the owner Telegram contact', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(s\.step===\"phone\"\)\{await putSession\(uid,chat,\"awaiting_contact\",s\.full_name,null,conn,s\.instagram\|\|null\)/);
-  assert.doesNotMatch(source, /if\(s\.step===\"phone\"\)\{const p=t\.replace/);
+  assert.match(source, /if\(m\.contact\)/);
+  assert.match(source, /!m\.contact\.user_id\|\|String\(m\.contact\.user_id\)!==uid/);
+  assert.match(source, /profile_awaiting_contact/);
+  assert.doesNotMatch(source, /s\.step==="phone"/);
 });
 
-test('registration confirmation token is bound to user, chat and Business connection', () => {
+test('profile confirmation is bound to the Telegram user, chat and Business connection', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /function makeConfirmationPayload\(uid,chat,connection\)/);
-  assert.match(source, /claims\.uid===String\(uid\)&&claims\.chat===String\(chat\)&&claims\.connection===String\(connection\)/);
-  assert.match(source, /verifyConfirmationPayload\(q\.data\|\|"",uid,chat,q\.message\?\.business_connection_id\|\|""\)/);
-  assert.match(source, /String\(s\.business_connection_id\)!==String\(q\.message\?\.business_connection_id\|\|""\)/);
-  assert.match(source, /callback_data:makeConfirmationPayload\(uid,chat,conn\)/);
-});
-
-test('registration callback is answered once after durable confirmation', () => {
-  const fs = require('node:fs');
-  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  const start = source.indexOf('async function handleCallbackQuery(q)');
-  const end = source.indexOf('async function handlePrivateUpdate(update)', start);
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
   const handler = source.slice(start, end);
-  const registrationHandler = handler.slice(handler.indexOf('if(verifyConfirmationPayload'), handler.indexOf("if(String(q.data||'').startsWith('campaign:join:')"));
-  assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3);
-  assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
-  assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
+  assert.match(handler, /s\.step!=="profile_confirmation"/);
+  assert.match(handler, /String\(s\.chat_id\)!==chat/);
+  assert.match(handler, /String\(s\.business_connection_id\|\|""\)!==connection/);
 });
 
-test('contact-card delivery failure does not strand registration in confirmation state', () => {
+test('profile confirmation persists the profile before clearing the session', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  const contact = source.indexOf('if(s.step==="instagram"){');
-  const confirm = source.indexOf('await putSession(uid,chat,"awaiting_confirmation"', contact);
-  const failure = source.indexOf('ارسال کارت مخاطب ممکن نشد', contact);
-  assert.ok(contact >= 0 && confirm > failure);
-  assert.match(source, /if\(s\.step==="awaiting_confirmation"\)\{\s*return tg\("sendMessage"/);
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /await saveParticipantProfile\([\s\S]*?await delSession\(uid\)/);
+  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);
+  assert.match(handler, /SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open'/);
 });
 
-test('multi-campaign Business flow supports campaign listing, joins, and payment receipt photos', () => {
+test('optional contact gate fails open when CONTACT_PHONE is unset or invalid', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'\)/);
+  assert.match(source, /function configuredContactPhone\(\)/);
+  assert.match(source, /if\(!configuredContactPhone\(\)\)return true/);
+  assert.match(source, /if\(!await contactGateAccepted\(uid\)\)/);
+});
+
+test('multi-campaign Business flow supports campaign listing, joins, and photo or PDF receipt uploads', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'/);
   assert.match(source, /campaignService\.joinFreeCampaign\(\{campaignId:Number\(campaignId\),telegramUserId:uid,chatId:chat,businessConnectionId:connection/);
-  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity:1\}\)/);
-  assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:photo\.file_id/);
+  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity\}\)/);
+  assert.match(source, /if\(m\.photo\?\.length\|\|m\.document\)/);
+  assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:file\.file_id,fileUniqueId:file\.file_unique_id/);
+  assert.match(source, /application\/pdf/);
+  assert.match(source, /10\*1024\*1024/);
   assert.match(source, /business_connection_id=\? LIMIT 1/);
 });
 
@@ -157,10 +160,167 @@ test('campaign payment session schema binds one pending order to a Telegram Busi
   assert.match(schema, /FOREIGN KEY\(order_id\) REFERENCES payment_orders\(id\)/);
 });
 
-test('campaign-only profile onboarding is allowed while legacy registration is closed', () => {
+test('new customer profile onboarding is independent of campaign availability', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(!legacyRegistrationOpen\)\{\s*const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+  assert.match(source, /if\(q\.data==="profile:create"\)/);
+  assert.match(source, /نام و نام خانوادگی خود را برای ساخت پروفایل دائمی وارد کنید؛ حتی بدون کمپین فعال/);
+  assert.match(source, /async function saveParticipantProfile\(/);
   assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
-  assert.match(source, /if\(!await registrationOpen\(\)\)\{const \[\[campaignOpen\]\]=await db\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+  assert.doesNotMatch(source, /legacyRegistrationOpen|lottery_entries|lottery_settings/);
+});
+
+
+test('customer can create a persistent profile without an open campaign', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /if\(q\.data==="profile:create"\)/);
+  assert.match(source, /async function saveParticipantProfile\(/);
+  assert.match(source, /if\(q\.data==="profile:confirm"\)/);
+  assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
+});
+
+test('customer profile edits, codes and support have interactive routes', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  assert.match(source, /profile:edit:name/);
+  assert.match(source, /profile:edit:phone/);
+  assert.match(source, /profile:edit:instagram/);
+  assert.match(source, /if\(q\.data==='participant:codes'\)/);
+  assert.match(source, /customer_support_tickets/);
+  assert.match(source, /\/reply/);
+});
+
+test('customer flow migration creates support tickets; session states belong to fresh bootstrap', () => {
+  const migration = require('../migrations/customer-flow');
+  assert.equal(typeof migration.up, 'function');
+  const fs = require('node:fs');
+  const customerFlow = fs.readFileSync(require.resolve('../migrations/customer-flow'), 'utf8');
+  const bootstrap = fs.readFileSync(require.resolve('../migrations/run'), 'utf8');
+  assert.match(customerFlow, /CREATE TABLE IF NOT EXISTS customer_support_tickets/);
+  assert.match(customerFlow, /status ENUM\('open','answered','closed'\)/);
+  assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS telegram_sessions/);
+  assert.match(bootstrap, /profile_confirmation/);
+  assert.match(bootstrap, /support_message/);
+});
+
+test('customer order recovery, cancellation, order history and support history are exposed in Telegram', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const service = fs.readFileSync(require.resolve('../src/campaign-service.js'), 'utf8');
+  assert.match(source, /participant:orders/);
+  assert.match(source, /order:resume:/);
+  assert.match(source, /order:cancel:/);
+  assert.match(source, /participant:tickets/);
+  assert.match(source, /terms\.payment_card/);
+  assert.match(service, /async function cancelManualOrder\(/);
+  assert.match(service, /status='released'/);
+  assert.match(service, /DELETE FROM campaign_payment_sessions WHERE order_id/);
+});
+
+
+test('support ticket creation is keyed by Telegram message id and atomically queues both notifications', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(currentSession?.step==="support_message")');
+  const end = source.indexOf("const profileChangeMatch=", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /telegram_message_id/);
+  assert.match(handler, /SELECT id,status FROM customer_support_tickets WHERE telegram_user_id=.*FOR UPDATE/);
+  assert.match(handler, /INSERT IGNORE INTO customer_support_messages/);
+  assert.match(handler, /support-ticket-customer:/);
+  assert.match(handler, /support-message:/);
+  assert.match(handler, /beginTransaction\(\)/);
+  assert.match(handler, /await ticketConn\.commit\(\)/);
+  assert.match(handler, /DELETE FROM telegram_sessions/);
+  assert.match(handler, /INSERT IGNORE INTO telegram_notification_outbox/);
+});
+
+test('support replies are committed to the notification outbox before Telegram delivery', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(lower==="/reply"||lower.startsWith("/reply "))');
+  const end = source.indexOf("\n}\n\napp.get(\"/\"", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=\? FOR UPDATE/);
+  assert.match(handler, /support-reply:/);
+  assert.match(handler, /INSERT IGNORE INTO telegram_notification_outbox/);
+  assert.doesNotMatch(handler, /await reply\(String\(ticket\.chat_id\)/);
+  assert.match(handler, /await replyConn\.commit\(\)/);
+});
+
+
+test('profile correction requests use Telegram message id as a durable idempotency key', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const service = fs.readFileSync(require.resolve('../src/campaign-service.js'), 'utf8');
+  assert.match(source, /telegramMessageId:m\.message_id/);
+  assert.match(service, /telegram_message_id,status\) VALUES\(\?,\?,\?,\?,\?,'pending'\) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID\(id\)/);
+});
+
+
+test('customer start requires profile registration before showing campaign choices', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf("if(lower==='/start'||lower==='لاتاری'");
+  const end = source.indexOf("const currentSession=await session(uid);", start);
+  const handler = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(handler, /SELECT id,status FROM participants WHERE telegram_user_id=\? LIMIT 1/);
+  assert.ok(handler.indexOf('if(!existingProfile)') < handler.indexOf('SELECT id,name,payment_mode,price_per_code,currency FROM campaigns'));
+  assert.match(handler, /putSession\(uid,chat,"profile_name"/);
+  assert.match(handler, /existingProfile\.status!=="active"/);
+});
+
+test('newly registered customer is shown free and paid campaigns immediately', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /payment_mode==="free"\?"رایگان"/);
+  assert.match(handler, /callback_data:"campaign:details:"\+c\.id/);
+  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);
+});
+
+
+test('duplicate free campaign join returns the already-issued codes instead of promising a new message', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf("if(String(q.data||'').startsWith('campaign:quantity:'))");
+  const end = source.indexOf('const adminHandled=await adminTelegram.handleCallback(q)', start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /const joined=await campaignService\.joinFreeCampaign/);
+  assert.match(handler, /if\(joined\.duplicate\)/);
+  assert.match(handler, /joined\.codes\|\|\[\]/);
+  assert.doesNotMatch(handler, /duplicate[\s\S]{0,300}کدها در پیام جداگانه/);
+});
+
+
+test('contact-gate confirmation and stale campaign buttons cannot bypass profile registration', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  assert.match(source,/async function requireActiveParticipant\(uid,chat,connection\)/);
+  assert.match(source,/if\(!await requireActiveParticipant\(uid,chat,connection\)\)return/);
+  assert.match(source,/if\(!await requireActiveParticipant\(uid,chat,String\(q\.message\?\.business_connection_id\|\|''\)\)\)return/);
+  const gate=source.slice(source.indexOf('async function handleContactGateCallback'),source.indexOf('const adminTelegram'));
+  assert.ok(gate.indexOf('requireActiveParticipant(uid,chat,connection)')<gate.indexOf('SELECT id,name,payment_mode,price_per_code,currency FROM campaigns'));
+});
+
+test('support replies use a unique Telegram message id so reopened tickets can receive another reply', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  assert.match(source,/support-reply:\"\+ticketId\+\":\"\+messageId/);
+});
+
+
+test('campaign detail callbacks validate identity and answer Telegram callback before profile lookup', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  const start=source.indexOf("if(String(q.data||'').startsWith('campaign:details:'))");
+  const end=source.indexOf("if(q.data==='profile:edit:name'",start);
+  const handler=source.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.ok(handler.indexOf('if(!uid||!chat||')<handler.indexOf('requireActiveParticipant(uid,chat'));
+  assert.ok(handler.indexOf("answerCallbackQuery")<handler.indexOf('requireActiveParticipant(uid,chat'));
 });

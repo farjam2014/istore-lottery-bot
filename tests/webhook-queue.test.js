@@ -3,15 +3,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createWebhookQueue } = require("../src/webhook-queue");
+const { getCorrelationId } = require("../src/correlation-context");
 
-function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, heartbeatMs = 60 * 60 * 1000 } = {}) {
+function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000, correlationId = null, rateLimit = async () => ({ limited: false, allowed: true }), payload = { business_message: { text: "لاتاری" } } } = {}) {
   const calls = [];
   const logs = [];
   let connectionCount = 0;
+  let rateLimitDecision = false;
+  const statements = [];
 
   const item = {
     update_id: "9001",
-    payload: { business_message: { text: "لاتاری" } }
+    correlation_id: correlationId,
+    payload
   };
 
   function makeConnection(kind) {
@@ -35,8 +39,21 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
         }
         throw new Error("Unexpected connection query");
       },
-      async execute(sql) {
+      async execute(sql, params = []) {
+        statements.push({kind,sql,params});
         calls.push(`${kind}:execute:${sql.includes("status='done'") ? "finish" : "other"}`);
+
+        if (sql.includes('SELECT retry_after_ms FROM webhook_rate_limit_events')) {
+          return [rateLimitDecision ? [{retry_after_ms:3000}] : [], []];
+        }
+        if (sql.includes('INSERT INTO webhook_rate_limit_events')) {
+          rateLimitDecision = true;
+          return [{affectedRows:1}, []];
+        }
+        if (sql.includes('DELETE FROM webhook_rate_limit_events')) {
+          rateLimitDecision = false;
+          return [{affectedRows:1}, []];
+        }
 
         if (sql.includes("status='done'")) {
           return [{ affectedRows: finishAffectedRows }, []];
@@ -57,7 +74,7 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
       calls.push(`db:execute:${sql.includes("SELECT 1 FROM processed_updates") ? "processed-check" : "retry-or-heartbeat"}`);
 
       if (sql.includes("SELECT 1 FROM processed_updates")) {
-        return [[], []];
+        return [alreadyProcessed ? [{ update_id: item.update_id }] : [], []];
       }
 
       if (heartbeatFailure && sql.includes("SET processing_started_at=NOW()")) {
@@ -76,6 +93,7 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
 
   const queue = createWebhookQueue({
     db,
+    rateLimit,
     handlers: {
       business: handler || (async () => {})
     },
@@ -83,7 +101,7 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
     heartbeatMs
   });
 
-  return { queue, calls, logs };
+  return { queue, calls, logs, statements };
 }
 
 test("successful update is handled and marked done", async () => {
@@ -100,6 +118,26 @@ test("successful update is handled and marked done", async () => {
   assert.equal(handled, 1);
   assert.ok(calls.includes("finish:execute:finish"));
   assert.ok(calls.includes("finish:commit"));
+});
+
+test("rate-limited webhook is delayed without consuming attempts and rechecked until allowed",async()=>{
+ let checks=0,handled=0;
+ const decisions=[{limited:true,retryAfterMs:3000},{limited:false,retryAfterMs:0}];
+ const {queue,statements}=createHarness({
+  payload:{business_message:{from:{id:9002},text:"لاتاری"}},
+  rateLimit:async()=>{checks++;return decisions.shift();},
+  handler:async()=>{handled++;}
+ });
+ assert.equal(await queue.processOne(),false);
+ assert.equal(checks,1);
+ assert.equal(handled,0);
+ assert.ok(statements.some(x=>x.sql.includes("SET received_at=DATE_ADD(NOW(3)")));
+ assert.ok(statements.some(x=>x.sql.includes("INSERT INTO webhook_rate_limit_events")));
+ assert.equal(statements.some(x=>x.sql.includes("SET status='processing'")),false);
+ assert.equal(await queue.processOne(),true);
+ assert.equal(checks,2,'deferred updates must be checked again against the active quota');
+ assert.equal(handled,1);
+ assert.ok(statements.some(x=>x.sql.includes("DELETE FROM webhook_rate_limit_events")));
 });
 
 test("handler failure does not mark update done and schedules retry", async () => {
@@ -187,4 +225,26 @@ test("stop returns false instead of waiting forever after its deadline", async (
   const stopped = await queue.stop(10);
   assert.equal(stopped, false);
   await processing;
+});
+
+
+test("webhook handler receives the durable correlation id from inbox", async () => {
+  const id="123e4567-e89b-42d3-a456-426614174000";
+  let observed=null;
+  const {queue}=createHarness({correlationId:id,handler:async()=>{observed=getCorrelationId();}});
+  assert.equal(await queue.processOne(),true);
+  assert.equal(observed,id);
+  assert.equal(getCorrelationId(),null);
+});
+
+test("already processed update ids are not sent to business handlers again", async () => {
+  let handled = 0;
+  const { queue, calls } = createHarness({
+    alreadyProcessed: true,
+    handler: async () => { handled += 1; }
+  });
+  assert.equal(await queue.processOne(), true);
+  assert.equal(handled, 0);
+  assert.ok(calls.includes("finish:execute:finish"));
+  assert.ok(calls.includes("finish:commit"));
 });

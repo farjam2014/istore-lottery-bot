@@ -1,6 +1,9 @@
 "use strict";
+const crypto = require("node:crypto");
+const { runWithCorrelation } = require("./correlation-context");
+const { consumeTelegramRateLimit, identifyTelegramActor, rateLimitBucket, retryableTransactionError } = require("./telegram-rate-limit");
 
-function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000 }) {
+function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000, rateLimit = consumeTelegramRateLimit, adminId = null }) {
   if (!db || !handlers) throw new Error("db and handlers are required");
 
   let busy = false;
@@ -21,12 +24,12 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         await conn.beginTransaction();
 
         await conn.execute(
-          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,NOW()),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL ? MICROSECOND)",
+          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL LEAST(300,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL ? MICROSECOND)",
           [leaseMs * 1000]
         );
 
         const [rows] = await conn.query(
-          "SELECT update_id,payload FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+          "SELECT update_id,payload,correlation_id FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at,update_id LIMIT 1 FOR UPDATE SKIP LOCKED"
         );
 
         if (!rows.length) {
@@ -35,11 +38,58 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         }
 
         item = rows[0];
-        item.processingToken = require("node:crypto").randomUUID();
+        item.correlationId = item.correlation_id || crypto.randomUUID();
+        const update = typeof item.payload === "string" ? JSON.parse(item.payload) : item.payload;
+        const actorId = identifyTelegramActor(update);
+        if (actorId) {
+          const bucket = rateLimitBucket(update);
+          const [priorDecision] = await conn.execute(
+            "SELECT retry_after_ms FROM webhook_rate_limit_events WHERE update_id=? LIMIT 1",
+            [item.update_id]
+          );
+          const isAdminActor = adminId != null && actorId === String(adminId);
+          let quota;
+          try {
+            quota = await rateLimit(db, {
+              userId: actorId,
+              bucket,
+              limit: isAdminActor ? 120 : (bucket === "callback" ? 50 : 25),
+              windowMs: 60000,
+              blockMs: 5000,
+              connection: conn
+            });
+          } catch (rateError) {
+            if (retryableTransactionError(rateError)) throw rateError;
+            await conn.execute(
+              "UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",
+              ["rate_limit_check_failed:" + String(rateError.message || "unknown").slice(0, 400), item.update_id]
+            );
+            await conn.commit();
+            logger.error("Webhook rate-limit check failed [" + item.correlationId + "]:", rateError.message);
+            return false;
+          }
+          if (quota.limited) {
+            const retryMs = Math.max(100, Math.min(3600000, Number(quota.retryAfterMs) || 5000));
+            await conn.execute(
+              "INSERT INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE retry_after_ms=VALUES(retry_after_ms)",
+              [item.update_id, actorId, bucket, item.correlationId, retryMs]
+            );
+            await conn.execute(
+              "UPDATE webhook_inbox SET received_at=DATE_ADD(NOW(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",
+              [retryMs * 1000, "rate_limited:" + bucket + ":" + retryMs, item.update_id]
+            );
+            await conn.commit();
+            return false;
+          }
+          if (priorDecision.length) {
+            await conn.execute("DELETE FROM webhook_rate_limit_events WHERE update_id=?", [item.update_id]);
+          }
+        }
+        item.processingToken = crypto.randomUUID();
 
         await conn.execute(
-          "UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE update_id=? AND status='pending'",
-          [item.processingToken, item.update_id]
+          "UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=?,correlation_id=COALESCE(correlation_id,?) WHERE update_id=? AND status='pending'",
+          [item.processingToken, item.correlationId, item.update_id]
         );
 
         await conn.commit();
@@ -59,30 +109,32 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
           if (result.affectedRows !== 1) leaseLost = true;
         } catch (error) {
           leaseLost = true;
-          logger.error("Webhook lease heartbeat error:", error.message);
+          logger.error("Webhook lease heartbeat error ["+(item?.correlationId||item?.update_id||"unknown")+"]:", error.message);
         }
       }, heartbeatMs);
 
       heartbeat.unref?.();
 
-      const [alreadyProcessed] = await db.execute(
-        "SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",
-        [item.update_id]
-      );
+      await runWithCorrelation(item.correlationId, async () => {
+        const [alreadyProcessed] = await db.execute(
+          "SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",
+          [item.update_id]
+        );
 
-      if (!alreadyProcessed.length) {
-        const update = typeof item.payload === "string"
-          ? JSON.parse(item.payload)
-          : item.payload;
+        if (!alreadyProcessed.length) {
+          const update = typeof item.payload === "string"
+            ? JSON.parse(item.payload)
+            : item.payload;
 
-        if (update.business_message && handlers.business) {
-          await handlers.business(update);
-        } else if (update.message && handlers.private) {
-          await handlers.private(update);
-        } else if (update.callback_query && handlers.callback) {
-          await handlers.callback(update.callback_query);
+          if (update.business_message && handlers.business) {
+            await handlers.business(update);
+          } else if (update.message && handlers.private) {
+            await handlers.private(update);
+          } else if (update.callback_query && handlers.callback) {
+            await handlers.callback(update.callback_query);
+          }
         }
-      }
+      });
 
       if (leaseLost) throw new Error("Webhook processing lease was lost");
 
@@ -117,17 +169,17 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         finish.release();
       }
     } catch (error) {
-      logger.error("Webhook processing error:", error.message);
+      logger.error("Webhook processing error ["+(item?.correlationId||item?.update_id||"unclaimed")+"]:", error.message);
 
       if (item?.processingToken) {
         await db.execute(
-          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL 3 SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",
+          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL LEAST(300,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",
           [
             String(error.message || "Unknown error").slice(0, 500),
             item.update_id,
             item.processingToken
           ]
-        ).catch(updateError => logger.error("Queue update error:", updateError.message));
+        ).catch(updateError => logger.error("Queue update error ["+(item?.correlationId||item?.update_id||"unknown")+"]:", updateError.message));
       }
 
       return false;

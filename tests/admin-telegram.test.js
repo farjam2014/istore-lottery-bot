@@ -3,55 +3,50 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAdminTelegram } = require('../src/admin-telegram');
 
-function harness() {
-  const calls = [];
-  const conn = {
-    async beginTransaction() { calls.push({ sql: 'BEGIN' }); },
-    async commit() { calls.push({ sql: 'COMMIT' }); },
-    async rollback() { calls.push({ sql: 'ROLLBACK' }); },
-    release() { calls.push({ sql: 'RELEASE' }); },
-    async execute(sql, params = []) {
-      calls.push({ sql, params });
-      if (sql.includes('SELECT id,status,raffle_code FROM lottery_entries')) return [[{ id: 42, status: 'active', raffle_code: 'LOT-ABCDEFGH' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
-      if (sql.includes("SELECT id FROM lottery_entries WHERE status='active'")) return [[]];
-      return [{ affectedRows: 1, insertId: 77 }];
-    },
-    async query() { return [[]]; }
+function harness({webhookStatus='failed',webhookProcessed=false}={}) {
+  const calls=[];
+  const conn={
+    async beginTransaction(){calls.push({sql:'BEGIN'});},
+    async commit(){calls.push({sql:'COMMIT'});},
+    async rollback(){calls.push({sql:'ROLLBACK'});},
+    release(){calls.push({sql:'RELEASE'});},
+    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample',correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM webhook_inbox WHERE update_id=? FOR UPDATE'))return [[{update_id:123,status:webhookStatus,attempts:5,correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM processed_updates WHERE update_id=?'))return [webhookProcessed?[{update_id:123}]:[]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
+    async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
-  const db = {
-    async execute(sql, params = []) {
-      calls.push({ sql, params });
-      if (sql.includes("FROM lottery_settings")) return [[{ setting_value: 'false' }]];
-      if (sql.includes('FROM campaigns c') || sql.includes('FROM payment_orders o JOIN campaigns')) return [[]];
-      if (sql.includes('SELECT id,full_name,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', status: 'active' }]];
-      if (sql.includes('SELECT id,status FROM lottery_entries')) return [[{ id: 42, status: 'active' }]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deletion_reason')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09121111111', instagram: 'ali.new', raffle_code: 'LOT-ABCDEFGH', status: 'active', created_at: 'now' }]];
-      if (sql.includes('SELECT raffle_code,action,actor,created_at FROM lottery_code_history')) return [[]];
-      if (sql.includes('SELECT id,full_name,phone,instagram,raffle_code,status FROM lottery_entries')) return [[{ id: 42, full_name: 'Ali Rezaei', phone: '09120000000', instagram: 'ali.old', raffle_code: 'LOT-ABCDEFGH', status: 'active' }]];
-      if (sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries')) return [[]];
-      if (sql.includes('SELECT d.id,d.winner_entry_id')) return [[]];
-      return [{ affectedRows: 1 }];
+  const db={
+    async execute(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('SELECT COUNT(*) AS total FROM participants p WHERE'))return [[{total:1}]];
+      if(sql.includes('FROM participants p WHERE')&&sql.includes('LIMIT 8 OFFSET'))return [[{id:31,full_name:'Test Customer',phone:'09123335555',instagram:'testuser',status:'active',campaign_count:1,active_codes:2}]];
+      if(sql.includes('SELECT COUNT(*) AS total FROM telegram_notification_outbox'))return [[{total:1}]];
+      if(sql.includes('FROM telegram_notification_outbox')&&sql.includes('LIMIT ? OFFSET ?'))return [[{id:19,notification_type:'sample',status:'sent',attempts:1,last_error:null,created_at:'2026-11-14',sent_at:'2026-11-14',next_attempt_at:null}]];
+      if(sql.includes('FROM telegram_notification_outbox WHERE id=? LIMIT 1'))return [[{id:19,dedupe_key:'sample-key',notification_type:'sample',status:'failed',attempts:5,last_error:'Telegram unavailable',created_at:'2026-11-14',sent_at:null,next_attempt_at:null,processing_started_at:null}]];
+      if(sql.includes('SELECT COUNT(*) AS total FROM customer_support_messages'))return [[{total:25}]];
+      if(sql.includes('FROM campaigns c')||sql.includes('FROM payment_orders o JOIN campaigns'))return [[]];
+      if(sql.includes('FROM bank_cards'))return [[]];
+      if(sql.includes('FROM customer_support_tickets'))return [[{id:42,telegram_user_id:'777',chat_id:'777',business_connection_id:null,message:'پیام اولیه',status:'open',admin_reply:null,replied_at:null,created_at:'2026-11-14'}]];
+      if(sql.includes('FROM customer_support_messages'))return [[{sender_type:'customer',sender_id:'777',message:'پیام اولیه',created_at:'2026-11-14'}]];
+      if(sql.includes('FROM participants p'))return [[]];
+      return [{affectedRows:1,insertId:77}];
     },
-    async query(sql) {
-      if (sql.includes('FROM lottery_entries')) return [[{ total: 0, active: 0, inactive: 0, deleted: 0 }]];
-      if (sql.includes('FROM lottery_sessions')) return [[{ pending: 0 }]];
-      if (sql.includes('FROM webhook_inbox')) return [[{ failed: 0 }]];
-      if (sql.includes('FROM telegram_notification_outbox')) return [[{ failed: 0 }]];
-      if (sql.includes('FROM campaigns')) return [[{ total: 0, open: 0, draft: 0, paused: 0, closed: 0 }]];
-      if (sql.includes('FROM participants')) return [[{ total: 0, active: 0 }]];
-      if (sql.includes('FROM campaign_codes')) return [[{ total: 0 }]];
-      if (sql.includes('FROM payment_orders')) return [[{ total: 0, pending: 0, receipts: 0, approved: 0, rejected: 0 }]];
-      if (sql.includes('FROM payment_transactions')) return [[]];
-      if (sql.includes('FROM profile_change_requests')) return [[{ pending: 0 }]];
-      if (sql.includes('FROM lottery_settings')) return [[{ setting_value: 'false' }]];
+    async query(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('FROM telegram_sessions'))return [[{pending:0}]];
+      if(sql.includes('FROM webhook_inbox'))return [[{failed:0}]];
+      if(sql.includes('FROM telegram_notification_outbox'))return [[{failed:0}]];
+      if(sql.includes('FROM campaigns'))return [[{total:0,open:0,draft:0,paused:0,closed:0}]];
+      if(sql.includes('FROM participants'))return [[{total:0,active:0}]];
+      if(sql.includes('FROM campaign_entries'))return [[{total:0,active:0,pending:0}]];
+      if(sql.includes('FROM campaign_codes'))return [[{total:0}]];
+      if(sql.includes('FROM payment_orders'))return [[{total:0,pending:0,receipts:0,approved:0,rejected:0}]];
+      if(sql.includes('FROM payment_transactions'))return [[]];
+      if(sql.includes('FROM profile_change_requests'))return [[{pending:0}]];
       return [[]];
     },
-    async getConnection() { return conn; }
+    async getConnection(){return conn;}
   };
-  const telegram = [];
-  const tg = async (method, payload) => { telegram.push({ method, payload }); return { ok: true }; };
+  const telegram=[],documents=[];
+  const tg=async(method,payload)=>{telegram.push({method,payload});return {ok:true};};
   const cardRows=new Map();
   const bankCardService={
     async listCards(){return [...cardRows.values()];},
@@ -61,14 +56,23 @@ function harness() {
     async setCardStatus(){},
     async deleteCard(id){calls.push({sql:'DELETE_BANK_CARD',id});if(!cardRows.has(Number(id)))throw new Error('کارت پیدا نشد.');cardRows.delete(Number(id));}
   };
-  const admin = createAdminTelegram({
-    db, tg, tgDocument: async () => ({ ok: true }), bankCardService,
-    adminId: '12345', registrationOpen: async () => false,
-    campaignService: { async createCampaign(input) { calls.push({ sql: 'CREATE_CAMPAIGN', input }); return { id: 88, slug: input.slug }; }, async updateDraftCampaign(id,input) { calls.push({ sql: 'UPDATE_DRAFT_CAMPAIGN', id, input }); return { id, slug: input.slug }; } }
+  const campaignService={
+    async createCampaign(input){calls.push({sql:'CREATE_CAMPAIGN',input});return {id:88,slug:input.slug};},
+    async updateDraftCampaign(id,input){calls.push({sql:'UPDATE_DRAFT_CAMPAIGN',id,input});return {id,slug:input.slug};},
+    async setCampaignStatus(id,status){calls.push({sql:'SET_CAMPAIGN_STATUS',id,status});return {id,status};},
+    async reviewProfileChange(input){calls.push({sql:'REVIEW_PROFILE_CHANGE',input});}
+  };
+  const drawService={
+    async prepareDraw(){return {drawId:55,drawNumber:1,candidates:12,snapshotHash:'snapshot-hash',method:'system'};},
+    async runSystemDraw(){return {drawId:55};},
+    async approveDraw(){return {drawId:55,status:'completed'};}
+  };
+  const admin=createAdminTelegram({
+    db,tg,tgDocument:async(...args)=>{documents.push(args);return {ok:true};},
+    bankCardService,campaignService,drawService,adminId:'12345',registrationOpen:async()=>false
   });
-  return { admin, calls, telegram };
+  return {admin,calls,telegram,documents,cardRows};
 }
-
 
 test('management dashboard reports multi-campaign, payment and reliability metrics', async () => {
   const h=harness();
@@ -76,9 +80,37 @@ test('management dashboard reports multi-campaign, payment and reliability metri
   const body=h.telegram.find(x=>String(x.payload.text||'').includes('داشبورد مدیریتی'));
   assert.ok(body);
   assert.match(body.payload.text,/کمپین‌ها/);
-  assert.match(body.payload.text,/پرداخت‌های تأییدشده/);
+  assert.match(body.payload.text,/پرداخت تأییدشده/);
   assert.match(body.payload.text,/خطاهای Webhook/);
   assert.ok(JSON.stringify(body.payload.reply_markup).includes('adm:orders'));
+});
+
+test('management dashboard includes an explicitly defined campaign membership completion rate', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'dash-funnel',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  const dashboard=h.telegram.find(x=>String(x.payload.text||'').includes('داشبورد مدیریتی'));
+  assert.ok(dashboard);
+  assert.match(dashboard.payload.text,/پروفایل مشتریان:/);
+  assert.ok(dashboard.payload.reply_markup.inline_keyboard.flat().some(b=>b.callback_data==='adm:reports'));
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM campaign_entries')));
+});
+
+test('campaign report exposes per-campaign completion and states that it is not conversation conversion', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'report-1',data:'adm:reports',from:{id:12345},message:{chat:{id:12345,type:'private'}}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM campaigns c')&&x.sql.includes('completed_entries')));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('هنوز کمپینی برای گزارش وجود ندارد')));
+});
+
+test('admin callback query IDs are processed only once', async () => {
+  const h=harness();
+  const q={id:'same-callback-id',data:'adm:stats',from:{id:12345},message:{chat:{id:12345,type:'private'}}};
+  await h.admin.handleCallback(q);
+  const before=h.calls.filter(x=>x.sql.includes('FROM participants')).length;
+  await h.admin.handleCallback(q);
+  const after=h.calls.filter(x=>x.sql.includes('FROM participants')).length;
+  assert.equal(after,before);
+  assert.equal(h.telegram.filter(x=>x.method==='answerCallbackQuery').length,1);
 });
 
 test('campaign management supports validated status filters and pagination', async () => {
@@ -105,112 +137,11 @@ test('order management supports action queue, status filters and pagination', as
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('فیلتر سفارش نامعتبر')));
 });
 
-test('admin edit preview can be cancelled with /cancel', async () => {
-  const h = harness();
-  const callback = {
-    id: 'cb1', data: 'adm:edit:42',
-    from: { id: 12345 },
-    message: { chat: { id: 12345, type: 'private' } }
-  };
-  assert.notEqual(await h.admin.handleCallback(callback), false);
-  assert.notEqual(await h.admin.handleMessage({
-    from: { id: 12345 }, chat: { id: 12345, type: 'private' },
-    text: 'Ali Rezaei | 09121111111 | ali.new'
-  }), false);
-  assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('پیش‌نمایش ویرایش')));
-  assert.notEqual(await h.admin.handleMessage({
-    from: { id: 12345 }, chat: { id: 12345, type: 'private' }, text: '/cancel'
-  }), false);
-  assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('عملیات لغو شد')));
-  assert.equal(h.calls.some(x => x.sql.startsWith('UPDATE lottery_entries SET full_name=')), false);
-});
-
-test('admin edit rejects malformed and invalid participant data', async () => {
-  const h = harness();
-  await h.admin.handleCallback({
-    id: 'cb2', data: 'adm:edit:42', from: { id: 12345 },
-    message: { chat: { id: 12345, type: 'private' } }
-  });
-  await h.admin.handleMessage({
-    from: { id: 12345 }, chat: { id: 12345, type: 'private' },
-    text: 'A | not-a-phone | bad handle'
-  });
-  assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('اطلاعات نامعتبر')));
-  assert.equal(h.calls.some(x => x.sql.startsWith('UPDATE lottery_entries SET full_name=')), false);
-});
-
-
-test('admin edit commits participant changes and audit record together', async () => {
-  const h = harness();
-  const message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
-  await h.admin.handleCallback({ id: 'cb3', data: 'adm:edit:42', from: message.from, message: { chat: message.chat } });
-  await h.admin.handleMessage({ ...message, text: 'Ali Rezaei | 09121111111 | ali.new' });
-  await h.admin.handleCallback({ id: 'cb4', data: 'adm:apply-edit:42', from: message.from, message: { chat: message.chat } });
-  const updateIndex = h.calls.findIndex(x => x.sql.startsWith('UPDATE lottery_entries SET full_name='));
-  const auditIndex = h.calls.findIndex(x => x.sql.includes('INSERT INTO admin_audit_log'));
-  const commitIndex = h.calls.findIndex(x => x.sql === 'COMMIT');
-  assert.ok(updateIndex >= 0);
-  assert.ok(auditIndex > updateIndex);
-  assert.ok(commitIndex > auditIndex);
-  assert.equal(h.calls.some(x => x.sql === 'ROLLBACK'), false);
-});
-
-test('admin delete requires confirmation and writes soft-delete plus audit atomically', async () => {
-  const h = harness();
-  const message = { from: { id: 12345 }, chat: { id: 12345, type: 'private' } };
-  await h.admin.handleCallback({ id: 'cb5', data: 'adm:delete:42', from: message.from, message: { chat: message.chat } });
-  assert.equal(h.calls.some(x => x.sql.includes("status='deleted'")), false);
-  await h.admin.handleCallback({ id: 'cb6', data: 'adm:apply-delete:42', from: message.from, message: { chat: message.chat } });
-  const updateIndex = h.calls.findIndex(x => x.sql.includes("UPDATE lottery_entries SET status='deleted'"));
-  const auditIndex = h.calls.findIndex(x => x.sql.includes('INSERT INTO admin_audit_log'));
-  const commitIndex = h.calls.findIndex(x => x.sql === 'COMMIT');
-  assert.ok(updateIndex >= 0);
-  assert.ok(auditIndex > updateIndex);
-  assert.ok(commitIndex > auditIndex);
-  assert.equal(h.calls.some(x => x.sql === 'ROLLBACK'), false);
-});
-
-
-test('participant list supports status and date filters with parameterized status values', async () => {
-  const h = harness();
-  await h.admin.handleCallback({
-    id: 'filter1', data: 'adm:entries:0:active:7d',
-    from: { id: 12345 },
-    message: { chat: { id: 12345, type: 'private' } }
-  });
-  const query = h.calls.find(x => x.sql.includes('FROM lottery_entries WHERE status <>'));
-  assert.ok(query);
-  assert.match(query.sql,/status = \?/);
-  assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 7 DAY\)/);
-  assert.deepEqual(query.params, ['active', 0]);
-  assert.ok(h.telegram.some(x => JSON.stringify(x.payload.reply_markup || {}).includes('entry-status')));
-});
-
-
-test('draw history is reachable from the Telegram draw menu', async () => {
-  const h = harness();
-  const callback = { id:'drawhist1',data:'adm:draw-history:0',from:{id:12345},message:{chat:{id:12345,type:'private'}} };
-  await h.admin.handleCallback(callback);
-  assert.ok(h.calls.some(x => x.sql.includes('FROM lottery_draws d LEFT JOIN lottery_draw_participants')));
-  assert.ok(h.telegram.some(x => String(x.payload.text || '').includes('هنوز قرعه‌کشی ثبت‌شده‌ای وجود ندارد')));
-});
-
-test('filtered CSV export uses parameterized status and valid date windows', async () => {
-  const h = harness();
-  await h.admin.handleMessage({from:{id:12345},chat:{id:12345,type:'private'},text:'/export inactive 30d'});
-  const query = h.calls.find(x => x.sql.includes('SELECT full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries'));
-  assert.ok(query);
-  assert.match(query.sql,/status = \?/);
-  assert.match(query.sql,/DATE_SUB\(NOW\(\), INTERVAL 30 DAY\)/);
-  assert.deepEqual(query.params,['inactive']);
-});
-
-
 test('campaign creation uses a step-by-step wizard and final review before saving', async () => {
   const h=harness();
   const message={from:{id:12345},chat:{id:12345,type:'private'}};
   await h.admin.handleCallback({id:'wizard-start',data:'adm:campaign-create',from:message.from,message:{chat:message.chat}});
-  const answers=['کمپین پاییز','autumn-1405','free','-','-','1','1','0','system','per_code'];
+  const answers=['کمپین پاییز','autumn-1405','free','-','-','1','1','0','system','per_code','-','-'];
   for(const answer of answers) await h.admin.handleMessage({...message,text:answer});
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('بازبینی اطلاعات کمپین')), 'wizard did not reach review; messages: '+h.telegram.map(x=>x.payload.text).join(' | '));
   assert.equal(h.calls.some(x=>x.sql==='CREATE_CAMPAIGN'),false);
@@ -362,6 +293,8 @@ test('campaign wizard uses inline Persian buttons for draw settings and shows se
   assert.ok(markup.flat().some(b=>b.text==='👤 به ازای هر شرکت‌کننده'&&b.callback_data.endsWith(':per_participant')));
   assert.equal(h.telegram.at(-1).payload.text.includes('per_code'),false);
   await h.admin.handleCallback({id:'per-code',data:'adm:campaign-wizard-draw-basis:per_code',from:message.from,message:{chat:message.chat}});
+  await h.admin.handleMessage({...message,text:'-'});
+  await h.admin.handleMessage({...message,text:'-'});
 
   markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
   const cardButton=markup.flat().find(b=>b.callback_data==='adm:campaign-wizard-card:77');
@@ -375,4 +308,127 @@ test('campaign wizard uses inline Persian buttons for draw settings and shows se
   assert.equal(created.input.draw_method,'live_wheel');
   assert.equal(created.input.draw_basis,'per_code');
   assert.equal(created.input.payment_card_id,77);
+});
+
+
+test('system draw preparation exposes commitment before execution and result view exposes seed reveal', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/admin-telegram.js'),'utf8');
+  const start=source.indexOf('async function prepareCampaignDraw');
+  const end=source.indexOf('async function resumeCampaignDraw',start);
+  const prepare=source.slice(start,end);
+  assert.match(prepare,/Seed commitment SHA-256/);
+  assert.match(prepare,/adm:draw-run:/);
+  assert.doesNotMatch(prepare,/drawService\.runSystemDraw/);
+  assert.match(source,/seedReveal=proof\?\.seed\|\|'-'/);
+  assert.match(source,/Seed reveal: '\+seedReveal/);
+  assert.match(source,/مدرک گردونه: '\+\(liveEvidence\?\.reference_uri/);
+});
+
+test('prepared system draws can be resumed from the Telegram admin campaign view', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/admin-telegram.js'), 'utf8');
+  assert.match(source, /d\.status==='prepared'&&\['system','hybrid'\]\.includes\(d\.method\)/);
+  assert.match(source, /callback_data:'adm:draw-run:'\+d\.id/);
+  assert.match(source, /async function resumeCampaignDraw\(chat,drawId\)/);
+  assert.match(source, /drawService\.runSystemDraw\(Number\(drawId\)\)/);
+  assert.match(source, /data\.startsWith\('adm:draw-run:'\)/);
+});
+
+
+test('Telegram admin exposes live-wheel candidate references, result capture and evidence review', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/admin-telegram.js'),'utf8');
+  assert.match(source,/callback_data:'adm:draw-live:'\+d\.id\+'\:0'/);
+  assert.match(source,/async function liveWheelCandidatePage\(chat,drawId,page=0\)/);
+  assert.match(source,/async function startLiveWheelResult\(chat,drawId\)/);
+  assert.match(source,/type:'live-wheel-result'/);
+  assert.match(source,/drawService\.submitLiveWheelResults\(/);
+  assert.match(source,/data==='adm:draw-live-cancel'/);
+  assert.match(source,/liveWheel\.step==='evidence'/);
+  assert.match(source,/liveWheel\.step==='hash'/);
+});
+
+
+test('campaign wizard accepts optional ISO start and end dates for automatic scheduling', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/admin-telegram.js'),'utf8');
+  assert.match(source,/key:'starts_at'/);
+  assert.match(source,/key:'ends_at'/);
+  assert.match(source,/function parseCampaignDate/);
+  assert.match(source,/starts_at:startDate,ends_at:endDate/);
+  assert.match(source,/expected==='ends_at'&&p\.values\.payment_mode==='free'/);
+  assert.match(source,/wizard\.values\.payment_mode==='free'&&wizard\.step===12/);
+});
+
+
+test('support ticket detail loads the durable conversation history', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'support-thread-1',data:'adm:support-ticket:42',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:901}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages')&&x.params[0]==='42'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('گفت‌وگوی پشتیبانی #42')));
+});
+
+test('Telegram admin can recover a failed webhook and audit the retry', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'webhook-retry-1',data:'adm:webhook-retry:123',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:901}});
+  assert.ok(h.calls.some(x=>x.sql.includes("UPDATE webhook_inbox SET status='pending'")&&x.params[0]==='123'));
+  assert.ok(h.calls.some(x=>x.sql.includes("INSERT INTO admin_audit_log")&&x.params[1]==='retry_webhook'&&x.params[3]==='123'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف پردازش')));
+});
+
+test('webhook recovery does not replay an update already present in processed_updates', async () => {
+  const h=harness({webhookStatus:'failed',webhookProcessed:true});
+  await h.admin.handleCallback({id:'webhook-retry-processed',data:'adm:webhook-retry:123',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:902}});
+  assert.ok(h.calls.some(x=>x.sql.includes("SET status='done'")&&x.params[0]==='123'));
+  assert.equal(h.calls.some(x=>x.sql.includes("retry_webhook")),false);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('قبلاً پردازش شده بود')));
+});
+
+test('Telegram admin can requeue a failed notification with an audit record', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'outbox-retry-1',data:'adm:outbox-retry:19',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:902}});
+  assert.ok(h.calls.some(x=>x.sql.includes("SET status='pending'")&&x.params[0]==='19'));
+  const retryAudit=h.calls.find(x=>x.sql.includes("INSERT INTO admin_audit_log")&&x.params[1]==='retry_notification'&&x.params[3]==='19');
+  assert.ok(retryAudit);
+  assert.match(retryAudit.params[4],/original_correlation_id/);
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف ارسال')));
+});
+
+
+test('customer search supports name, phone, Instagram, Telegram ID and internal ID with parameterized filters', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'customer-search-open',data:'adm:participant-search',from:message.from,message:{chat:message.chat}});
+  assert.match(h.telegram.at(-1).payload.text,/نام، شماره موبایل/);
+  await h.admin.handleMessage({...message,text:'09123335555'});
+  const countQuery=h.calls.find(x=>x.sql.includes('COUNT(*) AS total FROM participants p WHERE'));
+  const rowsQuery=h.calls.find(x=>x.sql.includes('FROM participants p WHERE')&&x.sql.includes('LIMIT 8 OFFSET'));
+  assert.ok(countQuery&&rowsQuery);
+  assert.match(rowsQuery.sql,/p\.full_name LIKE \?/);
+  assert.deepEqual(rowsQuery.params,['%09123335555%','%09123335555%','%09123335555%','%09123335555%','09123335555',0]);
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(x=>x.callback_data==='adm:participant-search'));
+});
+
+test('notification center filters all delivery states and exposes a detail action', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'outbox-sent-filter',data:'adm:outbox:sent',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM telegram_notification_outbox WHERE status=?')&&x.params[0]==='sent'));
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(x=>x.callback_data==='adm:outbox:failed'));
+  await h.admin.handleCallback({id:'outbox-detail',data:'adm:outbox-item:19',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('dedupe_key')&&x.sql.includes('FROM telegram_notification_outbox WHERE id=?')));
+});
+
+test('support conversation history is paginated instead of silently truncating after 100 messages', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'support-page-two',data:'adm:support-thread:42:1',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 20 OFFSET ?')&&x.params[0]==='42'&&x.params[1]===20));
+});
+
+
+test('closing or reopening a support ticket is audited and notifies the customer through outbox',async()=>{
+  const h=harness(),message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'support-close-notify',data:'adm:support-close:42',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('INSERT IGNORE INTO telegram_notification_outbox')&&x.params[1]==='support_ticket_status'));
+  assert.ok(h.calls.some(x=>x.sql.includes('INSERT INTO admin_audit_log')&&x.params[1]==='close_support_ticket'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('گفت‌وگوی پشتیبانی #42')));
 });

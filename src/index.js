@@ -1,28 +1,38 @@
 require("dotenv").config();
 const express=require("express"), mysql=require("mysql2/promise"), crypto=require("crypto"), path=require("path");
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
-const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
+const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName}=require("./domain");
 const {createAdminTelegram}=require("./admin-telegram");
 const {createCampaignService}=require("./campaign-service");
 const {createBankCardService}=require("./bank-card-service");
 const {createDrawService}=require("./draw-service");
+const {createAccountAuth}=require("./account-auth");
+const {bindPool,runWithCorrelation}=require("./correlation-context");
+
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
 app.disable("x-powered-by");
 app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","same-origin");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cache-Control","no-store");next()});
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
+app.use((req,res,next)=>{
+ const correlationId=crypto.randomUUID();
+ req.correlationId=correlationId;
+ res.setHeader("X-Correlation-ID",correlationId);
+ return runWithCorrelation(correlationId,()=>next());
+});
 const { createSameOriginGuard } = require("./security");
 app.use(createSameOriginGuard());
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
 const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,waitForConnections:true,queueLimit:100,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0,charset:"utf8mb4"});
+bindPool(db);
 const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
 const bankCardService=createBankCardService({db,adminId:process.env.ADMIN_ID});
-const drawService=createDrawService({db,adminId:process.env.ADMIN_ID});
+const drawService=createDrawService({db,adminId:process.env.ADMIN_ID,seedSecret:process.env.SESSION_SECRET});
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
-const [rows]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' LIMIT 1");
-return (rows[0]?.setting_value ?? (process.env.REGISTRATION_OPEN||"false")).toLowerCase()==="true";
+const [[row]]=await db.execute("SELECT COUNT(*) AS total FROM campaigns WHERE status='open'");
+return Number(row?.total||0)>0;
 }
 const adminSearchModes = new Map();
 async function telegramResponse(response,method){
@@ -58,10 +68,41 @@ throw error;
 }finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
-function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
-function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
-const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
-const code=makeRaffleCode;
+function contactGateKeyboard(){return {inline_keyboard:[[{text:"➕ افزودن مخاطب",callback_data:"contact:send"},{text:"ادامه",callback_data:"contact:confirm"}]]}}
+function contactGateText(){return "به USTORE خوش آمدید 🌟\n\nبرای ادامه استفاده از ربات، شماره مدیریت USTORE را دریافت می‌کنید. در صورت تمایل آن را در مخاطبین ذخیره کنید و سپس ادامه دهید.\n\nنکته: ربات نمی‌تواند ذخیره‌شدن شماره را در مخاطبین گوشی بررسی کند و ذخیره شماره به‌تنهایی نمایش استوری‌های فروشگاه را تضمین نمی‌کند."}
+function configuredContactPhone(){const phone=String(process.env.CONTACT_PHONE||"").replace(/[\s()-]/g,"");return /^\+?[0-9]{8,15}$/.test(phone)?phone:null}
+async function contactGateAccepted(uid){
+if(!configuredContactPhone())return true;
+const [rows]=await db.execute("SELECT telegram_user_id FROM telegram_contact_gate WHERE telegram_user_id=? AND accepted_at IS NOT NULL LIMIT 1",[String(uid)]);
+return rows.length>0;
+}
+async function showContactGate(chat,connection){return tg("sendMessage",{chat_id:chat,business_connection_id:connection||undefined,text:contactGateText(),reply_markup:contactGateKeyboard()})}
+async function handleContactGateCallback(q,uid,chat){
+const connection=String(q.message?.business_connection_id||"");
+if(q.data==="contact:send"){
+const phone=configuredContactPhone();
+if(!phone){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است. لطفاً بعداً مراجعه کنید.",show_alert:true});return;}
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"کارت مخاطب ارسال شد."});
+await tg("sendContact",{chat_id:chat,business_connection_id:connection||undefined,phone_number:phone,first_name:"مدیریت",last_name:"USTORE"});
+return reply(chat,connection,"کارت مخاطب ارسال شد. در صورت تمایل آن را ذخیره کنید و سپس «ذخیره کردم؛ ادامه» را بزنید. ربات نمی‌تواند ذخیره‌شدن شماره را بررسی کند.",{reply_markup:contactGateKeyboard()});
+}
+if(q.data==="contact:confirm"){
+if(!configuredContactPhone()){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است.",show_alert:true});return;}
+await db.execute("INSERT INTO telegram_contact_gate(telegram_user_id,chat_id,accepted_at) VALUES(?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),accepted_at=COALESCE(accepted_at,CURRENT_TIMESTAMP)",[String(uid),String(chat)]);
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"تأیید شد؛ خوش آمدید."});
+if(!await requireActiveParticipant(uid,chat,connection))return;
+const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
+const buttons=campaigns.map(x=>[{text:x.name+" · "+(x.payment_mode==="free"?"رایگان":x.price_per_code+" "+x.currency),callback_data:"campaign:details:"+x.id}]);
+buttons.push([{text:"👤 حساب من و کدها",callback_data:"participant:account"}]);
+buttons.push([{text:"🔄 تازه‌سازی فهرست کمپین‌ها",callback_data:"campaign:list"}]);
+buttons.push([{text:"👤 حساب و پروفایل",callback_data:"participant:account"},{text:"🎟 کدهای من",callback_data:"participant:codes"}]);
+buttons.push([{text:"📝 ساخت پروفایل",callback_data:"profile:create"},{text:"💬 پشتیبانی",callback_data:"support:start"}]);
+buttons.push([{text:"💳 سفارش‌های من",callback_data:"participant:orders"},{text:"🎫 تیکت‌های من",callback_data:"participant:tickets"}]);
+return reply(chat,connection,campaigns.length?"دسترسی فعال شد. از منوی USTORE استفاده کنید:":"دسترسی فعال شد. کمپین فعالی نیست؛ می‌توانید پروفایل بسازید یا با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:buttons}});
+}
+}
+const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService,drawService});
+const accountAuth=createAccountAuth({app,db,tg,adminId:process.env.ADMIN_ID,sessionSecret,siteUrl:process.env.PUBLIC_SITE_URL||"https://"+String(process.env.DOMAIN||"")});
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const csvCell=v=>{let x=String(v??"");if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"'};
 function equal(a,b){const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y)}
@@ -72,195 +113,188 @@ return out;
 function signed(v){return crypto.createHmac("sha256",sessionSecret).update(v).digest("hex")}
 function isAdmin(req){const raw=cookies(req.headers.cookie||"").istore_admin;if(!raw||!raw.includes("."))return false;const [p,s]=raw.split(".");if(!equal(s,signed(p)))return false;try{return JSON.parse(Buffer.from(p,"base64url").toString()).exp>Date.now()}catch{return false}}
 function admin(req,res,next){if(!isAdmin(req))return res.status(401).json({error:"لطفاً وارد پنل مدیریت شوید."});next()}
-async function entry(uid){const [r]=await db.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=?",[String(uid)]);return r[0]}
-async function session(uid){const [r]=await db.execute("SELECT * FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
-async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO lottery_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
-async function delSession(uid){await db.execute("DELETE FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)])}
-async function saveEntry(uid,chat,name,phone,inst,businessConnection){
+async function session(uid){const [r]=await db.execute("SELECT * FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
+async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO telegram_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
+async function delSession(uid){await db.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)])}
+async function requireActiveParticipant(uid,chat,connection){
+if(!uid||!chat)return false;
+const [[participant]]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
+if(!participant){
+await putSession(uid,chat,"profile_name",null,null,connection);
+await reply(chat,connection,"برای مشاهده کمپین‌ها ابتدا ثبت‌نام را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید:",{reply_markup:{inline_keyboard:[[{text:"✖️ انصراف",callback_data:"reg:cancel"}]]}});
+return false;
+}
+if(participant.status!=="active"){
+await reply(chat,connection,"حساب شما غیرفعال است. برای بررسی و فعال‌سازی با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:[[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+return false;
+}
+return true;
+}
+async function saveParticipantProfile(uid,chat,name,phone,inst,businessConnection){
 const conn=await db.getConnection();
 try{
 await conn.beginTransaction();
-const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
-const legacyRegistrationOpen=registrationState?.setting_value==="true";
-const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
-if(openCampaign){
-  const [[existingParticipant]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
-  if(existingParticipant){
-    if(existingParticipant.status!=="active")throw new Error("پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.");
-    await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,existingParticipant.id]);
-    await conn.commit();
-    return null;
-  }
-  const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
-  if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-  await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
-  await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["campaign-profile-admin:"+uid+":"+crypto.randomUUID(),"campaign_profile_created_admin",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:"👤 پروفایل کمپین جدید ثبت شد.\nTelegram ID: "+uid+"\nنام: "+name+"\nموبایل: "+phone+"\nاینستاگرام: @"+inst}})]);
-  await conn.commit();
-  return null;
-}
-if(!legacyRegistrationOpen)throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
-const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
-const existing=existingRows[0];
-if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
-const [duplicates]=await conn.execute("SELECT id FROM lottery_entries WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
+const [[old]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
+if(old){if(old.status!=="active")throw new Error("پروفایل شما غیرفعال است.");await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,old.id]);await conn.commit();return {participantId:old.id,created:false};}
+const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
 if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-let assignedCode;
-let entryId;
-if(existing){
-assignedCode=existing.raffle_code;
-entryId=existing.id;
-await conn.execute("UPDATE lottery_entries SET chat_id=?,full_name=?,phone=?,instagram=?,status='active',deleted_at=NULL,deletion_reason=NULL WHERE id=?",[String(chat),name,phone,inst,existing.id]);
-}else{
-assignedCode=code();
-const [result]=await conn.execute("INSERT INTO lottery_entries(telegram_user_id,chat_id,full_name,phone,instagram,raffle_code,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),name,phone,inst,assignedCode]);
-entryId=result.insertId;
-await conn.execute("INSERT INTO lottery_code_history(entry_id,raffle_code,action,actor) VALUES(?,?,'assigned','system')",[entryId,assignedCode]);
+const [created]=await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
+await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["customer-profile:"+uid,"customer_profile_created",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پروفایل مشتری جدید: "+name+" | "+phone+" | @"+inst}})]);
+await conn.commit();return {participantId:created.insertId,created:true};
+}catch(e){await conn.rollback();if(e.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});throw e;}finally{conn.release();}
 }
-const adminText=["🎉 شرکت‌کننده جدید قرعه‌کشی","","👤 نام: "+name,"📱 موبایل: "+phone,"📸 اینستاگرام: @"+inst,"🎟️ کد قرعه‌کشی: "+assignedCode].join("\n");
-const userText="✅ ثبت‌نام کامل شد!\n🎟️ کد قرعه‌کشی شما: "+assignedCode+"\nاین کد را نگه دارید.";
-const notificationEventId=crypto.randomUUID();
-await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":"+notificationEventId+":admin","admin_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:adminText}})]);
-await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":"+notificationEventId+":user","user_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:String(chat),business_connection_id:String(businessConnection||""),text:userText}})]);
-await conn.commit();
-return assignedCode;
-}catch(e){
-await conn.rollback();
-if(e.code==="ER_DUP_ENTRY"){
-const [sameParticipant]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
-if(sameParticipant[0]?.status==="active")return null;
-const [sameUser]=await db.execute("SELECT raffle_code,status FROM lottery_entries WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
-if(sameUser[0]?.status==="active")return sameUser[0].raffle_code;
-throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-}
-throw e;
-}finally{conn.release()}
-}
-
-function makeContactPayload(uid){
-const raw=String(uid)+"."+String(Date.now()+15*60*1000)+"."+crypto.randomBytes(4).toString("base64url");
-const p=Buffer.from(raw).toString("base64url");
-return p+"_"+signed(p).slice(0,16);
-}
-function verifyContactPayload(payload,uid){
-try{
-const i=payload.lastIndexOf("_");
-if(i<1)return false;
-const p=payload.slice(0,i),sig=payload.slice(i+1);
-if(!equal(sig,signed(p).slice(0,16)))return false;
-const [target,expiry]=Buffer.from(p,"base64url").toString().split(".");
-return target===String(uid)&&Number(expiry)>Date.now();
-}catch{return false}
-}
-
-function makeConfirmationPayload(uid,chat,connection){
-const p=Buffer.from(JSON.stringify({uid:String(uid),chat:String(chat),connection:String(connection),exp:Date.now()+15*60*1000})).toString("base64url");
-return "lc:"+p+"_"+signed(p).slice(0,16);
-}
-function verifyConfirmationPayload(payload,uid,chat,connection){
-try{
-if(typeof payload!=="string"||!payload.startsWith("lc:"))return false;
-const data=payload.slice(3),i=data.lastIndexOf("_");
-if(i<1)return false;
-const p=data.slice(0,i),sig=data.slice(i+1);
-if(!equal(sig,signed(p).slice(0,16)))return false;
-const claims=JSON.parse(Buffer.from(p,"base64url").toString("utf8"));
-return claims.uid===String(uid)&&claims.chat===String(chat)&&claims.connection===String(connection)&&Number.isFinite(claims.exp)&&claims.exp>Date.now();
-}catch{return false}
-}
-
-function campaignQuantityKeyboard(campaignId,max,page=0){
-  const pageSize=80,totalPages=Math.max(1,Math.ceil(max/pageSize));
-  const current=Math.max(0,Math.min(totalPages-1,Number(page)||0));
-  const start=current*pageSize+1,end=Math.min(max,start+pageSize-1),rows=[];
-  for(let n=start;n<=end;n+=4)rows.push(Array.from({length:Math.min(4,end-n+1)},(_,i)=>({text:String(n+i)+' کد',callback_data:'campaign:quantity:'+campaignId+':'+(n+i)})));
-  const nav=[];
-  if(current>0)nav.push({text:'⬅️ قبلی',callback_data:'campaign:quantity-page:'+campaignId+':'+(current-1)});
-  if(current<totalPages-1)nav.push({text:'بعدی ➡️',callback_data:'campaign:quantity-page:'+campaignId+':'+(current+1)});
-  if(nav.length)rows.push(nav);
-  return {inline_keyboard:rows};
-}
-
 async function handleCallbackQuery(q){
 if(!q?.id)return;
 const uid=String(q.from?.id||"");
 const chat=String(q.message?.chat?.id||"");
-if(q.data==="reg:continue"||q.data==="reg:cancel"){
-const s=await session(uid);
-if(!uid||!s||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
-if(q.data==="reg:cancel"){await delSession(uid);await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ثبت‌نام لغو شد."});return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:"ثبت‌نام لغو شد. هر زمان خواستید می‌توانید دوباره «لاتاری» را ارسال کنید."});}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"ادامه ثبت‌نام"});
-const prompts={name:"لطفاً نام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو تایپ کنید.",instagram:"لطفاً آیدی اینستاگرام خود را ارسال کنید؛ مثال: @example",awaiting_contact:"برای ادامه، دکمه ارسال شماره موبایل را بزنید.",awaiting_confirmation:"برای تکمیل ثبت‌نام، دکمه تأیید را انتخاب کنید.",phone:"برای ادامه ثبت‌نام، شماره موبایل خود را از طریق ربات ارسال کنید."};
-return tg("sendMessage",{chat_id:chat,business_connection_id:s.business_connection_id,text:prompts[s.step]||"لطفاً مرحله ثبت‌نام را ادامه دهید.",reply_markup:registrationKeyboard()});
+if(uid!==String(process.env.ADMIN_ID||"")&&q.message?.chat?.type==="private"){
+if(q.data==="contact:send"||q.data==="contact:confirm")return handleContactGateCallback(q,uid,chat);
+if(!await contactGateAccepted(uid)){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"برای استفاده از ربات ابتدا مرحله خوش‌آمدگویی را تکمیل کنید.",show_alert:true});return showContactGate(chat,String(q.message?.business_connection_id||""));}
 }
-if(q.data==="reg:confirm"){
+if(await accountAuth.handleCallback(q))return;
+if(q.data==="reg:cancel"){
+const current=await session(uid);
+if(!uid||!current||String(current.chat_id)!==chat||String(current.business_connection_id||"")!==String(q.message?.business_connection_id||""))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
+await delSession(uid);
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"عملیات لغو شد."});
+return reply(chat,String(q.message?.business_connection_id||""),"عملیات لغو شد. از منوی اصلی می‌توانید دوباره شروع کنید.",{reply_markup:{inline_keyboard:[[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});
+}
+if(q.data==="profile:create"){
+await tg("answerCallbackQuery",{callback_query_id:q.id});
+const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+if(p)return reply(chat,String(q.message?.business_connection_id||""),"پروفایل شما قبلاً ساخته شده است.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}]]}});
+const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"profile_name",null,null,connection);
+return reply(chat,connection,"نام و نام خانوادگی خود را برای ساخت پروفایل دائمی وارد کنید؛ حتی بدون کمپین فعال.",{reply_markup:{inline_keyboard:[[{text:"لغو",callback_data:"reg:cancel"}]]}});
+}
+if(q.data==="profile:confirm"){
 const s=await session(uid),connection=String(q.message?.business_connection_id||"");
-if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
-}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت پروفایل..."});
+if(!s||s.step!=="profile_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection)return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
+await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ساخت پروفایل..."});
 try{
-await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,connection);
-await delSession(uid);
-return tg("sendMessage",{chat_id:chat,text:"✅ پروفایل شما با موفقیت ثبت شد. حالا می‌توانید کمپین موردنظرتان را انتخاب کنید.",reply_markup:{inline_keyboard:[[{text:"🧩 نمایش کمپین‌های فعال",callback_data:"campaign:list"}]]}});
-}catch(e){
-console.error("Campaign profile confirmation error:",e.message);
-const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است.":e.code==="REGISTRATION_CLOSED"?"❌ در حال حاضر ثبت‌نام بسته است.":"❌ ثبت پروفایل انجام نشد. اطلاعات واردشده حفظ شده است؛ لطفاً دوباره تلاش کنید.";
-return tg("sendMessage",{chat_id:chat,text:msg});
-}
-}
-if(verifyConfirmationPayload(q.data||"",uid,chat,q.message?.business_connection_id||"")){
-const s=await session(uid);
-if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||"")){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
-}
-if(!await registrationOpen()){
-const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
-if(!campaignOpen){
-await delSession(uid);
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌نام به پایان رسیده است.",show_alert:true});
-}
-}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
-try{
-await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
-await delSession(uid);
-return;
-}catch(e){
-console.error("Lottery confirmation error:",e.message);
-const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
-return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
-}
+  await saveParticipantProfile(uid,chat,s.full_name,s.phone,s.instagram,connection);
+  await delSession(uid);
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
+  const buttons=campaigns.map(c=>[{text:c.name+" · "+(c.payment_mode==="free"?"رایگان":Number(c.price_per_code).toLocaleString("en-US")+" "+c.currency),callback_data:"campaign:details:"+c.id}]);
+  buttons.push([{text:"👤 حساب من",callback_data:"participant:account"},{text:"🎟 کدهای من",callback_data:"participant:codes"}]);
+  buttons.push([{text:"🔄 تازه‌سازی کمپین‌ها",callback_data:"campaign:list"}]);
+  buttons.push([{text:"💬 پشتیبانی",callback_data:"support:start"}]);
+  return reply(chat,connection,campaigns.length?"✅ ثبت‌نام شما با موفقیت تکمیل شد.\n\n🧩 کمپین‌های فعال را انتخاب کنید:":"✅ ثبت‌نام شما با موفقیت تکمیل شد.\n\nدر حال حاضر کمپین فعالی وجود ندارد؛ بعداً از همین بخش فهرست را تازه‌سازی کنید.",{reply_markup:{inline_keyboard:buttons}});
+}catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
 }
 if(String(q.data||'').startsWith('campaign:details:')){
   const campaignId=String(q.data.split(':')[2]||'');
   if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id});
-  const [[campaign]]=await db.execute("SELECT id,name,description,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
+  const [[campaign]]=await db.execute("SELECT id,name,description,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
   if(!campaign)return reply(chat,String(q.message?.business_connection_id||''),'این کمپین دیگر فعال نیست.');
   const price=campaign.payment_mode==='free'?'رایگان':Number(campaign.price_per_code).toLocaleString('en-US')+' '+campaign.currency+' برای هر کد';
-  const body='🧩 '+campaign.name+'\\n\\n'+(campaign.description||'توضیحات تکمیلی برای این کمپین ثبت نشده است.')+'\\n\\n💳 شیوه شرکت: '+price+'\\n🎟 حداکثر کد برای هر نفر: '+campaign.max_codes_per_participant+'\\n\\nبرای ادامه، دکمه زیر را بزنید.';
-  return tg('sendMessage',{chat_id:chat,text:body,reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
+  const body='🧩 '+campaign.name+'\n\n'+(campaign.description||'توضیحات تکمیلی برای این کمپین ثبت نشده است.')+'\n\n💳 شیوه شرکت: '+price+'\n🎟 حداکثر کد برای هر نفر: '+campaign.max_codes_per_participant+'\n\nبرای ادامه، دکمه زیر را بزنید.';
+  return reply(chat,String(q.message?.business_connection_id||''),body,{reply_markup:{inline_keyboard:[[{text:'▶️ شروع ثبت‌نام',callback_data:'campaign:join:'+campaign.id}],[{text:'↩️ بازگشت به کمپین‌ها',callback_data:'campaign:list'}]]}});
 }
+if(q.data==='profile:edit:name'||q.data==='profile:edit:instagram'||q.data==='profile:edit:phone'){
+await tg("answerCallbackQuery",{callback_query_id:q.id});
+const connection=String(q.message?.business_connection_id||"");const field=q.data.split(':')[2];const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,connection,"پروفایل فعال پیدا نشد.");
+const step=field==="name"?"profile_change_full_name":field==="instagram"?"profile_change_instagram":"profile_change_phone_contact";await putSession(uid,chat,step,null,null,connection);
+if(field==="phone")return reply(chat,connection,"شماره جدید را با دکمه رسمی تلگرام ارسال کنید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}});
+return reply(chat,connection,field==="name"?"نام جدید را ارسال کنید:":"آیدی اینستاگرام جدید را ارسال کنید:");
+}
+if(q.data==='support:start'){const connection=String(q.message?.business_connection_id||"");await putSession(uid,chat,"support_message",null,null,connection);await tg("answerCallbackQuery",{callback_query_id:q.id});return reply(chat,connection,"پیام خود را برای پشتیبانی بنویسید (۵ تا ۲۰۰۰ نویسه).");}
+if(q.data==='participant:orders'){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+  if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل خود را بسازید.");
+  const [rows]=await db.execute("SELECT o.id,o.order_ref,o.quantity,o.total_snapshot,o.currency,o.status,o.expires_at,c.name AS campaign_name FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
+  const labels={pending_payment:"در انتظار پرداخت",receipt_submitted:"رسید در حال بررسی",approved:"تأییدشده",rejected:"ردشده",expired:"منقضی",cancelled:"لغوشده"};
+  const lines=rows.map((o,i)=>(i+1)+") "+o.campaign_name+"\nسفارش: "+o.order_ref+" | تعداد: "+o.quantity+" | مبلغ: "+Number(o.total_snapshot).toLocaleString("en-US")+" "+o.currency+"\nوضعیت: "+(labels[o.status]||o.status)+(o.status==="pending_payment"?"\nمهلت: "+new Date(o.expires_at).toLocaleString("fa-IR"):""));
+  const buttons=rows.filter(o=>o.status==="pending_payment").flatMap(o=>[
+    [{text:"📤 ادامه پرداخت "+o.order_ref,callback_data:"order:resume:"+o.id}],
+    [{text:"✖️ لغو سفارش "+o.order_ref,callback_data:"order:cancel:"+o.id}]
+  ]);
+  buttons.push([{text:"🎟 کدهای من",callback_data:"participant:codes"},{text:"👤 حساب من",callback_data:"participant:account"}]);
+  buttons.push([{text:"🏠 منوی اصلی",callback_data:"participant:home"}]);
+  return reply(chat,String(q.message?.business_connection_id||""),lines.length?"💳 سفارش‌های شما\n\n"+lines.join("\n\n"):"هنوز سفارشی ثبت نکرده‌اید.",{reply_markup:{inline_keyboard:buttons}});
+}
+if(String(q.data||"").startsWith("order:cancel:")){
+  const orderId=String(q.data.split(":")[2]||"");
+  if(!/^\d+$/.test(orderId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"شناسه سفارش نامعتبر است.",show_alert:true});
+  await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال لغو سفارش..."});
+  try{
+    const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
+    if(!participant)throw new Error("پروفایل فعال پیدا نشد.");
+    const result=await campaignService.cancelManualOrder({orderId:Number(orderId),participantId:participant.id});
+    if(result.duplicate)return reply(chat,String(q.message?.business_connection_id||""),"این سفارش قبلاً لغو شده است.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}]]}});
+    return reply(chat,String(q.message?.business_connection_id||""),"سفارش لغو شد و ظرفیت رزروشده آزاد شد.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}],[{text:"🧩 کمپین‌ها",callback_data:"campaign:list"}]]}});
+  }catch(e){return reply(chat,String(q.message?.business_connection_id||""),"لغو سفارش انجام نشد: "+e.message);}
+}
+if(String(q.data||"").startsWith("order:resume:")){
+  const orderId=String(q.data.split(":")[2]||"");
+  if(!/^\d+$/.test(orderId))return tg("answerCallbackQuery",{callback_query_id:q.id,text:"شناسه سفارش نامعتبر است.",show_alert:true});
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [[order]]=await db.execute("SELECT o.id,o.order_ref,o.status,o.quantity,o.total_snapshot,o.currency,o.expires_at,o.terms_snapshot,c.name AS campaign_name,p.id AS participant_id FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id JOIN participants p ON p.id=o.participant_id WHERE o.id=? AND p.telegram_user_id=? LIMIT 1",[orderId,uid]);
+  if(!order)return reply(chat,String(q.message?.business_connection_id||""),"این سفارش برای حساب شما پیدا نشد.");
+  if(order.status!=="pending_payment")return reply(chat,String(q.message?.business_connection_id||""),"وضعیت این سفارش اجازه ادامه پرداخت نمی‌دهد. برای مشاهده آخرین وضعیت، سفارش‌های من را باز کنید.");
+  if(new Date(order.expires_at).getTime()<=Date.now())return reply(chat,String(q.message?.business_connection_id||""),"مهلت این سفارش تمام شده است. از فهرست کمپین‌ها سفارش جدید ثبت کنید.");
+  await db.execute("INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)",[uid,chat,String(q.message?.business_connection_id||""),order.id]);
+  let terms={};try{terms=typeof order.terms_snapshot==="string"?JSON.parse(order.terms_snapshot):(order.terms_snapshot||{});}catch{}
+  const card=terms.payment_card||null;
+  const paymentDetails=card?"\n\n💳 اطلاعات کارت ثبت‌شده برای همین سفارش\n"+(card.bank_name?card.bank_name+"\n":"")+"شماره کارت: "+card.card_number+"\nبه نام: "+card.cardholder_name+"\n\nدر صورت پرداخت، رسید را همین‌جا ارسال کنید.": "\n\nاطلاعات کارت برای سفارش قدیمی در پرونده ذخیره نشده است. برای دریافت اطلاعات صحیح با پشتیبانی تماس بگیرید؛ کارت جدید را جایگزین اطلاعات قبلی فرض نکنید.";
+  return reply(chat,String(q.message?.business_connection_id||""),"🔁 نشست پرداخت بازیابی شد.\nسفارش: "+order.order_ref+"\nکمپین: "+order.campaign_name+"\nمبلغ: "+Number(order.total_snapshot).toLocaleString("en-US")+" "+order.currency+paymentDetails,{reply_markup:{inline_keyboard:[[{text:"💳 مشاهده سفارش‌ها",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+}
+if(q.data==='participant:tickets'){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [rows]=await db.execute("SELECT id,message,status,created_at FROM customer_support_tickets WHERE telegram_user_id=? ORDER BY created_at DESC LIMIT 10",[uid]);
+  const labels={open:"در انتظار پاسخ",answered:"پاسخ داده‌شده",closed:"بسته‌شده"};
+  const buttons=rows.map(x=>[{text:"تیکت #"+x.id+" · "+(labels[x.status]||x.status),callback_data:"participant:ticket:"+x.id+":0"}]);
+  buttons.push([{text:"➕ ثبت پیام جدید",callback_data:"support:start"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]);
+  const body=rows.length?"برای مشاهده تاریخچه و ادامه گفت‌وگو، تیکت موردنظر را انتخاب کنید.":"هنوز تیکتی ثبت نکرده‌اید.";
+  return reply(chat,String(q.message?.business_connection_id||""),body,{reply_markup:{inline_keyboard:buttons}});
+}
+if(q.data.startsWith('participant:ticket:')){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [, ,ticketId,pageValue='0']=q.data.split(':');
+  if(!/^\d+$/.test(ticketId))return reply(chat,String(q.message?.business_connection_id||""),"شناسه تیکت نامعتبر است.");
+  const [[ticket]]=await db.execute("SELECT id,message,status,created_at FROM customer_support_tickets WHERE id=? AND telegram_user_id=? LIMIT 1",[ticketId,uid]);
+  if(!ticket)return reply(chat,String(q.message?.business_connection_id||""),"تیکت برای حساب شما پیدا نشد.");
+  const page=Math.max(0,Math.min(10000,Number(pageValue)||0));
+  const [[total]]=await db.execute("SELECT COUNT(*) AS total FROM customer_support_messages WHERE ticket_id=?",[ticketId]);
+  const [messages]=await db.execute("SELECT sender_type,message,created_at FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 15 OFFSET ?",[ticketId,page*15]);
+  messages.reverse();
+  const labels={open:"در انتظار پاسخ",answered:"پاسخ داده‌شده",closed:"بسته‌شده"};
+  const history=messages.length?messages.map(x=>(x.sender_type==="customer"?"👤 شما":x.sender_type==="admin"?"🛠 پشتیبانی":"⚙️ سیستم")+" · "+x.created_at+"\n"+x.message).join("\n\n"):"پیام اولیه: "+ticket.message;
+  const buttons=[],nav=[];
+  if(page>0)nav.push({text:"پیام‌های جدیدتر ⬅️",callback_data:"participant:ticket:"+ticketId+":"+(page-1)});
+  if((page+1)*15<Number(total.total||0))nav.push({text:"پیام‌های قدیمی‌تر ➡️",callback_data:"participant:ticket:"+ticketId+":"+(page+1)});
+  if(nav.length)buttons.push(nav);
+  if(ticket.status!=="closed")buttons.push([{text:"✍️ ارسال پیام به پشتیبانی",callback_data:"support:start"}]);
+  else buttons.push([{text:"➕ ثبت تیکت جدید",callback_data:"support:start"}]);
+  buttons.push([{text:"↩️ فهرست تیکت‌ها",callback_data:"participant:tickets"}]);
+  return reply(chat,String(q.message?.business_connection_id||""),"💬 تیکت #"+ticket.id+" · "+(labels[ticket.status]||ticket.status)+"\nثبت: "+ticket.created_at+" · "+Number(total.total||0)+" پیام · صفحه "+(page+1)+"\n\n"+history,{reply_markup:{inline_keyboard:buttons}});
+}
+if(q.data==='participant:codes'){await tg("answerCallbackQuery",{callback_query_id:q.id});const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل بسازید.");const [rows]=await db.execute("SELECT c.name,cc.code FROM campaign_codes cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.participant_id=? AND cc.status='active' ORDER BY cc.issued_at DESC LIMIT 100",[p.id]);return reply(chat,String(q.message?.business_connection_id||""),rows.length?rows.map((x,i)=>(i+1)+". "+x.name+" — "+x.code).join("\n"):"هنوز کدی ندارید.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
 if(q.data==='participant:account'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
   const [[p]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
-  if(!p)return tg('sendMessage',{chat_id:chat,text:'هنوز پروفایلی ندارید. ابتدا یک کمپین را انتخاب کنید.',reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
+  if(!p)return tg('sendMessage',{chat_id:chat,business_connection_id:String(q.message?.business_connection_id||'')||undefined,text:'هنوز پروفایلی ندارید. حتی بدون کمپین فعال می‌توانید پروفایل بسازید.',reply_markup:{inline_keyboard:[[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
   const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[p.id]);
   const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[p.id]);
   const labels={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
-  const et=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\\n\\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
-  const ot=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(labels[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
-  return tg('sendMessage',{chat_id:chat,text:'👤 حساب شما\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram+'\\nوضعیت: '+p.status+'\\n\\n🎟 کمپین‌ها و کدها\\n'+et+'\\n\\n💳 سفارش‌ها\\n'+ot,reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
+  const et=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\n\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
+  const ot=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · '+x.order_ref+'\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\nوضعیت: '+(labels[x.status]||x.status)).join('\n\n'):'سفارشی ندارید.';
+  return reply(chat,String(q.message?.business_connection_id||''),'👤 حساب شما\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram+'\nوضعیت: '+p.status+'\n\n🎟 کمپین‌ها و کدها\n'+et+'\n\n💳 سفارش‌ها\n'+ot,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}],[{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'✏️ اصلاح نام',callback_data:'profile:edit:name'},{text:'📱 اصلاح موبایل',callback_data:'profile:edit:phone'}],[{text:'📸 اصلاح اینستاگرام',callback_data:'profile:edit:instagram'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'},{text:'🎫 تیکت‌های من',callback_data:'participant:tickets'}],[{text:'🏠 منوی اصلی',callback_data:'participant:home'}]]}});
 }
 if(q.data==='participant:home'){
  await tg('answerCallbackQuery',{callback_query_id:q.id});
- return tg('sendMessage',{chat_id:chat,text:'به سامانه کمپین‌های iStore خوش آمدید.\\nیک بخش را انتخاب کنید:',reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب من و کدها',callback_data:'participant:account'}]]}});
+ return reply(chat,String(q.message?.business_connection_id||''),'به USTORE خوش آمدید. یک بخش را انتخاب کنید:',{reply_markup:{inline_keyboard:[[{text:'🧩 مشاهده کمپین‌ها',callback_data:'campaign:list'}],[{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'},{text:'🎫 تیکت‌های من',callback_data:'participant:tickets'}],[{text:'📝 ساخت پروفایل',callback_data:'profile:create'}],[{text:'💬 پشتیبانی',callback_data:'support:start'}]]}});
 }
 if(q.data==='campaign:list'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
-  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
+  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
-  return tg('sendMessage',{chat_id:chat,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد.',reply_markup:{inline_keyboard:buttons}});
+  buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
+  buttons.push([{text:'📝 ساخت پروفایل',callback_data:'profile:create'},{text:'💬 پشتیبانی',callback_data:'support:start'}]);
+  return reply(chat,String(q.message?.business_connection_id||''),campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید پروفایل بسازید یا از پشتیبانی کمک بگیرید.',{reply_markup:{inline_keyboard:buttons}});
 }
 if(String(q.data||'').startsWith('campaign:join:')){
   const uid=String(q.from?.id||''),chat=String(q.message?.chat?.id||''),connection=String(q.message?.business_connection_id||''),campaignId=String(q.data.split(':')[2]||'');
@@ -270,20 +304,20 @@ if(String(q.data||'').startsWith('campaign:join:')){
     const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
     if(participant&&participant.status!=='active')throw new Error('پروفایل شما غیرفعال است. برای بررسی با پشتیبانی تماس بگیرید.');
     if(!participant){
-      await putSession(uid,chat,"name",null,null,connection);
-      return reply(chat,connection,"برای شرکت در کمپین، ابتدا پروفایل دائمی خود را تکمیل کنید.\\n\\nنام و نام خانوادگی خود را ارسال کنید. این اطلاعات فقط یک‌بار دریافت می‌شود و برای کمپین‌های بعدی محفوظ می‌ماند.");
+      await putSession(uid,chat,"profile_name",null,null,connection);
+      return reply(chat,connection,"برای شرکت در کمپین، ابتدا پروفایل دائمی خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را ارسال کنید. این اطلاعات فقط یک‌بار دریافت می‌شود و برای کمپین‌های بعدی محفوظ می‌ماند.");
     }
-    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
     const max=Math.max(1,Math.min(1000,Number(campaign.max_codes_per_participant)||1));
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
-    return tg('sendMessage',{chat_id:chat,text:'🎟 کمپین: '+campaign.name+'\\nحداکثر تعداد مجاز برای هر نفر: '+max+'\\n\\nچند کد می‌خواهید دریافت کنید؟',reply_markup:campaignQuantityKeyboard(campaign.id,max,0)});
+    return tg('sendMessage',{chat_id:chat,business_connection_id:connection||undefined,text:'🎟 کمپین: '+campaign.name+'\nحداکثر تعداد مجاز برای هر نفر: '+max+'\n\nچند کد می‌خواهید دریافت کنید؟',reply_markup:campaignQuantityKeyboard(campaign.id,max,0)});
   }catch(e){return reply(chat,connection,'❌ امکان ادامه ثبت‌نام وجود ندارد: '+e.message);}
 }
 if(String(q.data||'').startsWith('campaign:quantity-page:')){
   const parts=String(q.data).split(':'),campaignId=parts[3]||'',page=Number(parts[4]);
   if(!uid||!chat||!/^[0-9]+$/.test(campaignId)||!Number.isInteger(page)||page<0)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
-  const [[campaign]]=await db.execute("SELECT id,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+  const [[campaign]]=await db.execute("SELECT id,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
   if(!campaign)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'این کمپین دیگر فعال نیست.',show_alert:true});
   const max=Math.max(1,Math.min(1000,Number(campaign.max_codes_per_participant)||1)),totalPages=Math.ceil(max/80);
   if(page>=totalPages)return tg('answerCallbackQuery',{callback_query_id:q.id,text:'این صفحه معتبر نیست.',show_alert:true});
@@ -298,67 +332,33 @@ if(String(q.data||'').startsWith('campaign:quantity:')){
   try{
     const [[participant]]=await db.execute("SELECT * FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
     if(!participant)throw new Error('پروفایل فعال پیدا نشد؛ دوباره کمپین را انتخاب کنید.');
-    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' AND slug<>'legacy-lottery' LIMIT 1",[campaignId]);
+    const [[campaign]]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
     if(!campaign)throw new Error('این کمپین دیگر باز نیست.');
     if(quantity>Number(campaign.max_codes_per_participant))throw new Error('تعداد انتخابی از سقف مجاز کمپین بیشتر است.');
     await db.execute('UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?',[chat,connection,participant.id]);
     if(campaign.payment_mode==='free'){
-      await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity});
-      return reply(chat,connection,'🎉 درخواست عضویت شما در کمپین «'+campaign.name+'» با '+quantity+' کد ثبت شد. کدها در پیام جداگانه برایتان ارسال می‌شوند.');
+      const joined=await campaignService.joinFreeCampaign({campaignId:Number(campaignId),telegramUserId:uid,chatId:chat,businessConnectionId:connection,fullName:participant.full_name,phone:participant.phone,instagram:participant.instagram,quantity});
+      if(joined.duplicate){
+        const codes=(joined.codes||[]).join('\n');
+        return reply(chat,connection,'ℹ️ شما قبلاً در کمپین «'+campaign.name+'» ثبت‌نام کرده‌اید؛ کد جدیدی صادر نشد.'+(codes?'\n\n🎟 کدهای ثبت‌شده شما:\n'+codes:'\n\nهنوز کد فعالی برای این عضویت ثبت نشده است.'));
+      }
+      return reply(chat,connection,'🎉 درخواست عضویت شما در کمپین «'+campaign.name+'» با '+quantity+' کد ثبت شد. کدها از طریق پیام جداگانه ارسال می‌شوند.');
     }
     if(campaign.payment_mode!=='manual')throw new Error('درگاه پرداخت این کمپین هنوز فعال نشده است.');
     const order=await campaignService.reserveManualOrder({campaignId:Number(campaignId),participantId:participant.id,quantity});
-    const card=order.card;
-    await db.execute('INSERT INTO campaign_payment_sessions(telegram_user_id,chat_id,business_connection_id,order_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),business_connection_id=VALUES(business_connection_id),order_id=VALUES(order_id)',[uid,chat,connection,order.id]);
-    const sent=await reply(chat,connection,'🧾 سفارش شما ثبت شد.\\nکمپین: '+campaign.name+'\\nتعداد کد: '+quantity+'\\nشماره سفارش: '+order.orderRef+'\\nمبلغ: '+order.total+' '+order.currency+'\\n\\nشماره کارت: '+card.card_number+'\\nبه نام: '+card.cardholder_name+'\\n\\nپس از پرداخت، تصویر رسید را همین‌جا ارسال کنید. مهلت رزرو ۳۰ دقیقه است.');
-    if(sent){try{await bankCardService.recordDelivery({orderId:order.id,card});}catch(deliveryError){console.error('Payment card delivery audit failed for order '+order.id+':',deliveryError.message);}}
-    return sent;
+    if(order.duplicate)return reply(chat,connection,'این سفارش قبلاً ثبت شده و برای جلوگیری از سفارش تکراری دوباره ساخته نشد. برای بازیابی اطلاعات پرداخت و ارسال رسید ادامه دهید.',{reply_markup:{inline_keyboard:[[{text:'📤 ادامه سفارش '+order.orderRef,callback_data:'order:resume:'+order.id}],[{text:'💳 سفارش‌های من',callback_data:'participant:orders'}]]}});
+    return reply(chat,connection,'✅ سفارش '+order.orderRef+' ثبت شد. دستور پرداخت و اطلاعات کارت از طریق پیام جداگانه ارسال می‌شود.');
   }catch(e){return reply(chat,connection,'❌ امکان ثبت‌نام در این کمپین وجود ندارد: '+e.message);}
 }
 const adminHandled=await adminTelegram.handleCallback(q);if(adminHandled!==false)return adminHandled;
-if(uid!==String(process.env.ADMIN_ID)||q.message?.chat?.type!=="private"){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دسترسی غیرمجاز",show_alert:true});
-}
-if(!["admin:stats","admin:export","admin:search","admin:search:phone","admin:search:instagram","admin:search:code"].includes(q.data)){
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"دکمه نامعتبر است.",show_alert:true});
-}
-await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال اجرا..."});
-if(q.data==="admin:search"){
-return tg("sendMessage",{chat_id:chat,text:"🔎 روش جستجوی شرکت‌کننده را انتخاب کنید:",reply_markup:{inline_keyboard:[
-[{text:"📱 جستجو با شماره موبایل",callback_data:"admin:search:phone"}],
-[{text:"📸 جستجو با آیدی اینستاگرام",callback_data:"admin:search:instagram"}],
-[{text:"🎟️ جستجو با کد قرعه‌کشی",callback_data:"admin:search:code"}]
-]}});
-}
-const searchPrompts={"admin:search:phone":["phone","شماره موبایل شرکت‌کننده را وارد کنید:"],"admin:search:instagram":["instagram","آیدی اینستاگرام را وارد کنید:"],"admin:search:code":["raffle_code","کد قرعه‌کشی را وارد کنید:"]};
-if(searchPrompts[q.data]){
-adminSearchModes.set(uid,searchPrompts[q.data][0]);
-return tg("sendMessage",{chat_id:chat,text:"🔎 "+searchPrompts[q.data][1]});
-}
-if(q.data==="admin:stats"){
-try{
-const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS codes, COUNT(DISTINCT raffle_code) AS unique_codes FROM lottery_entries WHERE status='active'");
-const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-return tg("sendMessage",{chat_id:chat,text:"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today});
-}catch(e){
-console.error("Callback stats error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"خطا در دریافت آمار. گزارش خطا در سرور ثبت شد."});
-}
-}
-try{
-const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-const cell=csvCell;
-const csv="\uFEFF"+[["نام و نام خانوادگی","موبایل","اینستاگرام","کد قرعه‌کشی","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,"@"+String(x.instagram||"").replace(/^@/,""),x.raffle_code,x.created_at])].map(row=>row.map(cell).join(",")).join("\r\n");
-return await tgDocument(chat,"istore-lottery.csv",csv,"text/csv;charset=utf-8");
-}catch(e){
-console.error("Callback export error:",e.message);
-return tg("sendMessage",{chat_id:chat,text:"❌ ارسال فایل ناموفق بود. گزارش خطا در سرور ثبت شد."});
-}
 }
 
 async function handlePrivateUpdate(update){
 const m=update.message;
 if(!m?.from||m.from.is_bot||!m.chat||m.chat.type!=="private")return;
+if(String(m.from.id)!==String(process.env.ADMIN_ID||"")&&!await contactGateAccepted(m.from.id))return showContactGate(m.chat.id,"");
+if(await accountAuth.handleMessage(m))return;
+if(String(m.from.id)===String(process.env.ADMIN_ID||"")&&String(m.text||"").trim().startsWith("/reply"))return handleUpdate({business_message:{...m,business_connection_id:""}});
 const adminHandled=await adminTelegram.handleMessage(m);
 if(adminHandled!==false)return adminHandled;
 return handleUpdate({business_message:{...m,business_connection_id:""}});
@@ -368,93 +368,128 @@ async function handleUpdate(update){
 const m=update.business_message;
 if(!m?.from||!m.chat||m.from.is_bot||m.chat.type!=="private")return;
 const uid=String(m.from.id),chat=String(m.chat.id),conn=String(m.business_connection_id||""),t=String(m.text||m.caption||'').trim(),lower=t.toLowerCase();
+if(uid!==String(process.env.ADMIN_ID||"")&&!await contactGateAccepted(uid))return showContactGate(chat,conn);
 if(m.contact){
   const s=await session(uid);
-  if(!s||s.step!=="awaiting_contact"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
+  if(!s||!["profile_awaiting_contact","profile_change_phone_contact"].includes(s.step)||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==conn)return reply(chat,conn,"درخواست ارسال شماره فعال نیست. برای شروع دوباره /start را بزنید.");
   if(!m.contact.user_id||String(m.contact.user_id)!==uid)return reply(chat,conn,"❌ فقط شماره متعلق به حساب تلگرام خودتان پذیرفته می‌شود.");
   const phone=normalizePhone(m.contact.phone_number||"");
   if(!validPhone(phone))return reply(chat,conn,"شماره دریافت‌شده معتبر نیست. لطفاً دوباره از دکمه اشتراک‌گذاری شماره استفاده کنید.");
-  await putSession(uid,chat,"instagram",s.full_name,phone,conn);
-  return reply(chat,conn,"✅ شماره موبایل تأیید شد.\\nحالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
+  if(s.step==="profile_change_phone_contact"){try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field:"phone",value:phone,telegramMessageId:m.message_id});await delSession(uid);return reply(chat,conn,"درخواست اصلاح شماره ثبت شد. شناسه: "+request.id,{reply_markup:{remove_keyboard:true}});}catch(e){return reply(chat,conn,"اصلاح شماره ثبت نشد: "+e.message,{reply_markup:{remove_keyboard:true}});}}
+  await putSession(uid,chat,"profile_instagram",s.full_name,phone,conn);
+  return reply(chat,conn,"شماره موبایل تأیید شد. حالا آیدی اینستاگرام خود را بفرستید؛ مثال: @example",{reply_markup:{remove_keyboard:true}});
 }
-if(m.photo?.length){
+if(m.photo?.length||m.document){
   const [[paymentSession]]=await db.execute('SELECT order_id FROM campaign_payment_sessions WHERE telegram_user_id=? AND chat_id=? AND business_connection_id=? LIMIT 1',[uid,chat,conn]);
-  if(!paymentSession)return;
+  if(!paymentSession)return reply(chat,conn,"برای ثبت رسید، ابتدا از بخش «سفارش‌های من» سفارش در انتظار پرداخت را انتخاب و نشست آن را بازیابی کنید.",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}],[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
   try{
-    const photo=m.photo[m.photo.length-1];
-    await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:photo.file_id,fileUniqueId:photo.file_unique_id,trackingReference:m.caption||null});
+    const photo=m.photo?.length?m.photo[m.photo.length-1]:null;
+    const document=m.document||null;
+    const mime=String(document?.mime_type||"").toLowerCase();
+    if(document&&(Number(document.file_size||0)>10*1024*1024||!["application/pdf","image/jpeg","image/png","image/webp"].includes(mime)))return reply(chat,conn,"فایل رسید باید PDF یا تصویر JPG/PNG/WEBP و حداکثر ۱۰ مگابایت باشد.");
+    const file=photo||document;
+    if(Number(file.file_size||0)>10*1024*1024)return reply(chat,conn,"حجم رسید نباید بیشتر از ۱۰ مگابایت باشد.");
+    const receiptResult=await campaignService.submitReceipt({orderId:paymentSession.order_id,fileId:file.file_id,fileUniqueId:file.file_unique_id,trackingReference:m.caption||null});
     await db.execute('DELETE FROM campaign_payment_sessions WHERE telegram_user_id=?',[uid]);
-    return reply(chat,conn,'✅ رسید شما دریافت شد و برای بررسی مدیر ارسال شد. پس از تأیید، کدهای قرعه‌کشی برایتان ارسال می‌شود.');
+    if(receiptResult.duplicate)return reply(chat,conn,'این رسید قبلاً دریافت شده و در صف بررسی مدیر قرار دارد. وضعیت سفارش را از بخش «سفارش‌های من» پیگیری کنید.');
+    return; // The durable outbox sends the first receipt acknowledgement exactly once per order key.
   }catch(e){return reply(chat,conn,'❌ رسید ثبت نشد: '+e.message+'\nاگر مهلت سفارش تمام شده باشد دوباره از فهرست کمپین‌ها اقدام کنید.');}
 }
+if(lower==='/orders'||lower==='سفارش‌های من'||lower==='سفارش های من')return reply(chat,conn,"برای مشاهده وضعیت سفارش‌ها، دکمه زیر را بزنید:",{reply_markup:{inline_keyboard:[[{text:"💳 سفارش‌های من",callback_data:"participant:orders"}]]}});
+if(lower==='/tickets'||lower==='تیکت‌های من'||lower==='تیکت های من')return reply(chat,conn,"برای مشاهده پیام‌های پشتیبانی، دکمه زیر را بزنید:",{reply_markup:{inline_keyboard:[[{text:"🎫 تیکت‌های من",callback_data:"participant:tickets"}]]}});
 if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پروفایل من'){
   const [[participant]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
   if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع، /campaigns را بزنید و یک کمپین را انتخاب کنید.");
   const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[participant.id]);
   const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[participant.id]);
   const statusLabel={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
-  const entryText=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\\n\\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
-  const orderText=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · سفارش '+x.order_ref+'\\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\\nوضعیت: '+(statusLabel[x.status]||x.status)).join('\\n\\n'):'سفارشی ندارید.';
-  return reply(chat,conn,'👤 پروفایل شما\\nنام: '+participant.full_name+'\\nموبایل: '+participant.phone+'\\nاینستاگرام: @'+participant.instagram+'\\nوضعیت: '+participant.status+'\\n\\n🎟 کمپین‌ها و کدهای شما\\n'+entryText+'\\n\\n💳 سفارش‌ها\\n'+orderText,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
+  const entryText=entries.length?entries.map((x,i)=>(i+1)+') '+x.name+' · '+x.status+'\nکدها: '+(x.codes||'هنوز صادر نشده')).join('\n\n'):'هنوز در کمپینی ثبت‌نام نکرده‌اید.';
+  const orderText=orders.length?orders.map((x,i)=>(i+1)+') '+x.name+' · سفارش '+x.order_ref+'\nتعداد: '+x.quantity+' · مبلغ: '+x.total_snapshot+' '+x.currency+'\nوضعیت: '+(statusLabel[x.status]||x.status)).join('\n\n'):'سفارشی ندارید.';
+  return reply(chat,conn,'👤 پروفایل شما\nنام: '+participant.full_name+'\nموبایل: '+participant.phone+'\nاینستاگرام: @'+participant.instagram+'\nوضعیت: '+participant.status+'\n\n🎟 کمپین‌ها و کدهای شما\n'+entryText+'\n\n💳 سفارش‌ها\n'+orderText,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
 }
 if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
-  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' ORDER BY id DESC LIMIT 20");
+  const [[existingProfile]]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+  if(!existingProfile){
+    await putSession(uid,chat,"profile_name",null,null,conn);
+    return reply(chat,conn,"به USTORE خوش آمدید. برای مشاهده و شرکت در کمپین‌ها، ابتدا ثبت‌نام کوتاه خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید:",{reply_markup:{inline_keyboard:[[{text:"✖️ انصراف",callback_data:"reg:cancel"}]]}});
+  }
+  if(existingProfile.status!=="active"){
+    return reply(chat,conn,"حساب شما در حال حاضر غیرفعال است. برای بررسی و فعال‌سازی با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:[[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+  }
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(x=>[{text:x.name+' · '+(x.payment_mode==='free'?'رایگان':x.price_per_code+' '+x.currency),callback_data:'campaign:details:'+x.id}]);
-  buttons.push([{text:'👤 حساب من و کدها',callback_data:'participant:account'}]);
-  buttons.push([{text:'🔄 تازه‌سازی فهرست کمپین‌ها',callback_data:'campaign:list'}]);
-  return tg('sendMessage',{chat_id:chat,business_connection_id:conn,text:campaigns.length?'🧩 کمپین فعال موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید حساب خود را مشاهده کنید.',reply_markup:{inline_keyboard:buttons}});
+  buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
+  buttons.push([{text:'📝 ساخت پروفایل',callback_data:'profile:create'},{text:'💬 پشتیبانی',callback_data:'support:start'}]);
+  buttons.push([{text:'🔄 تازه‌سازی کمپین‌ها',callback_data:'campaign:list'}]);
+  return reply(chat,conn,campaigns.length?'به USTORE خوش آمدید؛ کمپین موردنظرتان را انتخاب کنید:':'در حال حاضر کمپین بازی برای ثبت‌نام وجود ندارد. می‌توانید پروفایل بسازید یا از پشتیبانی کمک بگیرید.',{reply_markup:{inline_keyboard:buttons}});
 }
 
 
+if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"عملیات لغو شد. از منوی اصلی می‌توانید دوباره شروع کنید.",{reply_markup:{inline_keyboard:[[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
+const currentSession=await session(uid);
+if(currentSession?.step==="profile_name"){
+if(!validFullName(t))return reply(chat,conn,"نام و نام خانوادگی معتبر وارد کنید.");
+await putSession(uid,chat,"profile_awaiting_contact",t.trim().replace(/\s+/g," "),null,conn);
+return reply(chat,conn,"شماره متعلق به حساب تلگرام خود را با دکمه رسمی زیر ارسال کنید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}});
+}
+if(currentSession?.step==="profile_instagram"){
+const inst=normalizeInstagram(t);if(!validInstagram(inst))return reply(chat,conn,"آیدی اینستاگرام معتبر نیست.");
+await putSession(uid,chat,"profile_confirmation",currentSession.full_name,currentSession.phone,conn,inst);
+return reply(chat,conn,"اطلاعات را بررسی کنید:\nنام: "+currentSession.full_name+"\nموبایل: "+currentSession.phone+"\nاینستاگرام: @"+inst,{reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:"profile:confirm"}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
+}
+if(currentSession?.step==="profile_change_full_name"||currentSession?.step==="profile_change_instagram"){
+const field=currentSession.step==="profile_change_full_name"?"full_name":"instagram";
+try{const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)throw new Error("پروفایل فعال پیدا نشد.");const request=await campaignService.requestProfileChange({participantId:p.id,field,value:t,telegramMessageId:m.message_id});await delSession(uid);return reply(chat,conn,"درخواست اصلاح ثبت شد؛ پس از بررسی مدیر اعمال می‌شود. شناسه: "+request.id);}catch(e){return reply(chat,conn,"درخواست اصلاح ثبت نشد: "+e.message);}
+}
+if(currentSession?.step==="support_message"){
+if(t.length<5||t.length>2000)return reply(chat,conn,"پیام باید بین ۵ تا ۲۰۰۰ نویسه باشد.");
+const messageId=Number(m.message_id);
+if(!Number.isSafeInteger(messageId)||messageId<=0)return reply(chat,conn,"شناسه پیام تلگرام معتبر نیست؛ لطفاً پیام را دوباره ارسال کنید.");
+const ticketConn=await db.getConnection();let ticketId;
+try{
+ await ticketConn.beginTransaction();
+ const [[existing]]=await ticketConn.execute("SELECT id,status FROM customer_support_tickets WHERE telegram_user_id=? AND status IN ('open','answered') ORDER BY id DESC LIMIT 1 FOR UPDATE",[uid]);
+ if(existing){ticketId=Number(existing.id);await ticketConn.execute("UPDATE customer_support_tickets SET status='open',chat_id=?,business_connection_id=? WHERE id=?",[chat,conn||null,ticketId]);}
+ else{const [ticket]=await ticketConn.execute("INSERT INTO customer_support_tickets(telegram_user_id,chat_id,business_connection_id,message,telegram_message_id,status) VALUES(?,?,?,?,?,'open')",[uid,chat,conn||null,t,messageId]);ticketId=Number(ticket.insertId);}
+ await ticketConn.execute("INSERT IGNORE INTO customer_support_messages(ticket_id,sender_type,sender_id,message,telegram_message_id) VALUES(?,'customer',?,?,?)",[ticketId,uid,t,messageId]);
+ await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-message:"+ticketId+":customer:"+messageId,"customer_support_message",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پیام جدید در تیکت #"+ticketId+" از کاربر "+uid+":\n"+t+"\n\nپاسخ: /reply "+ticketId+" متن پاسخ"}})]);
+ await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-ticket-customer:"+ticketId+":"+messageId,"support_ticket_acknowledgement",JSON.stringify({method:"sendMessage",payload:{chat_id:chat,...(conn?{business_connection_id:conn}:{}),text:"پیام شما در گفت‌وگوی پشتیبانی ثبت شد. شماره پیگیری: #"+ticketId}})]);
+ await ticketConn.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[uid]);await ticketConn.commit();
+}catch(error){await ticketConn.rollback();throw error;}finally{ticketConn.release();}
+return;
+}
 const profileChangeMatch=t.match(/^اصلاح\s+(نام|موبایل|اینستاگرام)\s*[:：]\s*(.+)$/);
 if(profileChangeMatch){
   const fieldMap={'نام':'full_name','موبایل':'phone','اینستاگرام':'instagram'};
   try{
     const [[participant]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);
     if(!participant)return reply(chat,conn,'پروفایل کمپین شما پیدا نشد. ابتدا «لاتاری» را تکمیل کنید و دوباره تلاش کنید.');
-    const request=await campaignService.requestProfileChange({participantId:participant.id,field:fieldMap[profileChangeMatch[1]],value:profileChangeMatch[2].trim()});
+    const request=await campaignService.requestProfileChange({participantId:participant.id,field:fieldMap[profileChangeMatch[1]],value:profileChangeMatch[2].trim(),telegramMessageId:m.message_id});
     return reply(chat,conn,'📝 درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیر نتیجه اعلام می‌شود.\nشناسه درخواست: '+request.id);
   }catch(e){return reply(chat,conn,'❌ درخواست اصلاح ثبت نشد: '+e.message);}
 }
 
-if(lower==="/export" || lower.startsWith("/export@")){
-if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
+if(lower==="/reply"||lower.startsWith("/reply ")){
+if(uid!==String(process.env.ADMIN_ID||""))return;
+const match=t.match(/^\/reply\s+(\d+)\s+([\s\S]{2,2000})$/i);
+if(!match)return reply(chat,conn,"فرمت پاسخ: /reply شماره_تیکت متن پاسخ");
+const ticketId=Number(match[1]),answer=match[2].trim(),messageId=Number(m.message_id);
+if(!Number.isSafeInteger(messageId)||messageId<=0)return reply(chat,conn,"شناسه پیام مدیر معتبر نیست؛ پاسخ را دوباره ارسال کنید.");
+const replyConn=await db.getConnection();
 try{
-const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");
-const csv="\uFEFF"+[["نام و نام خانوادگی","موبایل","اینستاگرام","کد قرعه‌کشی","زمان ثبت"],...rows.map(x=>[x.full_name,x.phone,"@"+String(x.instagram||"").replace(/^@/,""),x.raffle_code,x.created_at])].map(row=>row.map(csvCell).join(",")).join("\r\n");
-const boundary="----lottery"+Date.now();
-const file=Buffer.from(csv,"utf8");
-const head=Buffer.from("--"+boundary+"\r\nContent-Disposition: form-data; name=\"business_connection_id\"\r\n\r\n"+conn+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n"+chat+"\r\n--"+boundary+"\r\nContent-Disposition: form-data; name=\"document\"; filename=\"istore-lottery.csv\"\r\nContent-Type: text/csv; charset=utf-8\r\n\r\n");
-const tail=Buffer.from("\r\n--"+boundary+"--\r\n");
-const body=Buffer.concat([head,file,tail]);
-const response=await fetch("https://api.telegram.org/bot"+token+"/sendDocument",{method:"POST",headers:{"Content-Type":"multipart/form-data; boundary="+boundary},body});
-const result=await response.json();
-if(!result.ok)throw new Error(result.description||"ارسال فایل ناموفق بود");
-}catch(e){console.error("Export error:",e.message);await reply(chat,conn,"ارسال فایل ناموفق بود. گزارش خطا در سرور ثبت شد.");}
-return;
+ await replyConn.beginTransaction();
+ const [[ticket]]=await replyConn.execute("SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=? FOR UPDATE",[ticketId]);
+ if(!ticket){await replyConn.rollback();return reply(chat,conn,"تیکت پیدا نشد.");}
+ if(ticket.status==="closed"){await replyConn.rollback();return reply(chat,conn,"این تیکت بسته است؛ ابتدا آن را از پنل بازگشایی کنید.");}
+ await replyConn.execute("INSERT IGNORE INTO customer_support_messages(ticket_id,sender_type,sender_id,message,telegram_message_id) VALUES(?,'admin',?,?,?)",[ticketId,uid,answer,messageId]);
+ await replyConn.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=?",[answer,String(uid),ticketId]);
+ await replyConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-reply:"+ticketId+":"+messageId,"support_ticket_reply",JSON.stringify({method:"sendMessage",payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:"💬 پاسخ پشتیبانی USTORE\n\n"+answer}})]);
+ await replyConn.commit();
+}catch(error){await replyConn.rollback();throw error;}finally{replyConn.release();}
+return reply(chat,conn,"پاسخ تیکت #"+ticketId+" ثبت شد و در صف ارسال قرار گرفت.");
+}
 }
 
-if(lower==="/stats"){
-if(String(m.from.id)!==String(process.env.ADMIN_ID))return;
-const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS codes, COUNT(DISTINCT raffle_code) AS unique_codes FROM lottery_entries WHERE status='active'");
-const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
-return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today);
-}
-if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
-if(lower==="لاتاری"||lower==="/start"){const legacyOpen=await registrationOpen();const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!legacyOpen&&!campaignOpen)return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);if(!legacyOpen)return reply(chat,conn,"🎉 برای شرکت در کمپین‌های فعال، ابتدا پروفایل خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید؛ سپس شماره موبایل خودتان را با دکمه رسمی تلگرام تأیید می‌کنید.\nپس از ثبت پروفایل، با ارسال «کمپین‌ها» می‌توانید کمپین موردنظر را انتخاب کنید.",{reply_markup:registrationKeyboard()});return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nنام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو وارد کنید؛ اطلاعات پروفایل تلگرام شما دریافت نمی‌شود.\n\nبرای لغو ثبت‌نام از دکمه زیر استفاده کنید.",{reply_markup:registrationKeyboard()})}
-const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!campaignOpen){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}}
-if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);return reply(chat,conn,"✅ نام ثبت شد. حالا دکمه زیر را بزنید تا شماره موبایل متعلق به حساب خودتان را مستقیماً در همین ربات به اشتراک بگذارید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}})}
-if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
-if(s.step==="awaiting_confirmation"){
-return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای تکمیل ثبت‌نام، دکمه تأیید زیر را بزنید.",reply_markup:{inline_keyboard:[[{text:"ادامه ثبت‌نام",callback_data:makeConfirmationPayload(uid,chat,conn)}]]}});
-}
-if(s.step==="instagram"){
-const inst=normalizeInstagram(t);
-if(!validInstagram(inst))return reply(chat,conn,"آیدی نامعتبر است؛ فقط حروف انگلیسی، عدد، نقطه و زیرخط مجاز است.");
-await putSession(uid,chat,"awaiting_confirmation",s.full_name,s.phone,conn,inst);
-return tg("sendMessage",{chat_id:chat,text:"🔎 لطفاً اطلاعات پروفایل خود را بررسی و تأیید کنید:\\n\\nنام: "+s.full_name+"\\nموبایل: "+s.phone+"\\nاینستاگرام: @"+inst+"\\n\\nبا تأیید، پروفایل دائمی شما ساخته می‌شود.",reply_markup:{inline_keyboard:[[{text:"✅ تأیید و ساخت پروفایل",callback_data:"reg:confirm"}],[{text:"لغو",callback_data:"reg:cancel"}]]}});
-}
-}
 app.get("/",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","index.html")));
 app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,database:"connected"})}catch{r.status(503).json({ok:false,database:"unavailable"})}});
 app.get("/admin/login",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","login.html")));
@@ -479,7 +514,7 @@ try{const result=await campaignService.createCampaign(q.body||{});r.status(201).
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/campaigns/:id/status",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
 try{const result=await campaignService.setCampaignStatus(Number(q.params.id),String(q.body.status||""),String(q.body.reason||""));await audit("admin","campaign_status","campaign",q.params.id,{status:result.status,reason:q.body.reason||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -506,34 +541,34 @@ r.setHeader("Content-Type",mime);r.setHeader("Content-Disposition","inline; file
 }catch(e){console.error("Receipt preview error:",e.message);return r.status(502).json({error:"دریافت تصویر رسید از تلگرام انجام نشد."});}
 });
 app.post("/api/admin/payment-orders/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه سفارش نامعتبر است."});
 try{const result=await campaignService.reviewManualPayment({orderId:Number(q.params.id),approve:q.body.approve===true,trackingReference:q.body.tracking_reference||null,note:q.body.note||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/campaigns/:id/draws/prepare",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه کمپین نامعتبر است."});
 try{const result=await drawService.prepareDraw(Number(q.params.id));r.status(201).json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.get("/api/admin/draws/:id/candidates",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 const [[draw]]=await db.execute("SELECT id,campaign_id,method,status,draw_basis,snapshot_hash,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[q.params.id]);
 if(!draw)return r.status(404).json({error:"قرعه‌کشی پیدا نشد."});
 const [candidates]=await db.execute("SELECT candidate_reference,participant_id,code FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference",[q.params.id]);
 r.json({draw,candidates});
 });
 app.post("/api/admin/draws/:id/run",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.runSystemDraw(Number(q.params.id));r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/draws/:id/live-results",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.submitLiveWheelResults({drawId:Number(q.params.id),candidateReferences:q.body.candidate_references,externalReference:q.body.external_reference,evidenceHash:q.body.evidence_hash});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
 app.post("/api/admin/draws/:id/approve",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه قرعه‌کشی نامعتبر است."});
 try{const result=await drawService.approveDraw(Number(q.params.id));r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -544,7 +579,7 @@ const [rows]=await db.execute("SELECT r.id,r.participant_id,p.telegram_user_id,p
 r.json({requests:rows});
 });
 app.post("/api/admin/profile-change-requests/:id/review",admin,async(q,r)=>{
-if(!/^\\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه درخواست نامعتبر است."});
+if(!/^\d+$/.test(String(q.params.id)))return r.status(400).json({error:"شناسه درخواست نامعتبر است."});
 try{const result=await campaignService.reviewProfileChange({requestId:Number(q.params.id),approve:q.body.approve===true,note:q.body.note||""});r.json({ok:true,...result});}
 catch(e){r.status(400).json({error:e.message});}
 });
@@ -557,89 +592,62 @@ FROM participants p WHERE (?='' OR p.full_name LIKE ? OR p.phone LIKE ? OR p.ins
 ORDER BY p.created_at DESC,p.id DESC LIMIT ${limit}`,[term,like,like,like,like]);
 r.json({participants:rows,limit});
 });
-app.get("/api/admin/stats",admin,async(_q,r)=>{const [[a]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active'");const [[b]]=await db.query("SELECT COUNT(*) total FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");const [[c]]=await db.query("SELECT COUNT(*) total FROM lottery_sessions");const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");const [[f]]=await db.execute("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");r.json({total:a.total,today:b.total,pending:c.total,failedUpdates:f.total,open:await registrationOpen(),drawn:d?.setting_value==='true'})});
-app.get("/api/admin/entries",admin,async(q,r)=>{const term=String(q.query.q||"").slice(0,100),like="%"+term+"%",limit=Math.min(100,Math.max(1,Number(q.query.limit)||50)),offset=Math.min(1000000,Math.max(0,Number(q.query.offset)||0));const [rows]=await db.execute(`SELECT id,full_name,phone,instagram,raffle_code,status,created_at FROM lottery_entries WHERE status<>'deleted' AND (?='' OR full_name LIKE ? OR phone LIKE ? OR instagram LIKE ? OR raffle_code LIKE ?) ORDER BY created_at DESC,id DESC LIMIT ${limit} OFFSET ${offset}`,[term,like,like,like,like]);r.json({entries:rows,limit,offset})});
-async function audit(adminId,action,type,id,details={}){await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)])}
-app.get("/api/admin/entries/:id",admin,async(q,r)=>{const [rows]=await db.execute("SELECT id,telegram_user_id,chat_id,full_name,phone,instagram,raffle_code,status,created_at,updated_at,deleted_at,deletion_reason FROM lottery_entries WHERE id=? LIMIT 1",[q.params.id]);if(!rows.length)return r.status(404).json({error:"شرکت‌کننده پیدا نشد."});r.json({entry:rows[0]})});
-app.post("/api/admin/entries/:id/status",admin,async(q,r)=>{const status=q.body.status;if(!["active","inactive"].includes(status))return r.status(400).json({error:"وضعیت نامعتبر است."});if(status==="active"){const [dups]=await db.execute("SELECT e.id FROM lottery_entries e JOIN lottery_entries x ON (x.phone=e.phone OR LOWER(x.instagram)=LOWER(e.instagram)) AND x.id<>e.id AND x.status='active' WHERE e.id=? LIMIT 1",[q.params.id]);if(dups.length)return r.status(409).json({error:"شماره یا آیدی این شرکت‌کننده با فرد فعال دیگری تکراری است."})}const [result]=await db.execute("UPDATE lottery_entries SET status=? WHERE id=? AND status<>'deleted'",[status,q.params.id]);if(!result.affectedRows)return r.status(404).json({error:"شرکت‌کننده پیدا نشد یا حذف شده است."});await audit("admin",status==="active"?"restore_entry":"deactivate_entry","lottery_entry",q.params.id);r.json({ok:true,status})});
-app.put("/api/admin/entries/:id",admin,async(q,r)=>{const fullName=String(q.body.full_name||"").trim(),phone=normalizePhone(q.body.phone||""),instagram=normalizeInstagram(q.body.instagram||"");if(!validFullName(fullName)||!validPhone(phone)||!validInstagram(instagram))return r.status(400).json({error:"اطلاعات واردشده معتبر نیست."});const [dup]=await db.execute("SELECT id FROM lottery_entries WHERE status='active' AND id<>? AND (phone=? OR LOWER(instagram)=LOWER(?)) LIMIT 1",[q.params.id,phone,instagram]);if(dup.length)return r.status(409).json({error:"این شماره یا آیدی اینستاگرام برای شرکت‌کننده دیگری ثبت شده است."});const [result]=await db.execute("UPDATE lottery_entries SET full_name=?,phone=?,instagram=? WHERE id=? AND status<>'deleted'",[fullName,phone,instagram,q.params.id]);if(!result.affectedRows)return r.status(404).json({error:"شرکت‌کننده پیدا نشد."});await audit("admin","edit_entry","lottery_entry",q.params.id,{full_name:fullName,phone,instagram});r.json({ok:true})});
-app.post("/api/admin/entries/:id/delete",admin,async(q,r)=>{
-const reason=String(q.body.reason||"حذف توسط مدیر").slice(0,255);
-const conn=await db.getConnection();
-try{
-await conn.beginTransaction();
-const [rows]=await conn.execute("SELECT id,status,raffle_code FROM lottery_entries WHERE id=? FOR UPDATE",[q.params.id]);
-if(!rows.length){await conn.rollback();return r.status(404).json({error:"شرکت‌کننده پیدا نشد."})}
-if(rows[0].status==="deleted"){await conn.rollback();return r.status(409).json({error:"این شرکت‌کننده قبلاً حذف شده است."})}
-await conn.execute("UPDATE lottery_entries SET status='deleted',deleted_at=NOW(),deletion_reason=? WHERE id=?",[reason,q.params.id]);
-await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID||"admin"),"delete_entry","lottery_entry",String(q.params.id),JSON.stringify({reason,raffle_code:rows[0].raffle_code})]);
-await conn.commit();
-r.json({ok:true,status:"deleted",raffle_code:rows[0].raffle_code});
-}catch(e){
-await conn.rollback();
-console.error("Delete entry error:",e.message);
-r.status(500).json({error:"حذف شرکت‌کننده انجام نشد."});
-}finally{conn.release()}
-});
-app.get("/api/admin/entries/:id/code-history",admin,async(q,r)=>{const [rows]=await db.execute("SELECT raffle_code,action,actor,created_at FROM lottery_code_history WHERE entry_id=? ORDER BY id DESC LIMIT 100",[q.params.id]);r.json({history:rows})});
-app.get("/api/admin/audit",admin,async(q,r)=>{const limit=Math.min(100,Math.max(1,Number(q.query.limit)||50));const [rows]=await db.query(`SELECT id,admin_id,action,entity_type,entity_id,details,created_at FROM admin_audit_log ORDER BY id DESC LIMIT ${limit}`);r.json({events:rows})});
-app.get("/api/admin/export.csv",admin,async(_q,r)=>{const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");const cell=csvCell;const csv="\uFEFF"+[["نام","موبایل","اینستاگرام","کد","زمان"].map(cell).join(","),...rows.map(x=>[x.full_name,x.phone,"@"+x.instagram,x.raffle_code,x.created_at].map(cell).join(","))].join("\r\n");r.setHeader("Content-Type","text/csv; charset=utf-8");r.setHeader("Content-Disposition",'attachment; filename="istore-lottery.csv"');r.send(csv)});
-app.post("/api/admin/registration",admin,async(q,r)=>{
-const v=q.body.open===true?"true":"false";
-const conn=await db.getConnection();
-try{
-await conn.beginTransaction();
-await conn.execute("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false')");
-const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
-const [[drawState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed' FOR UPDATE");
-if(v==="true"&&drawState?.setting_value==="true"){
-await conn.rollback();
-return r.status(409).json({error:"قرعه‌کشی این دوره انجام شده؛ برای شروع دوره جدید باید فرآیند کمپین جدید تعریف شود."});
+async function audit(adminId,action,type,id,details={}) {
+  await db.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),action,type,String(id),JSON.stringify(details)]);
 }
-await conn.execute("UPDATE lottery_settings SET setting_value=? WHERE setting_key='registration_open'",[v]);
-await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),v==="true"?"open_registration":"close_registration","lottery","current",JSON.stringify({previous:registrationState?.setting_value||"false",next:v})]);
-await conn.commit();
-r.json({open:v==="true"});
-}catch(e){
-await conn.rollback();
-console.error("Registration setting error:",e.message);
-r.status(500).json({error:"تغییر وضعیت ثبت‌نام انجام نشد."});
-}finally{conn.release()}
+app.get("/api/admin/audit",admin,async(q,r)=>{
+  const limit=Math.min(100,Math.max(1,Number(q.query.limit)||20));
+  const correlationId=String(q.query.correlation_id||"").trim();
+  if(correlationId&&!/^[0-9a-f-]{36}$/i.test(correlationId))return r.status(400).json({error:"شناسه همبستگی نامعتبر است."});
+  const [events]=correlationId
+    ? await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,correlation_id,created_at FROM admin_audit_log WHERE correlation_id=? ORDER BY id DESC LIMIT "+limit,[correlationId])
+    : await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,correlation_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT "+limit);
+  r.json({events,correlationId:correlationId||null});
 });
-app.post("/api/admin/draw",admin,async(_q,r)=>{if(await registrationOpen())return r.status(409).json({error:"ابتدا ثبت‌نام را ببندید، سپس قرعه‌کشی کنید."});const conn=await db.getConnection();try{await conn.beginTransaction();
-const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
-if(registrationState?.setting_value==='true'){await conn.rollback();return r.status(409).json({error:"ابتدا ثبت‌نام را ببندید، سپس قرعه‌کشی کنید."})}
-await conn.execute("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('draw_completed','false')");
-const [[lock]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed' FOR UPDATE");
-if(lock.setting_value==='true'){await conn.rollback();return r.status(409).json({error:"قرعه‌کشی قبلاً انجام شده است."})}
-const [rows]=await conn.query("SELECT id,full_name,instagram,raffle_code FROM lottery_entries WHERE status='active' ORDER BY id FOR UPDATE");
-if(!rows.length){await conn.rollback();return r.status(400).json({error:"شرکت‌کننده واجد شرایطی وجود ندارد."})}
-const winner=rows[crypto.randomInt(rows.length)],seed=crypto.randomBytes(32).toString("hex");
-const [draw]=await conn.execute("INSERT INTO lottery_draws(winner_entry_id,winner_code,drawn_by,draw_seed) VALUES(?,?,?,?)",[winner.id,winner.raffle_code,String(process.env.ADMIN_ID||"admin"),seed]);
-for(const row of rows)await conn.execute("INSERT INTO lottery_draw_participants(draw_id,entry_id,raffle_code) VALUES(?,?,?)",[draw.insertId,row.id,row.raffle_code]);
-await conn.execute("UPDATE lottery_settings SET setting_value='true' WHERE setting_key='draw_completed'");
-await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID||"admin"),"draw","lottery_draw",String(draw.insertId),JSON.stringify({eligible_count:rows.length,winner_entry_id:winner.id})]);
-await conn.commit();r.json({total:rows.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.raffle_code}})
-}catch(e){await conn.rollback();console.error("Draw error:",e.message);r.status(500).json({error:"اجرای قرعه‌کشی ناموفق بود."})}finally{conn.release()}});
+app.get("/api/admin/export.csv",admin,async(q,r)=>{
+  const [rows]=await db.execute(`SELECT p.full_name,p.phone,p.instagram,c.name AS campaign_name,cc.code,ce.status AS membership_status,cc.issued_at
+    FROM participants p LEFT JOIN campaign_entries ce ON ce.participant_id=p.id
+    LEFT JOIN campaigns c ON c.id=ce.campaign_id
+    LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active'
+    WHERE p.status<>'deleted' ORDER BY p.created_at DESC,p.id DESC,cc.id ASC`);
+  const cell=v=>{let x=String(v??'');if(/^[\s]*[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
+  const csv='\uFEFF'+[['نام','موبایل','اینستاگرام','کمپین','کد','وضعیت عضویت','زمان صدور'],...rows.map(x=>[x.full_name,x.phone,'@'+x.instagram,x.campaign_name||'',x.code||'',x.membership_status||'',x.issued_at||''])].map(row=>row.map(cell).join(',')).join('\r\n');
+  r.setHeader('Content-Type','text/csv; charset=utf-8');
+  r.setHeader('Content-Disposition','attachment; filename="ustore-campaign-participants.csv"');
+  r.setHeader('Cache-Control','private, no-store');
+  return r.send(csv);
+});
+app.get("/api/admin/stats",admin,async(_q,r)=>{
+const [[participants]]=await db.query("SELECT COUNT(*) total,SUM(status='active') active FROM participants");
+const [[memberships]]=await db.query("SELECT COUNT(*) total,SUM(status='active') active,SUM(status='pending') pending FROM campaign_entries");
+const [[codes]]=await db.query("SELECT COUNT(*) total FROM campaign_codes WHERE status='active'");
+const [[orders]]=await db.query("SELECT COUNT(*) total,SUM(status='approved') approved,SUM(status='pending_payment') pending FROM payment_orders");
+const [[failed]]=await db.query("SELECT COUNT(*) total FROM webhook_inbox WHERE status='failed'");
+const [[openCampaigns]]=await db.query("SELECT COUNT(*) total FROM campaigns WHERE status='open'");
+r.json({total:participants.total,activeParticipants:participants.active,memberships:memberships.total,activeMemberships:memberships.active,pending:orders.pending,activeCodes:codes.total,orders:orders.total,approvedOrders:orders.approved,failedUpdates:failed.total,open:openCampaigns.total>0,openCampaigns:openCampaigns.total});
+});
 const {createNotificationOutbox}=require("./notification-outbox");
-const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(method,payload),logger:console});
+const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(method,payload),onSent:async item=>{if(item.notificationType==="payment_instructions"&&item.payload?.delivery_card){await bankCardService.recordDelivery({...item.payload.delivery_card,outboxId:item.id});}},logger:console});
 const {createWebhookQueue}=require("./webhook-queue");
 const webhookQueue=createWebhookQueue({
 db,
+adminId:process.env.ADMIN_ID,
 handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallbackQuery},
+adminId:process.env.ADMIN_ID,
 logger:console
 });
 app.post("/telegram/"+secret,async(q,r)=>{
 if(!equal(q.get("x-telegram-bot-api-secret-token")||"",secret))return r.status(401).send("Unauthorized");
 const u=q.body||{};
 if(typeof u.update_id!=="number"||!Number.isSafeInteger(u.update_id))return r.status(400).send("Invalid update");
+const correlationId=q.correlationId||crypto.randomUUID();
 try{
-await db.execute("INSERT INTO webhook_inbox(update_id,payload,status) VALUES(?,?,'pending')",[String(u.update_id),JSON.stringify(u)]);
+await db.execute("INSERT INTO webhook_inbox(update_id,payload,status,correlation_id) VALUES(?,?,'pending',?)",[String(u.update_id),JSON.stringify(u),correlationId]);
 return r.sendStatus(200);
 }catch(e){
 if(e.code==="ER_DUP_ENTRY")return r.sendStatus(200);
-console.error("Webhook enqueue error:",e.message);
-return r.sendStatus(503);
+console.error("Webhook enqueue error ["+correlationId+"]:",e.message);
+return r.status(503);
 }
 });
 app.use(createErrorMiddleware(console));
@@ -658,14 +666,26 @@ server.keepAliveTimeout=5000;
 server.maxRequestsPerSocket=1000;
 webhookQueue.start();
 notificationOutbox.start();
+const rateLimitCleanupTimer=setInterval(async()=>{
+ try{
+  await db.execute("DELETE FROM telegram_rate_limits WHERE updated_at<DATE_SUB(NOW(),INTERVAL 30 DAY) LIMIT 1000");
+  await db.execute("DELETE FROM webhook_rate_limit_events WHERE created_at<DATE_SUB(NOW(),INTERVAL 90 DAY) LIMIT 5000");
+ }catch(error){console.error("Rate-limit cleanup error:",error.message);}
+},3600000);
+rateLimitCleanupTimer.unref?.();
 const reservationExpiryTimer=setInterval(()=>campaignService.expireReservations().catch(e=>console.error('Reservation expiry worker error:',e.message)),60000);
 reservationExpiryTimer.unref?.();
+campaignService.syncCampaignSchedule().catch(e=>console.error('Campaign schedule sync error:',e.message));
+const campaignScheduleTimer=setInterval(()=>campaignService.syncCampaignSchedule().catch(e=>console.error('Campaign schedule worker error:',e.message)),30000);
+campaignScheduleTimer.unref?.();
 let shuttingDown=false;
 async function shutdown(signal){
 if(shuttingDown)return;
 shuttingDown=true;
 console.log(signal+" received; draining webhook queue (30s limit)");
 clearInterval(reservationExpiryTimer);
+clearInterval(campaignScheduleTimer);
+clearInterval(rateLimitCleanupTimer);
 const serverClosed=new Promise(resolve=>server.close(resolve));
 const forceExit=setTimeout(()=>{
 console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");

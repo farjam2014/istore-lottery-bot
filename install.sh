@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-REPO="https://github.com/farjam2014/istore-lottery-bot.git"
-BRANCH="feature/multi-campaign-platform"
+REPO="git@github.com:farjam2014/istore-lottery-bot.git"
+BRANCH="feature/telegram-account-recovery"
 APP_DIR="/opt/istore-lottery-bot"
 SERVICE="istore-lottery-bot"
 DB_NAME="istore_lottery"
@@ -16,7 +16,7 @@ trap 'rc=$?; [[ $rc -eq 0 ]] || echo "نصب کامل نشد؛ فایل پیش�
 . /etc/os-release
 [[ "$ID" == ubuntu && "$(cut -d. -f1 <<< "$VERSION_ID")" == 24 ]] || die "فقط Ubuntu 24 پشتیبانی می‌شود."
 cat <<'NOTICE'
-نصب مجدد مخرب: دیتابیس istore_lottery و کاربر MySQL آن پس از تأیید صریح حذف و از صفر ساخته می‌شوند. هیچ بک‌آپی تهیه نمی‌شود. فایل‌های نسخه قبلی برنامه به پوشه زمان‌دار منتقل می‌شوند. رمز دیتابیس و پنل تصادفی تولید می‌شوند.
+نصب تازه و غیرمخرب: دیتابیس موجود حذف نمی‌شود. نصب فقط روی دیتابیس خالی انجام می‌شود؛ دیتابیس دارای جدول یا داده دست‌نخورده می‌ماند.
 NOTICE
 read -r -p "دامنه (مثلاً example.com): " DOMAIN
 read -r -p "ایمیل دریافت SSL: " EMAIL
@@ -24,20 +24,18 @@ read -r -s -p "Telegram Bot Token: " BOT_TOKEN
 echo
 read -r -p "Telegram numeric Admin ID: " ADMIN_ID
 read -r -p "شماره تماس فروشگاه با کد کشور (اختیاری): " CONTACT_PHONE
-read -r -p "لینک تلگرام فروشگاه مثل https://t.me/store (اختیاری): " STORE_TELEGRAM_URL
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]] || die "دامنه نامعتبر است."
 [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "ایمیل نامعتبر است."
 [[ "$BOT_TOKEN" =~ ^[0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]] || die "توکن نامعتبر است."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || die "Admin ID نامعتبر است."
 if [[ -n "$CONTACT_PHONE" && ! "$CONTACT_PHONE" =~ ^\+?[0-9]{8,15}$ ]]; then die "شماره تماس نامعتبر است."; fi
-if [[ -n "$STORE_TELEGRAM_URL" && ! "$STORE_TELEGRAM_URL" =~ ^https://t\.me/[A-Za-z0-9_]{5,32}/?$ ]]; then die "لینک تلگرام فروشگاه نامعتبر است."; fi
 SERVER_IP="$(hostname -I | awk '{print $1}')"
 DNS_IP="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')"
 [[ -n "$DNS_IP" && "$DNS_IP" == "$SERVER_IP" ]] || die "دامنه باید به IP همین سرور اشاره کند (DNS=$DNS_IP / Server=$SERVER_IP)."
 log "نصب پیش‌نیازها"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git nginx mysql-server certbot python3-certbot-nginx jq openssl
+apt-get install -y ca-certificates curl git openssh-client nginx mysql-server certbot python3-certbot-nginx jq openssl
 if ! command -v node >/dev/null || [[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
@@ -50,7 +48,8 @@ ME="$(curl -fsS --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" || 
 BOT_USERNAME="$(printf '%s' "$ME" | jq -r '.result.username')"
 log "دریافت نسخه و آزمون کامل پیش از هر تغییر مخرب"
 [[ ! -e "$STAGE_DIR" ]] || die "مسیر پیش‌آزمون از قبل وجود دارد: $STAGE_DIR"
-git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR"
+GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" git ls-remote "$REPO" "refs/heads/$BRANCH" >/dev/null 2>&1 || die "دسترسی SSH فقط‌خواندنی به مخزن خصوصی GitHub آماده نیست. ابتدا Deploy Key فقط‌خواندنی و کلید میزبان github.com را برای کاربر root تنظیم کنید."
+GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR"
 cd "$STAGE_DIR"
 npm ci --omit=dev
 env -u MYSQL_TEST_HOST -u MYSQL_TEST_USER -u MYSQL_TEST_PASSWORD -u MYSQL_TEST_PORT npm test
@@ -59,20 +58,28 @@ DB_PASSWORD="$(openssl rand -hex 32)"
 ADMIN_PASSWORD="$(openssl rand -hex 32)"
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 SESSION_SECRET="$(openssl rand -hex 48)"
-read -r -p "برای تأیید حذف غیرقابل‌بازگشت دیتابیس istore_lottery عبارت DELETE istore_lottery را وارد کنید: " DB_DELETE_CONFIRM
-[[ "$DB_DELETE_CONFIRM" == "DELETE istore_lottery" ]] || die "تأیید حذف انجام نشد؛ سرویس و دیتابیس قبلی دست‌نخورده ماندند."
-unset DB_DELETE_CONFIRM
-log "توقف سرویس قبلی"
-systemctl disable --now "$SERVICE" 2>/dev/null || true
-log "بازسازی دیتابیس"
-mysql --protocol=socket -uroot <<SQL
-DROP DATABASE IF EXISTS istore_lottery;
-DROP USER IF EXISTS 'istore_lottery'@'localhost';
+log "ایجاد دیتابیس در صورت نبودن؛ هیچ دیتابیسی حذف نمی‌شود"
+DB_EXISTS="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$DB_NAME'")"
+if [[ "$DB_EXISTS" == "0" ]]; then
+  mysql --protocol=socket -uroot <<SQL
 CREATE DATABASE istore_lottery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
+else
+  TABLE_COUNT="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB_NAME'")"
+  [[ "$TABLE_COUNT" == "0" ]] || die "دیتابیس $DB_NAME خالی نیست؛ برای جلوگیری از تغییر ناخواسته نصب متوقف شد."
+  mysql --protocol=socket -uroot <<SQL
+CREATE USER IF NOT EXISTS 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER 'istore_lottery'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON istore_lottery.* TO '$DB_USER'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+fi
+log "توقف سرویس قبلی"
+systemctl disable --now "$SERVICE" 2>/dev/null || true
 log "جایگزینی نسخه آزموده‌شده در مسیر اصلی برنامه"
 if [[ -e "$APP_DIR" || -L "$APP_DIR" ]]; then
   [[ "$APP_DIR" == "/opt/istore-lottery-bot" ]] || die "مسیر جابه‌جایی نامعتبر است."
@@ -94,8 +101,7 @@ DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 ADMIN_ID=$ADMIN_ID
 CONTACT_PHONE=$CONTACT_PHONE
-STORE_TELEGRAM_URL=$STORE_TELEGRAM_URL
-REGISTRATION_OPEN=false
+PUBLIC_SITE_URL=https://$DOMAIN
 ENV
 chmod 600 "$APP_DIR/.env"
 if ! id istorebot >/dev/null 2>&1; then useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin istorebot; fi
@@ -103,7 +109,6 @@ chown -R root:istorebot "$APP_DIR"
 chmod -R g+rX "$APP_DIR"
 chmod 640 "$APP_DIR/.env"
 log "ساخت جداول دیتابیس تازه"
-mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
 npm run migrate
 log "ساخت سرویس systemd"
 cat > "/etc/systemd/system/$SERVICE.service" <<UNIT

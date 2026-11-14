@@ -8,6 +8,14 @@ async function columnExists(db, table, column) {
   return rows.length > 0;
 }
 
+async function indexOnColumnExists(db,table,column) {
+  const [rows] = await db.execute('SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1',[table,column]);
+  return rows.length>0;
+}
+async function foreignKeyExists(db,table,column,referencedTable) {
+  const [rows] = await db.execute('SELECT 1 FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME=? LIMIT 1',[table,column,referencedTable]);
+  return rows.length>0;
+}
 async function up(db) {
   await db.query(`CREATE TABLE IF NOT EXISTS bank_cards (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -24,7 +32,11 @@ async function up(db) {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   if (!(await columnExists(db, 'campaigns', 'current_payment_card_id'))) {
     await db.query('ALTER TABLE campaigns ADD COLUMN current_payment_card_id BIGINT UNSIGNED NULL AFTER payment_mode');
+  }
+  if (!(await indexOnColumnExists(db, 'campaigns', 'current_payment_card_id'))) {
     await db.query('ALTER TABLE campaigns ADD KEY idx_campaign_payment_card(current_payment_card_id)');
+  }
+  if (!(await foreignKeyExists(db, 'campaigns', 'current_payment_card_id', 'bank_cards'))) {
     await db.query('ALTER TABLE campaigns ADD CONSTRAINT fk_campaign_payment_card FOREIGN KEY(current_payment_card_id) REFERENCES bank_cards(id) ON DELETE RESTRICT');
   }
   await db.query(`CREATE TABLE IF NOT EXISTS campaign_payment_card_history (
