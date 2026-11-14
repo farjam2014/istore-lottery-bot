@@ -6,10 +6,10 @@ import {listOpenCampaigns,getCampaignById,listParticipantCodes} from '../../modu
 import {joinFreeCampaign} from '../../modules/entries/entry.service.js';
 import {userMenuKeyboard} from '../keyboards/user.keyboard.js';
 
-async function notifySupportAdmins(bot,message,markup){
+async function notifySupportAdmins(telegram,message,markup){
   const [rows]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','support_agent')");
   const recipients=new Set([...config.adminIds,...rows.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await bot.telegram.sendMessage(String(id),message,markup).catch(()=>{});
+  for(const id of recipients)await telegram.sendMessage(String(id),message,markup).catch(()=>{});
 }
 \nexport function registerUserHandlers(bot){
   bot.action('user:campaigns',async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,0);});
