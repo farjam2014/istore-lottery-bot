@@ -673,7 +673,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       if(field.key==='payment_mode'&&wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';wizard.step=4;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       if(wizard.reviewEdit){wizard.reviewEdit=false;return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.values.payment_mode==='free'){wizard.values.price_per_code='0';wizard.values.payment_card_id='-';}
-      if(wizard.values.payment_mode==='free'&&wizard.step===10){return campaignWizardReview(m.chat.id,wizard);}
+      if(wizard.values.payment_mode==='free'&&wizard.step===12){return campaignWizardReview(m.chat.id,wizard);}
       if(wizard.step<campaignWizardFields.length-1){wizard.step++;return adminMessage({chat_id:m.chat.id,text:campaignWizardPrompt(wizard),reply_markup:campaignWizardMarkup(wizard)});}
       return campaignWizardReview(m.chat.id,wizard);
     }
