@@ -1,1 +1,20 @@
-import {config} from '../../config/env.js';import {findProfile,getSession} from '../../modules/participants/participant.service.js';import {registrationKeyboard} from '../keyboards/user.keyboard.js';const callbacks=new Set(['registration:start','registration:cancel']);const commands=new Set(['/start','/cancel','/admin']);export function profileGate(){return async(ctx,next)=>{if(!ctx.from)return;if(config.adminIds.has(String(ctx.from.id)))return next();const p=await findProfile(ctx.from.id);if(p){ctx.state.profile=p;return next();}const cb=ctx.callbackQuery?.data;const text=ctx.message?.text||'';const command=text.split(/\s/)[0];if((cb&&callbacks.has(cb))||(command&&commands.has(command)))return next();const session=await getSession(ctx.from.id);if(session&&ctx.message?.text)return next();if(ctx.callbackQuery){await ctx.answerCbQuery('ابتدا ثبت‌نام کنید.',{show_alert:true}).catch(()=>{});return;}await ctx.reply('برای استفاده از امکانات ربات، ابتدا ثبت‌نام کنید.',registrationKeyboard());};}
+import {config} from '../../config/env.js';
+import {findProfile,getSession} from '../../modules/participants/participant.service.js';
+import {registrationKeyboard} from '../keyboards/user.keyboard.js';
+import {isRegistrationUpdateAllowed} from './registration-gate.js';
+export function profileGate(){return async(ctx,next)=>{
+  if(!ctx.from)return;
+  if(config.adminIds.has(String(ctx.from.id)))return next();
+  const p=await findProfile(ctx.from.id);
+  if(p){ctx.state.profile=p;return next();}
+  const session=await getSession(ctx.from.id);
+  const allowed=isRegistrationUpdateAllowed({
+    callbackData:ctx.callbackQuery?.data,
+    command:(ctx.message?.text||'').split(/\\s/)[0],
+    session,
+    message:ctx.message
+  });
+  if(allowed)return next();
+  if(ctx.callbackQuery){await ctx.answerCbQuery('ابتدا ثبت‌نام کنید.',{show_alert:true}).catch(()=>{});return;}
+  await ctx.reply('برای استفاده از امکانات ربات، ابتدا ثبت‌نام کنید.',registrationKeyboard());
+};}
