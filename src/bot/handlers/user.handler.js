@@ -66,7 +66,7 @@ export function registerUserHandlers(bot){
 }
 async function showUserHistory(ctx,page=0){
   const limit=8,offset=Math.max(0,Number(page)||0)*limit;
-  const [rows]=await pool.execute("SELECT e.id entry_id,e.status entry_status,e.created_at,c.id campaign_id,c.title,c.status campaign_status,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) code_count,(SELECT COUNT(*) FROM payment_orders po WHERE po.campaign_entry_id=e.id) order_count,(SELECT MAX(po.status) FROM payment_orders po WHERE po.campaign_entry_id=e.id) latest_payment_status FROM campaign_entries e JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE p.telegram_user_id=? ORDER BY e.id DESC LIMIT ? OFFSET ?",[String(ctx.from.id),limit+1,offset]);
+  const [rows]=await pool.execute("SELECT e.id entry_id,e.status entry_status,e.created_at,c.id campaign_id,c.title,c.status campaign_status,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) code_count,(SELECT COUNT(*) FROM payment_orders po WHERE po.campaign_entry_id=e.id) order_count,(SELECT po.status FROM payment_orders po WHERE po.campaign_entry_id=e.id ORDER BY po.id DESC LIMIT 1) latest_payment_status FROM campaign_entries e JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE p.telegram_user_id=? ORDER BY e.id DESC LIMIT ? OFFSET ?",[String(ctx.from.id),limit+1,offset]);
   const hasNext=rows.length>limit,visible=rows.slice(0,limit);
   if(!visible.length)return ctx.reply('هنوز در هیچ کمپینی شرکت نکرده‌اید.',userMenuKeyboard());
   for(const row of visible){
