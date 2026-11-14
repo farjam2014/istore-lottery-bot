@@ -333,5 +333,5 @@ test('campaign wizard accepts optional ISO start and end dates for automatic sch
   assert.match(source,/key:'ends_at'/);
   assert.match(source,/function parseCampaignDate/);
   assert.match(source,/starts_at:startDate,ends_at:endDate/);
-  assert.match(source,/expected==='ends_at'&&p\.values\.payment_mode==='free'/);
+  assert.match(source,/expected==='ends_at'&&p\.values\.payment_mode==='free'/);\n  assert.match(source,/wizard\.values\.payment_mode==='free'&&wizard\.step===12/);
 });
