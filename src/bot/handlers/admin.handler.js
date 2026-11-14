@@ -47,16 +47,20 @@ async function isAdmin(ctx){
 }
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const deny=ctx=>ctx.answerCbQuery('برای این عملیات مجوز ندارید.',{show_alert:true});
-const menu=role=>{const rows=[];const allow=p=>role==='super_admin'||(rolePermissionsForMenu[role]||[]).includes(p);
-  if(allow('campaign.write'))rows.push([Markup.button.callback('🎯 مدیریت کمپین‌ها','admin:campaigns')]);
-  if(allow('participant.read'))rows.push([Markup.button.callback('👥 مدیریت شرکت‌کنندگان','admin:participants')]);
-  if(allow('support.read'))rows.push([Markup.button.callback('💬 تیکت‌های پشتیبانی','admin:support')]);
-  if(role==='super_admin')rows.push([Markup.button.callback('🛡 مدیریت مدیران و نقش‌ها','admin:roles')]);
-  if(allow('report.read'))rows.push([Markup.button.callback('📊 گزارش‌ها و عملکرد مالی','admin:reports')]);
-  if(allow('payment.read'))rows.push([Markup.button.callback('🧾 مرکز سفارش‌ها و پرداخت‌ها','admin:payments')]);
-  if(allow('payment.settings'))rows.push([Markup.button.callback('💳 تنظیم کارت بانکی','admin:payment-settings')]);
-  if(role==='super_admin')rows.push([Markup.button.callback('📝 درخواست‌های اصلاح پروفایل','admin:profile-requests')]);
-  if(role==='super_admin')rows.push([Markup.button.callback('🩺 سلامت و نظارت سامانه','admin:system')]);
+const menu=role=>{
+  const buttons=[];
+  const allow=p=>role==='super_admin'||(rolePermissionsForMenu[role]||[]).includes(p);
+  if(allow('campaign.write'))buttons.push(Markup.button.callback('🎯 مدیریت کمپین‌ها','admin:campaigns'));
+  if(allow('participant.read'))buttons.push(Markup.button.callback('👥 مدیریت شرکت‌کنندگان','admin:participants'));
+  if(allow('support.read'))buttons.push(Markup.button.callback('💬 تیکت‌های پشتیبانی','admin:support'));
+  if(role==='super_admin')buttons.push(Markup.button.callback('🛡 مدیران و نقش‌ها','admin:roles'));
+  if(allow('report.read'))buttons.push(Markup.button.callback('📊 گزارش‌ها و عملکرد مالی','admin:reports'));
+  if(allow('payment.read'))buttons.push(Markup.button.callback('🧾 سفارش‌ها و پرداخت‌ها','admin:payments'));
+  if(allow('payment.settings'))buttons.push(Markup.button.callback('💳 تنظیم کارت بانکی','admin:payment-settings'));
+  if(role==='super_admin')buttons.push(Markup.button.callback('📝 اصلاح پروفایل','admin:profile-requests'));
+  if(role==='super_admin')buttons.push(Markup.button.callback('🩺 سلامت سامانه','admin:system'));
+  const rows=[];
+  for(let i=0;i<buttons.length;i+=2)rows.push(buttons.slice(i,i+2));
   return Markup.inlineKeyboard(rows);
 };
 const rolePermissionsForMenu={
