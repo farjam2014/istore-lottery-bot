@@ -46,5 +46,7 @@ jobs:
         run: npm ci
       - name: Validate installer syntax
         run: bash -n install.sh
-      - name: Run tests
+      - name: Run JavaScript syntax checks
+        run: npm run check
+      - name: Run unit and MySQL integration tests
         run: npm test
