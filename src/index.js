@@ -58,8 +58,7 @@ throw error;
 }finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text,extra={}){const payload={chat_id:chat,text,...extra};if(connection)payload.business_connection_id=connection;return tg("sendMessage",payload)}
-function storeReturnButton(){const url=String(process.env.STORE_TELEGRAM_URL||"").trim();return /^https:\/\/t\.me\/[A-Za-z0-9_]{5,32}\/?$/.test(url)?{text:"↩️ بازگشت به پی‌وی فروشگاه",url}:null}
-function registrationKeyboard(){const rows=[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}]];const back=storeReturnButton();if(back)rows.push([back]);rows.push([{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]);return {inline_keyboard:rows}}
+function registrationKeyboard(){return {inline_keyboard:[[{text:"▶️ ادامه ثبت‌نام",callback_data:"reg:continue"}],[{text:"لغو ثبت‌نام",callback_data:"reg:cancel"}]]}}
 const adminTelegram=createAdminTelegram({db,tg,tgDocument,adminId:process.env.ADMIN_ID,registrationOpen,campaignService,bankCardService});
 const code=makeRaffleCode;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -80,9 +79,7 @@ async function saveEntry(uid,chat,name,phone,inst,businessConnection){
 const conn=await db.getConnection();
 try{
 await conn.beginTransaction();
-const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
-const legacyRegistrationOpen=registrationState?.setting_value==="true";
-const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
+const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' LIMIT 1");
 if(openCampaign){
   const [[existingParticipant]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
   if(existingParticipant){
@@ -98,7 +95,7 @@ if(openCampaign){
   await conn.commit();
   return null;
 }
-if(!legacyRegistrationOpen)throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
+throw Object.assign(new Error("NO_OPEN_CAMPAIGN"),{code:"NO_OPEN_CAMPAIGN"});
 const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
 const existing=existingRows[0];
 if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
