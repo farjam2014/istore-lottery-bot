@@ -10,7 +10,7 @@ function harness() {
     async commit(){calls.push({sql:'COMMIT'});},
     async rollback(){calls.push({sql:'ROLLBACK'});},
     release(){calls.push({sql:'RELEASE'});},
-    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];return [{affectedRows:1,insertId:77}];},
+    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
     async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
   const db={
@@ -404,4 +404,13 @@ test('support conversation history is paginated instead of silently truncating a
   const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
   await h.admin.handleCallback({id:'support-page-two',data:'adm:support-thread:42:1',from:message.from,message:{chat:message.chat}});
   assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 20 OFFSET ?')&&x.params[0]==='42'&&x.params[1]===20));
+});
+
+
+test('closing or reopening a support ticket is audited and notifies the customer through outbox',async()=>{
+  const h=harness(),message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'support-close-notify',data:'adm:support-close:42',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('INSERT IGNORE INTO telegram_notification_outbox')&&x.params[1]==='support_ticket_status'));
+  assert.ok(h.calls.some(x=>x.sql.includes('INSERT INTO admin_audit_log')&&x.params[1]==='close_support_ticket'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('گفت‌وگوی پشتیبانی #42')));
 });
