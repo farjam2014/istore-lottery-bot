@@ -108,6 +108,7 @@ async function session(uid){const [r]=await db.execute("SELECT * FROM telegram_s
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO telegram_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)])}
 async function requireActiveParticipant(uid,chat,connection){
+if(!uid||!chat)return false;
 const [[participant]]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
 if(!participant){
 await putSession(uid,chat,"profile_name",null,null,connection);
@@ -172,10 +173,10 @@ try{
 }catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
 }
 if(String(q.data||'').startsWith('campaign:details:')){
-  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
   const campaignId=String(q.data.split(':')[2]||'');
   if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id});
+  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
   const [[campaign]]=await db.execute("SELECT id,name,description,payment_mode,price_per_code,currency,max_codes_per_participant FROM campaigns WHERE id=? AND status='open' LIMIT 1",[campaignId]);
   if(!campaign)return reply(chat,String(q.message?.business_connection_id||''),'این کمپین دیگر فعال نیست.');
   const price=campaign.payment_mode==='free'?'رایگان':Number(campaign.price_per_code).toLocaleString('en-US')+' '+campaign.currency+' برای هر کد';
