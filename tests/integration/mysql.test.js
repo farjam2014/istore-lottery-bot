@@ -154,4 +154,21 @@ test('MySQL integration: admin roles can be assigned changed and deactivated wit
   }
 });
 
+
+test('MySQL integration: management report aggregates return complete dashboard metrics',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {getManagementReport}=await import('../../src/modules/reports/management-report.service.js');
+  try{
+    await migrate();
+    const report=await getManagementReport();
+    for(const key of ['users','campaigns','entries','payments','receipts','topCampaigns','recent','newUsers'])assert.ok(Object.hasOwn(report,key),'Missing report section: '+key);
+    assert.ok(Array.isArray(report.topCampaigns));
+    for(const key of ['total','active','blocked'])assert.ok(Object.hasOwn(report.users,key));
+    for(const key of ['total','approved_count','rejected_count','revenue','pending_amount'])assert.ok(Object.hasOwn(report.payments,key));
+  }finally{}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
