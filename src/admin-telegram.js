@@ -506,9 +506,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:draw-campaign:')) return campaignDrawAction(chat,data.slice('adm:draw-campaign:'.length));
     if (data.startsWith('adm:draw-prepare:')) return prepareCampaignDraw(chat,data.slice('adm:draw-prepare:'.length));
     if (data.startsWith('adm:draw-run:')) return resumeCampaignDraw(chat,data.slice('adm:draw-run:'.length));
-    if (data.startsWith('adm:draw-live:')) { const [, , id, page='0']=data.split(':'); return liveWheelCandidatePage(chat,id,page); }
     if (data.startsWith('adm:draw-live-start:')) return startLiveWheelResult(chat,data.slice('adm:draw-live-start:'.length));
     if (data==='adm:draw-live-cancel') { pending.delete(String(adminId)); return adminMessage({chat_id:chat,text:'ثبت نتیجه لغو شد.'}); }
+    if (data.startsWith('adm:draw-live:')) { const [, , id, page='0']=data.split(':'); return liveWheelCandidatePage(chat,id,page); }
     if (data.startsWith('adm:draw-approve:')) return approveCampaignDraw(chat,data.slice('adm:draw-approve:'.length));
     if (data.startsWith('adm:draw-view:')) {
       const id=data.slice('adm:draw-view:'.length);
