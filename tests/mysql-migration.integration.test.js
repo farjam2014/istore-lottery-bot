@@ -173,7 +173,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     await verify.query('ALTER TABLE customer_support_messages DROP INDEX idx_support_messages_ticket');
     await supportMigration.up(verify);
     const [[restoredSupportIndex]] = await verify.execute(
-      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND INDEX_NAME='idx_support_messages_ticket'"
+      "SELECT COUNT(DISTINCT INDEX_NAME) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND INDEX_NAME='idx_support_messages_ticket'"
     );
     assert.equal(Number(restoredSupportIndex.total),1,'support migration must repair a partially applied index');
     await verify.query('ALTER TABLE customer_support_messages DROP FOREIGN KEY fk_support_message_ticket');
