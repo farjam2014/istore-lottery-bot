@@ -100,4 +100,22 @@ test('MySQL integration: versioned campaign migration adds full public campaign 
   }finally{}
 });
 
+
+test('MySQL integration: support ticket tables and workflow constraints exist',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  try{
+    await migrate();
+    const [tables]=await pool.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('support_tickets','support_messages','support_sessions')");
+    assert.deepEqual(new Set(tables.map(x=>x.TABLE_NAME)),new Set(['support_tickets','support_messages','support_sessions']));
+    const [[migration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261114_003_support_tickets.sql'");
+    assert.match(migration.checksum,/^[a-f0-9]{64}$/);
+    const [columns]=await pool.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='support_tickets'");
+    const names=new Set(columns.map(x=>x.COLUMN_NAME));
+    for(const name of ['ticket_number','participant_id','category','subject','status','priority','assigned_admin_id','last_message_at'])assert.ok(names.has(name),`Missing support ticket column: ${name}`);
+  }finally{}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
