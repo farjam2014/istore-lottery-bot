@@ -319,10 +319,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const conn=await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [[ticket]]=await conn.execute('SELECT id,status FROM customer_support_tickets WHERE id=? FOR UPDATE',[id]);
+      const [[ticket]]=await conn.execute('SELECT id,status,chat_id,business_connection_id FROM customer_support_tickets WHERE id=? FOR UPDATE',[id]);
       if(!ticket)throw new Error('تیکت پیدا نشد.');
+      if(ticket.status===status){await conn.commit();return supportDetail(chat,id);}
       await conn.execute('UPDATE customer_support_tickets SET status=? WHERE id=?',[status,id]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),status==='closed'?'close_support_ticket':'reopen_support_ticket','support_ticket',String(id),JSON.stringify({from:ticket.status,to:status,source:'telegram'})]);
+      if(ticket.chat_id)await conn.execute('INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)',['support-status:'+id+':'+status+':'+crypto.randomUUID(),'support_ticket_status',JSON.stringify({method:'sendMessage',payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:status==='closed'?'🔒 تیکت پشتیبانی شما بسته شد. اگر هنوز به کمک نیاز دارید، پیام جدیدی برای پشتیبانی ارسال کنید.':'↻ تیکت پشتیبانی شما دوباره باز شد و امکان ادامه گفت‌وگو وجود دارد.'}})]);
       await conn.commit();
       return supportDetail(chat,id);
     } catch(e){await conn.rollback();return adminMessage({chat_id:chat,text:'تغییر وضعیت تیکت انجام نشد: '+e.message});}
