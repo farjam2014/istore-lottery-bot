@@ -296,7 +296,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     buttons.push([{text:'همه',callback_data:'adm:outbox:all'}]);
     const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:outbox-page:'+status+':'+(p-1)});if((p+1)*15<Number(count.total))nav.push({text:'بعدی ➡️',callback_data:'adm:outbox-page:'+status+':'+(p+1)});if(nav.length)buttons.push(nav);
     buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:outbox:'+status},{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
-    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · '+(labels[x.status]||x.status)+' · تلاش: '+x.attempts+'\n'+(x.last_error?'خطا: '+x.last_error+'\n':'')+'ثبت: '+x.created_at).join('\n\n'):'اعلانی در این وضعیت وجود ندارد.';
+    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · '+(labels[x.status]||x.status)+' · تلاش: '+x.attempts+'\n'+(x.last_error?'خطا: '+x.last_error+'\n':'')+'ثبت: '+x.created_at+'\nهمبستگی: '+(x.correlation_id||'—')).join('\n\n'):'اعلانی در این وضعیت وجود ندارد.';
     return adminMessage({chat_id:chat,text:'📨 مدیریت صف اعلان‌ها · '+(labels[status]||'همه')+'\n'+Number(count.total||0)+' اعلان · صفحه '+(p+1)+'\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function outboxDetail(chat,id) {
@@ -306,7 +306,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const labels={pending:'در انتظار',processing:'در حال ارسال',sent:'ارسال‌شده',failed:'ناموفق'};
     const buttons=[];if(item.status==='failed')buttons.push([{text:'🔁 تلاش مجدد',callback_data:'adm:outbox-retry:'+id}]);
     buttons.push([{text:'↩️ بازگشت به صف',callback_data:'adm:outbox:all'},{text:'🏠 منو',callback_data:'adm:home'}]);
-    return adminMessage({chat_id:chat,text:'📨 جزئیات اعلان #'+id+'\nنوع: '+item.notification_type+'\nوضعیت: '+(labels[item.status]||item.status)+'\nتعداد تلاش: '+item.attempts+'\nکلید یکتا: '+item.dedupe_key+'\nثبت: '+item.created_at+'\nارسال موفق: '+(item.sent_at||'-')+'\nزمان تلاش بعدی: '+(item.next_attempt_at||'-')+'\nشروع پردازش: '+(item.processing_started_at||'-')+'\n\nآخرین خطا:\n'+(item.last_error||'بدون خطا ثبت‌شده')+'\n\nمحتوای payload در پنل نمایش داده نمی‌شود تا اطلاعات شخصی و پرداخت افشا نشود.',reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'📨 جزئیات اعلان #'+id+'\nنوع: '+item.notification_type+'\nوضعیت: '+(labels[item.status]||item.status)+'\nتعداد تلاش: '+item.attempts+'\nکلید یکتا: '+item.dedupe_key+'\nهمبستگی: '+(item.correlation_id||'—')+'\nثبت: '+item.created_at+'\nارسال موفق: '+(item.sent_at||'-')+'\nثبت تاریخچه تحویل کارت: '+(item.delivery_recorded_at||'در انتظار ثبت')+'\nزمان تلاش بعدی: '+(item.next_attempt_at||'-')+'\nشروع پردازش: '+(item.processing_started_at||'-')+'\n\nآخرین خطا:\n'+(item.last_error||'بدون خطا ثبت‌شده')+'\n\nمحتوای payload در پنل نمایش داده نمی‌شود تا اطلاعات شخصی و پرداخت افشا نشود.',reply_markup:keyboard(buttons)});
   }
   async function retryOutbox(chat,id) {
     if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
