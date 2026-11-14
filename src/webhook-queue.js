@@ -23,7 +23,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         await conn.beginTransaction();
 
         await conn.execute(
-          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,NOW()),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL ? MICROSECOND)",
+          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL LEAST(300,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL ? MICROSECOND)",
           [leaseMs * 1000]
         );
 
