@@ -2,11 +2,14 @@ import {randomBytes} from 'node:crypto';
 import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
 import {Markup} from 'telegraf';
+import {listPendingReceipts} from '../../modules/payments/payment.service.js';
 
 const isAdmin=ctx=>config.adminIds.has(String(ctx.from?.id));
 const menu=()=>Markup.inlineKeyboard([
   [Markup.button.callback('🎯 مدیریت کمپین‌ها','admin:campaigns')],
-  [Markup.button.callback('📊 آمار کاربران','admin:stats')]
+  [Markup.button.callback('📊 آمار کاربران','admin:stats')],
+  [Markup.button.callback('🧾 رسیدهای پرداخت','admin:payments')],
+  [Markup.button.callback('💳 تنظیم کارت بانکی','admin:payment-settings')]
 ]);
 const campaignMenu=()=>Markup.inlineKeyboard([
   [Markup.button.callback('➕ افزودن کمپین','admin:campaign:add')],
@@ -47,6 +50,24 @@ export function registerAdminHandlers(bot){
     const next=row.status==='open'?'paused':'open';if(!['draft','paused','open'].includes(row.status))return ctx.answerCbQuery('تغییر وضعیت این کمپین مجاز نیست.',{show_alert:true});
     await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});await ctx.answerCbQuery('وضعیت به‌روزرسانی شد.');return ctx.reply(next==='open'?'کمپین فعال شد.':'کمپین متوقف شد.',campaignMenu());
   });
+
+  bot.action('admin:payments',async ctx=>{
+    if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery();
+    const rows=await listPendingReceipts();
+    if(!rows.length)return ctx.reply('رسید در انتظار بررسی وجود ندارد.',menu());
+    for(const r of rows){
+      const caption='رسید #'+r.receipt_id+' | سفارش #'+r.order_id+'\nکمپین: '+r.campaign_title+'\nمبلغ: '+Number(r.amount).toLocaleString('fa-IR')+' ریال\nکاربر: '+r.full_name+'\nموبایل: '+r.phone+'\nاینستاگرام: @'+r.instagram_handle+'\nیادداشت: '+(r.note||'—');
+      await ctx.telegram.sendPhoto(ctx.chat.id,r.telegram_file_id,{caption,reply_markup:Markup.inlineKeyboard([[Markup.button.callback('تأیید پرداخت','payment:approve:'+r.receipt_id)],[Markup.button.callback('رد رسید','payment:reject:'+r.receipt_id)]]).reply_markup});
+    }
+  });
+  bot.action('admin:payment-settings',async ctx=>{
+    if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,'payment_settings',JSON_OBJECT()) ON DUPLICATE KEY UPDATE step=VALUES(step),payload=VALUES(payload)",[String(ctx.from.id)]);
+    await ctx.answerCbQuery();
+    return ctx.reply('اطلاعات کارت را در ۴ خط ارسال کنید:\nنام بانک\nشماره کارت ۱۶ رقمی\nنام صاحب کارت\nتوضیحات یا -');
+  });
+
   bot.action('admin:stats',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();const [[u]]=await pool.query('SELECT COUNT(*) total FROM participants');const [[c]]=await pool.query('SELECT COUNT(*) total FROM campaigns');const [[e]]=await pool.query('SELECT COUNT(*) total FROM campaign_entries');return ctx.reply(`کاربران: ${u.total}\nکمپین‌ها: ${c.total}\nورودی‌های کمپین: ${e.total}`,menu());});
   bot.on('text',async(ctx,next)=>{
     if(!isAdmin(ctx))return next();
