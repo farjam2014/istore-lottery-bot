@@ -62,7 +62,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
           if (result.affectedRows !== 1) leaseLost = true;
         } catch (error) {
           leaseLost = true;
-          logger.error("Webhook lease heartbeat error:", error.message);
+          logger.error("Webhook lease heartbeat error ["+(item?.correlationId||item?.update_id||"unknown")+"]:", error.message);
         }
       }, heartbeatMs);
 
@@ -122,7 +122,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         finish.release();
       }
     } catch (error) {
-      logger.error("Webhook processing error:", error.message);
+      logger.error("Webhook processing error ["+(item?.correlationId||item?.update_id||"unclaimed")+"]:", error.message);
 
       if (item?.processingToken) {
         await db.execute(
@@ -132,7 +132,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
             item.update_id,
             item.processingToken
           ]
-        ).catch(updateError => logger.error("Queue update error:", updateError.message));
+        ).catch(updateError => logger.error("Queue update error ["+(item?.correlationId||item?.update_id||"unknown")+"]:", updateError.message));
       }
 
       return false;
