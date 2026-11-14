@@ -5,7 +5,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const splitSql=sql=>sql.split(/;\\s*(?:\\n|$)/).map(s=>s.trim()).filter(Boolean);
+const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 export async function migrate(){
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
