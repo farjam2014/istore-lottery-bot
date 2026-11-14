@@ -299,3 +299,14 @@ test('campaign wizard uses inline Persian buttons for draw settings and shows se
   assert.equal(created.input.draw_basis,'per_code');
   assert.equal(created.input.payment_card_id,77);
 });
+
+
+test('prepared system draws can be resumed from the Telegram admin campaign view', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/admin-telegram.js'), 'utf8');
+  assert.match(source, /d\.status==='prepared'&&\['system','hybrid'\]\.includes\(d\.method\)/);
+  assert.match(source, /callback_data:'adm:draw-run:'\+d\.id/);
+  assert.match(source, /async function resumeCampaignDraw\(chat,drawId\)/);
+  assert.match(source, /drawService\.runSystemDraw\(Number\(drawId\)\)/);
+  assert.match(source, /data\.startsWith\('adm:draw-run:'\)/);
+});
