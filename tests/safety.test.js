@@ -122,8 +122,12 @@ test('registration callback is answered once after durable confirmation', () => 
   const start = source.indexOf('async function handleCallbackQuery(q)');
   const end = source.indexOf('async function handlePrivateUpdate(update)', start);
   const handler = source.slice(start, end);
-  const registrationHandler = handler.slice(handler.indexOf('if(verifyConfirmationPayload'), handler.indexOf("if(String(q.data||'').startsWith('campaign:join:')"));
-  assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3);
+  const confirmationStart = handler.indexOf('if(verifyConfirmationPayload');
+  const confirmationEnd = handler.indexOf("if(String(q.data||'').startsWith('campaign:details:')", confirmationStart);
+  const registrationHandler = handler.slice(confirmationStart, confirmationEnd);
+  assert.ok(confirmationStart >= 0 && confirmationEnd > confirmationStart);
+  assert.equal((registrationHandler.match(/answerCallbackQuery/g) || []).length, 3,
+    'the signed registration confirmation path must answer its callback exactly once per branch');
   assert.match(handler, /await saveEntry\(uid,s\.chat_id,s\.full_name,s\.phone,s\.instagram,s\.business_connection_id\);\s*await delSession\(uid\);\s*return;/);
   assert.doesNotMatch(handler, /ثبت‌نام نهایی شد\. پیام تأیید و اعلان مدیر در صف ارسال قرار گرفت/);
 });
@@ -141,9 +145,9 @@ test('contact-card delivery failure does not strand registration in confirmation
 test('multi-campaign Business flow supports campaign listing, joins, and payment receipt photos', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(lower==='کمپین‌ها'\|\|lower==='کمپین ها'\|\|lower==='\/campaigns'\)/);
+  assert.match(source, /lower==='کمپین‌ها'.*lower==='کمپین ها'.*lower==='\/campaigns'/);
   assert.match(source, /campaignService\.joinFreeCampaign\(\{campaignId:Number\(campaignId\),telegramUserId:uid,chatId:chat,businessConnectionId:connection/);
-  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity:1\}\)/);
+  assert.match(source, /campaignService\.reserveManualOrder\(\{campaignId:Number\(campaignId\),participantId:participant\.id,quantity\}\)/);
   assert.match(source, /campaignService\.submitReceipt\(\{orderId:paymentSession\.order_id,fileId:photo\.file_id/);
   assert.match(source, /business_connection_id=\? LIMIT 1/);
 });
