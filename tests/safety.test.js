@@ -262,7 +262,7 @@ test('customer start requires profile registration before showing campaign choic
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
   const start = source.indexOf("if(lower==='/start'||lower==='لاتاری'");
-  const end = source.indexOf("if(lower==='/cancel'", start);
+  const end = source.indexOf("const currentSession=await session(uid);", start);
   const handler = source.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.match(handler, /SELECT id,status FROM participants WHERE telegram_user_id=\? LIMIT 1/);
