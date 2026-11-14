@@ -76,63 +76,30 @@ async function session(uid){const [r]=await db.execute("SELECT * FROM lottery_se
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO lottery_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM lottery_sessions WHERE telegram_user_id=?",[String(uid)])}
 async function saveEntry(uid,chat,name,phone,inst,businessConnection){
-const conn=await db.getConnection();
-try{
-await conn.beginTransaction();
-const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' LIMIT 1");
-if(openCampaign){
-  const [[existingParticipant]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
-  if(existingParticipant){
-    if(existingParticipant.status!=="active")throw new Error("پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.");
-    await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,existingParticipant.id]);
+  const conn=await db.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 1 FOR UPDATE");
+    if(!openCampaign)throw Object.assign(new Error("NO_OPEN_CAMPAIGN"),{code:"NO_OPEN_CAMPAIGN"});
+    const [[existing]]=await conn.execute("SELECT id,status FROM participants WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
+    if(existing){
+      if(existing.status!=="active")throw new Error("پروفایل شما غیرفعال است؛ با پشتیبانی تماس بگیرید.");
+      await conn.execute("UPDATE participants SET chat_id=?,business_connection_id=? WHERE id=?",[String(chat),businessConnection||null,existing.id]);
+      await conn.commit();
+      return null;
+    }
+    const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
+    if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+    await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
+    await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["campaign-profile-admin:"+uid+":"+crypto.randomUUID(),"campaign_profile_created_admin",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:"👤 پروفایل جدید ثبت شد.\\nTelegram ID: "+uid+"\\nنام: "+name+"\\nموبایل: "+phone+"\\nاینستاگرام: @"+inst}})]);
     await conn.commit();
     return null;
-  }
-  const [duplicates]=await conn.execute("SELECT id FROM participants WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
-  if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-  await conn.execute("INSERT INTO participants(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),businessConnection||null,name,phone,inst]);
-  await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["campaign-profile-admin:"+uid+":"+crypto.randomUUID(),"campaign_profile_created_admin",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:"👤 پروفایل کمپین جدید ثبت شد.\nTelegram ID: "+uid+"\nنام: "+name+"\nموبایل: "+phone+"\nاینستاگرام: @"+inst}})]);
-  await conn.commit();
-  return null;
+  }catch(error){
+    await conn.rollback();
+    if(error.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+    throw error;
+  }finally{conn.release();}
 }
-throw Object.assign(new Error("NO_OPEN_CAMPAIGN"),{code:"NO_OPEN_CAMPAIGN"});
-const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
-const existing=existingRows[0];
-if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
-const [duplicates]=await conn.execute("SELECT id FROM lottery_entries WHERE status='active' AND (phone=? OR LOWER(instagram)=LOWER(?)) AND telegram_user_id<>? LIMIT 1",[phone,inst,String(uid)]);
-if(duplicates.length)throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-let assignedCode;
-let entryId;
-if(existing){
-assignedCode=existing.raffle_code;
-entryId=existing.id;
-await conn.execute("UPDATE lottery_entries SET chat_id=?,full_name=?,phone=?,instagram=?,status='active',deleted_at=NULL,deletion_reason=NULL WHERE id=?",[String(chat),name,phone,inst,existing.id]);
-}else{
-assignedCode=code();
-const [result]=await conn.execute("INSERT INTO lottery_entries(telegram_user_id,chat_id,full_name,phone,instagram,raffle_code,status) VALUES(?,?,?,?,?,?,'active')",[String(uid),String(chat),name,phone,inst,assignedCode]);
-entryId=result.insertId;
-await conn.execute("INSERT INTO lottery_code_history(entry_id,raffle_code,action,actor) VALUES(?,?,'assigned','system')",[entryId,assignedCode]);
-}
-const adminText=["🎉 شرکت‌کننده جدید قرعه‌کشی","","👤 نام: "+name,"📱 موبایل: "+phone,"📸 اینستاگرام: @"+inst,"🎟️ کد قرعه‌کشی: "+assignedCode].join("\n");
-const userText="✅ ثبت‌نام کامل شد!\n🎟️ کد قرعه‌کشی شما: "+assignedCode+"\nاین کد را نگه دارید.";
-const notificationEventId=crypto.randomUUID();
-await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":"+notificationEventId+":admin","admin_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:process.env.ADMIN_ID,text:adminText}})]);
-await conn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["registration:"+entryId+":"+notificationEventId+":user","user_registration",JSON.stringify({method:"sendMessage",payload:{chat_id:String(chat),business_connection_id:String(businessConnection||""),text:userText}})]);
-await conn.commit();
-return assignedCode;
-}catch(e){
-await conn.rollback();
-if(e.code==="ER_DUP_ENTRY"){
-const [sameParticipant]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
-if(sameParticipant[0]?.status==="active")return null;
-const [sameUser]=await db.execute("SELECT raffle_code,status FROM lottery_entries WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
-if(sameUser[0]?.status==="active")return sameUser[0].raffle_code;
-throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
-}
-throw e;
-}finally{conn.release()}
-}
-
 function makeContactPayload(uid){
 const raw=String(uid)+"."+String(Date.now()+15*60*1000)+"."+crypto.randomBytes(4).toString("base64url");
 const p=Buffer.from(raw).toString("base64url");
