@@ -44,16 +44,20 @@ test('rejects zero price for paid campaign and invalid limits', () => {
 });
 
 
-test('expires held capacity reservations and their pending payment orders transactionally', async () => {
+test('reservation expiry locks orders before reservations and cannot race receipt submission', async () => {
   const { createCampaignService } = require('../src/campaign-service');
   const statements = [];
   const conn = {
     async beginTransaction() { statements.push('BEGIN'); },
-    async execute(sql) {
-      statements.push(sql);
-      if (sql.includes('UPDATE campaign_capacity_reservations')) return [{ affectedRows: 2 }];
-      if (sql.includes('UPDATE payment_orders')) return [{ affectedRows: 2 }];
-      return [{ affectedRows: 1 }];
+    async execute(sql, params = []) {
+      statements.push({sql,params});
+      if (sql.includes("SELECT id,entry_id FROM payment_orders")) return [[{id:71,entry_id:12},{id:72,entry_id:13}]];
+      if (sql.includes("SELECT id,status,(expires_at<=UTC_TIMESTAMP()) AS is_expired")) {
+        return [[{id:81,status:'held',is_expired:1}]];
+      }
+      if (sql.includes("UPDATE campaign_capacity_reservations SET status='expired'")) return [{affectedRows:1}];
+      if (sql.includes("UPDATE payment_orders SET status='expired'")) return [{affectedRows:1}];
+      return [{affectedRows:1}];
     },
     async commit() { statements.push('COMMIT'); },
     async rollback() { statements.push('ROLLBACK'); },
@@ -63,12 +67,15 @@ test('expires held capacity reservations and their pending payment orders transa
   const result = await service.expireReservations();
   assert.deepEqual(result, { reservationsExpired: 2, ordersExpired: 2 });
   assert.equal(statements[0], 'BEGIN');
-  assert.equal(statements.at(-2), 'COMMIT');
-  assert.equal(statements.at(-1), 'RELEASE');
-  assert.match(statements[1], /expires_at<=UTC_TIMESTAMP/);
-  assert.match(statements[1], /NOT EXISTS .*status='receipt_submitted'/);
-  assert.match(statements[2], /o\.status='pending_payment'/);
-  assert.doesNotMatch(statements[2], /receipt_submitted/);
+  const orderLock = statements.findIndex(x => typeof x==='object' && x.sql.includes('SELECT id,entry_id FROM payment_orders'));
+  const reservationLock = statements.findIndex(x => typeof x==='object' && x.sql.includes('SELECT id,status,(expires_at<=UTC_TIMESTAMP()) AS is_expired'));
+  const reservationWrite = statements.findIndex(x => typeof x==='object' && x.sql.includes("UPDATE campaign_capacity_reservations SET status='expired'"));
+  const orderWrite = statements.findIndex(x => typeof x==='object' && x.sql.includes("UPDATE payment_orders SET status='expired'"));
+  assert.ok(orderLock > 0 && reservationLock > orderLock);
+  assert.ok(reservationWrite > reservationLock && orderWrite > reservationWrite);
+  assert.match(statements[orderLock].sql,/FOR UPDATE SKIP LOCKED/);
+  assert.equal(statements.at(-2),'COMMIT');
+  assert.equal(statements.at(-1),'RELEASE');
 });
 
 
