@@ -519,13 +519,14 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:draw-approve:')) return approveCampaignDraw(chat,data.slice('adm:draw-approve:'.length));
     if (data.startsWith('adm:draw-view:')) {
       const id=data.slice('adm:draw-view:'.length);
-      const [[d]]=await db.execute('SELECT id,campaign_id,draw_number,status,method,snapshot_hash,seed_commitment,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1',[id]);
+      const [[d]]=await db.execute('SELECT id,campaign_id,draw_number,status,method,snapshot_hash,seed_commitment,external_reference,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1',[id]);
       if(!d)return adminMessage({chat_id:chat,text:'قرعه‌کشی پیدا نشد.'});
       const [winners]=await db.execute('SELECT winner_rank,winner_type,participant_id,code,selection_method FROM draw_winners WHERE draw_id=? ORDER BY winner_rank',[id]);
+      const [[liveEvidence]]=await db.execute("SELECT reference_uri,content_hash FROM draw_evidence WHERE draw_id=? AND evidence_type='live_wheel_result' ORDER BY id DESC LIMIT 1",[id]);
       const [[seedEvidence]]=await db.execute("SELECT description FROM draw_evidence WHERE draw_id=? AND evidence_type='seed_reveal' ORDER BY id DESC LIMIT 1",[id]);
       let seedReveal='-';try{const proof=seedEvidence?(typeof seedEvidence.description==='string'?JSON.parse(seedEvidence.description):seedEvidence.description):null;seedReveal=proof?.seed||'-';}catch{}
       const body=winners.length?winners.map(w=>'رتبه '+w.winner_rank+' · '+w.winner_type+' · مشتری #'+w.participant_id+' · '+(w.code||'بدون کد')).join('\n'):'نتیجه هنوز انتخاب نشده است.';
-      return adminMessage({chat_id:chat,text:'قرعه‌کشی #'+d.draw_number+' · '+d.status+'\nSnapshot: '+(d.snapshot_hash||'-')+'\nSeed commitment: '+(d.seed_commitment||'-')+'\nSeed reveal: '+seedReveal+'\n\n'+body,reply_markup:keyboard(d.status==='pending_approval'?[[{text:'تأیید نتیجه',callback_data:'adm:draw-approve:'+id}],[{text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]]:[[ {text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]])});
+      return adminMessage({chat_id:chat,text:'قرعه‌کشی #'+d.draw_number+' · '+d.status+'\nSnapshot: '+(d.snapshot_hash||'-')+'\nSeed commitment: '+(d.seed_commitment||'-')+'\nSeed reveal: '+seedReveal+'\nمدرک گردونه: '+(liveEvidence?.reference_uri||d.external_reference||'-')+'\nSHA-256 مدرک: '+(liveEvidence?.content_hash||'-')+'\n\n'+body,reply_markup:keyboard(d.status==='pending_approval'?[[{text:'تأیید نتیجه',callback_data:'adm:draw-approve:'+id}],[{text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]]:[[ {text:'بازگشت',callback_data:'adm:draw-campaign:'+d.campaign_id}]])});
     }
     if (data==='adm:stats') return stats(chat);
     if (data==='adm:reports') return campaignReports(chat);
