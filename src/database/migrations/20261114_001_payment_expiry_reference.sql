@@ -1,4 +1,6 @@
 ALTER TABLE payment_orders
+  DROP INDEX campaign_entry_id,
+  ADD KEY idx_order_entry(campaign_entry_id),
   ADD COLUMN payment_reference VARCHAR(32) NULL AFTER id,
   ADD UNIQUE KEY uq_payment_reference(payment_reference),
   MODIFY COLUMN status ENUM('awaiting_receipt','under_review','approved','rejected','cancelled','expired') NOT NULL DEFAULT 'awaiting_receipt';
