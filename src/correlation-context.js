@@ -3,7 +3,7 @@
 const { AsyncLocalStorage } = require('node:async_hooks');
 const storage = new AsyncLocalStorage();
 const PATCHED = Symbol('istoreCorrelationPatched');
-const TARGETS = new Set(['telegram_notification_outbox','admin_audit_log','payment_orders']);
+const TARGETS = new Set(['telegram_notification_outbox','admin_audit_log','payment_orders','payment_order_card_deliveries']);
 
 function getCorrelationId() {
   return storage.getStore()?.correlationId || null;
