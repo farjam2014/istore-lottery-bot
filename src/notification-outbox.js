@@ -51,7 +51,7 @@ function createNotificationOutbox({db,send,onSent=null,logger=console,pollInterv
     await send(data.method,data.payload);
     if(isLeaseLost())throw new Error("Notification outbox processing lease was lost during Telegram delivery");
     requiresAudit=item.notification_type==='payment_instructions'&&Boolean(data.delivery_card)&&typeof onSent==='function';
-    const [result]=await db.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL,post_delivery_started_at=IF(?,NOW(),NULL),post_delivery_token=IF(?,?,NULL) WHERE id=? AND status='processing' AND processing_token=?",[requiresAudit?1:0,item.token,requiresAudit?item.token:null,item.id,item.token]);
+    const [result]=await db.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL,post_delivery_started_at=IF(?,NOW(),NULL),post_delivery_token=IF(?,?,NULL) WHERE id=? AND status='processing' AND processing_token=?",[requiresAudit?1:0,requiresAudit?1:0,requiresAudit?item.token:null,item.id,item.token]);
     if(result.affectedRows!==1)throw new Error("Outbox claim was lost after Telegram send; delivery may be duplicated on retry");
    });
    if(requiresAudit){
