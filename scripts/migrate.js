@@ -1,0 +1,1 @@
+import {migrate} from '../src/database/migrate.js';import {pool} from '../src/database/pool.js';import {logger} from '../src/shared/logger.js';try{await migrate();logger.info('Schema applied');}catch(e){logger.error({err:e},'Migration failed');process.exitCode=1;}finally{await pool.end();}

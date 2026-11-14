@@ -1,39 +1,9 @@
-# iStore Lottery
+# iStore Lottery Bot
 
-Telegram Business lottery bot with MySQL, durable webhook inbox, Telegram-first admin tools, and a web admin interface.
+Clean Telegram-native implementation. Private chats only; no Telegram Business integration.
 
-## Install — Ubuntu 24.04 staging server
+Requires Node.js 22+, MySQL 8+, and a Telegram bot token. Copy `.env.example` to `.env`, configure credentials, run `npm ci`, `npm run db:migrate`, then `npm start`.
 
-Run the installer on the VPS:
+Migrations are non-destructive. This repository commit does not deploy to a server or modify a live database.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/feature/multi-campaign-platform/install.sh -o /root/istore-install.sh
-sudo bash /root/istore-install.sh
-```
-
-The installer asks for the domain, SSL email, Telegram BotFather token, numeric Telegram admin ID, and optional store contact details / Telegram URL. It does **not** ask you to choose either password.
-
-A cryptographically random 32-byte MySQL password and a separate random 32-byte admin-panel password are generated automatically. They are not printed in the terminal. Both are stored in `/opt/istore-lottery-bot/.env`; the file is owned by root and the service group with mode `640`, so only root and the bot service can read it. The generated webhook and session secrets are also stored there. Do not share or commit this file.
-
-**Destructive fresh reinstall:** no database backup is created. The installer stops and disables the existing `istore-lottery-bot` service, then asks for the exact confirmation phrase `DELETE istore_lottery`. Only after that confirmation, it permanently drops the `istore_lottery` database and its local MySQL user, recreates both with fresh credentials, imports `schema.sql`, and runs migrations. If the phrase is not entered exactly, the installer exits before dropping the database. Existing application files are moved to a timestamped directory and the new branch is cloned into `/opt/istore-lottery-bot`. The same systemd service, Nginx site, domain, and Telegram bot token/webhook are reconfigured for the new version. This is destructive and must only be used when all data in that database can be discarded.
-
-The installer targets the `feature/multi-campaign-platform` branch, installs Node.js 22, MySQL, Nginx and Certbot, configures systemd and HTTPS, registers the Telegram webhook, and verifies the local health endpoint. Registration remains closed.
-
-## Operations
-
-```bash
-sudo systemctl status istore-lottery-bot
-sudo journalctl -u istore-lottery-bot -f
-curl -fsS https://YOUR_DOMAIN/health
-```
-
-Send `/panel` to the bot from the configured admin account for Telegram admin controls.
-
-## Known limitations
-
-- Telegram Bot API cannot verify Instagram follows live or determine whether a user saved a phone number in contacts.
-- Manual card-to-card payment with receipt review is implemented; an online payment-gateway adapter and provider verification are not implemented yet.
-- The website currently provides the admin interface; a shared participant account and participant-facing website are planned, not implemented.
-- Instagram JSON import and some advanced participant conversation flows are not implemented.
-- Installer assumes Ubuntu 24.04, DNS pointing to this VPS, and reachable inbound ports 80/443.
-- Complete real Telegram Business and admin acceptance tests before opening registration.
+Initial scope: persistent registration, server-side profile gating, inline user navigation, campaign discovery, profile/code views, basic admin statistics, MySQL schema and modular boundaries. Payment review, campaign administration, support queue and auditable draw execution remain subsequent implementation increments.
