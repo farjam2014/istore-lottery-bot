@@ -254,7 +254,7 @@ export function registerAdminHandlers(bot){
       await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.archived','campaign',id,JSON.stringify({from,to:'archived'})]);
       await c.commit();
     }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
-    await ctx.answerCbQuery('بایگانی شد.');await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
+    await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
