@@ -274,7 +274,7 @@ export function registerAdminHandlers(bot){
     const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows,columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
-  bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await ctx.answerCbQuery();return showPaymentCards(ctx);});
+  bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await ctx.answerCbQuery();return showPaymentCards(ctx);});
   bot.action('admin:payment-cards',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await ctx.answerCbQuery();return showPaymentCards(ctx);});
   bot.action('admin:payment-card:add',async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
@@ -282,7 +282,7 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery();
     return showPaymentCardInput(ctx,false);
   });
-  bot.action(/^admin:payment-card:view:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:payment-card:view:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     const card=await getPaymentCard(Number(ctx.match[1]));
     if(!card)return ctx.answerCbQuery('کارت پیدا نشد.',{show_alert:true});
@@ -297,7 +297,7 @@ export function registerAdminHandlers(bot){
     buttons.push([Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]);
     return respond(ctx,text,Markup.inlineKeyboard(buttons));
   });
-  bot.action(/^admin:payment-card:edit:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:payment-card:edit:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     const card=await getPaymentCard(Number(ctx.match[1]));
     if(!card)return ctx.answerCbQuery('کارت پیدا نشد.',{show_alert:true});
@@ -305,14 +305,14 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery();
     return showPaymentCardInput(ctx,true);
   });
-  bot.action(/^admin:payment-card:default:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:payment-card:default:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     try{await setDefaultPaymentCard(Number(ctx.match[1]),ctx.from.id);await audit(ctx.from.id,'payment_card.default_changed','payment_bank_card',Number(ctx.match[1]));}
     catch(e){return ctx.answerCbQuery(e.message||'تغییر کارت پیش‌فرض ناموفق بود.',{show_alert:true});}
     await ctx.answerCbQuery('کارت پیش‌فرض تغییر کرد.');
     return showPaymentCards(ctx);
   });
-  bot.action(/^admin:payment-card:(activate|deactivate):(\\d+)$/,async ctx=>{
+  bot.action(/^admin:payment-card:(activate|deactivate):(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     const active=ctx.match[1]==='activate',id=Number(ctx.match[2]);
     try{await setPaymentCardActive(id,active,ctx.from.id);await audit(ctx.from.id,active?'payment_card.activated':'payment_card.deactivated','payment_bank_card',id);}
@@ -363,18 +363,18 @@ export function registerAdminHandlers(bot){
         if(value.length<2||value.length>80)return respond(ctx,'نام بانک باید بین ۲ تا ۸۰ نویسه باشد.');
         payload.bankName=value;
         await pool.execute("UPDATE payment_card_admin_sessions SET step='card_number',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
-        return respond(ctx,'مرحله ۲ از ۴: شماره کارت ۱۶ رقمی را ارسال کنید.');
+        return respond(ctx,'مرحله ۲ از ۴: شماره کارت ۱۶ رقمی را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='card_number'){
         try{payload.cardNumber=normalizeCardNumber(value);}catch(e){return respond(ctx,e.message);}
         await pool.execute("UPDATE payment_card_admin_sessions SET step='card_holder',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
-        return respond(ctx,'مرحله ۳ از ۴: نام و نام خانوادگی صاحب کارت را ارسال کنید.');
+        return respond(ctx,'مرحله ۳ از ۴: نام و نام خانوادگی صاحب کارت را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='card_holder'){
         if(value.length<3||value.length>120)return respond(ctx,'نام صاحب کارت باید بین ۳ تا ۱۲۰ نویسه باشد.');
         payload.cardHolder=value;
         await pool.execute("UPDATE payment_card_admin_sessions SET step='instructions',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
-        return respond(ctx,'مرحله ۴ از ۴: توضیحات پرداخت را ارسال کنید؛ اگر توضیحی ندارید «-» بفرستید.');
+        return respond(ctx,'مرحله ۴ از ۴: توضیحات پرداخت را ارسال کنید؛ اگر توضیحی ندارید «-» بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='instructions'){
         if(value.length>500)return respond(ctx,'توضیحات حداکثر ۵۰۰ نویسه باشد.');
@@ -408,7 +408,7 @@ export function registerAdminHandlers(bot){
       if(column==='prize_title'&&value.length>180)return respond(ctx,'نام جایزه حداکثر ۱۸۰ نویسه باشد.');
       if(column==='prize_description'&&value.length>2000)return respond(ctx,'توضیح جایزه حداکثر ۲۰۰۰ نویسه باشد.');
       if(column==='terms'&&value.length>8000)return respond(ctx,'قوانین حداکثر ۸۰۰۰ نویسه باشد.');
-      if(['starts_at','ends_at','draw_at'].includes(column)){if(value==='-')nextValue=null;else{if(!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(value)||Number.isNaN(Date.parse(value.replace(' ','T')+':00Z')))return respond(ctx,'زمان را به شکل YYYY-MM-DD HH:mm وارد کنید یا «-» بفرستید.');nextValue=value+':00';}}
+      if(['starts_at','ends_at','draw_at'].includes(column)){if(value==='-')nextValue=null;else{if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value)||Number.isNaN(Date.parse(value.replace(' ','T')+':00Z')))return respond(ctx,'زمان را به شکل YYYY-MM-DD HH:mm وارد کنید یا «-» بفرستید.');nextValue=value+':00';}}
             if(column==='entry_price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)return respond(ctx,'مبلغ باید عدد صحیح مثبت و به ریال باشد.');nextValue=Number(value);}
       if(column==='capacity'||column==='codes_per_entry'){if(!/^\d+$/.test(value))return respond(ctx,'مقدار باید عدد صحیح نامنفی باشد.');nextValue=Number(value);if(column==='codes_per_entry'&&(nextValue<1||nextValue>100))return respond(ctx,'تعداد کد باید بین ۱ تا ۱۰۰ باشد.');if(column==='capacity'&&nextValue>10000000)return respond(ctx,'ظرفیت بیش از حد مجاز است.');if(column==='capacity'&&nextValue===0)nextValue=null;}
       const db=await pool.getConnection();try{await db.beginTransaction();const [[locked]]=await db.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[p.campaignId]);if(!locked||locked.status!=='draft')throw new Error('وضعیت کمپین تغییر کرده و دیگر قابل ویرایش نیست.');const [[counts]]=await db.execute('SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=?',[p.campaignId]);if(Number(counts.total)>0)throw new Error('کمپین دارای سابقه شرکت‌کننده است و ویرایش مستقیم آن مجاز نیست.');await db.execute('UPDATE campaigns SET '+column+'=? WHERE id=?',[nextValue,p.campaignId]);await db.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.field_updated','campaign',p.campaignId,JSON.stringify({field:column})]);await db.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(ctx.from.id)]);await db.commit();}catch(error){await db.rollback();return respond(ctx,error.message||'ویرایش کمپین انجام نشد.');}finally{db.release();}
