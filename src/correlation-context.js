@@ -15,15 +15,45 @@ function runWithCorrelation(correlationId, callback) {
   return storage.run({ correlationId: id }, callback);
 }
 
-function injectCorrelation(sql, values, correlationId) {
-  if (!correlationId || !Array.isArray(values) || typeof sql !== 'string') return { sql, values };
-  const match = sql.match(/^(INSERT(?:\s+IGNORE)?\s+INTO\s+`?([a-z0-9_]+)`?\s*)\(([^)]+)\)(\s*VALUES\s*)\(([^)]+)\)/i);
-  if (!match || !TARGETS.has(match[2].toLowerCase())) return { sql, values };
-  if (/(^|,)\s*`?correlation_id`?\s*(,|$)/i.test(match[3])) return { sql, values };
-  const updated = sql.replace(match[0], match[1] + '(' + match[3] + ',correlation_id)' + match[4] + '(' + match[5] + ',?)');
-  return { sql: updated, values: [...values, correlationId] };
+function findMatchingParen(source,openIndex) {
+  let depth=0,quote=null,escaped=false;
+  for(let i=openIndex;i<source.length;i++) {
+    const ch=source[i];
+    if(quote) {
+      if(escaped){escaped=false;continue;}
+      if(ch==='\\\\'){escaped=true;continue;}
+      if(ch===quote) {
+        if(source[i+1]===quote){i++;continue;}
+        quote=null;
+      }
+      continue;
+    }
+    if(ch==="'"||ch==='"'||ch==='`'){quote=ch;continue;}
+    if(ch==='(')depth++;
+    else if(ch===')'&&--depth===0)return i;
+  }
+  return -1;
 }
 
+function injectCorrelation(sql, values, correlationId) {
+  if (!correlationId || !Array.isArray(values) || typeof sql !== 'string') return { sql, values };
+  const insert=sql.match(/^(INSERT(?:\\s+IGNORE)?\\s+INTO\\s+`?([a-z0-9_]+)`?\\s*)\\(/i);
+  if(!insert||!TARGETS.has(insert[2].toLowerCase()))return {sql,values};
+  const columnsOpen=insert[0].length-1;
+  const columnsClose=findMatchingParen(sql,columnsOpen);
+  if(columnsClose<0)return {sql,values};
+  const columns=sql.slice(columnsOpen+1,columnsClose);
+  if(columns.split(',').some(column=>column.trim().replace(/[`"]/g,'').toLowerCase()==='correlation_id'))return {sql,values};
+  const valuesClause=sql.slice(columnsClose+1).match(/^\\s*VALUES\\s*\\(/i);
+  if(!valuesClause)return {sql,values};
+  const valuesOpen=columnsClose+1+valuesClause[0].lastIndexOf('(');
+  const valuesClose=findMatchingParen(sql,valuesOpen);
+  if(valuesClose<0)return {sql,values};
+  const withColumn=sql.slice(0,columnsClose)+',correlation_id'+sql.slice(columnsClose);
+  const closeAfterColumn=valuesClose+(',correlation_id'.length);
+  const updated=withColumn.slice(0,closeAfterColumn)+',?'+withColumn.slice(closeAfterColumn);
+  return {sql:updated,values:[...values,correlationId]};
+}
 function patchExecutor(target, method) {
   const original = target[method];
   if (typeof original !== 'function' || original[PATCHED]) return;
