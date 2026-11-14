@@ -3,6 +3,7 @@ export const registrationKeyboard=()=>Markup.inlineKeyboard([[Markup.button.call
 export const userMenuKeyboard=()=>Markup.inlineKeyboard([
  [Markup.button.callback('🎁 کمپین‌ها','user:campaigns')],
  [Markup.button.callback('🎟 کدهای من','user:codes')],
+ [Markup.button.callback('📚 سوابق شرکت من','user:history')],
  [Markup.button.callback('🧾 سفارش‌ها','user:orders')],
  [Markup.button.callback('👤 حساب کاربری','user:account')],
  [Markup.button.callback('💬 پشتیبانی','user:support')]
