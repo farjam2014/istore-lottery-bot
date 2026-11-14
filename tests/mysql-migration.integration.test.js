@@ -311,7 +311,8 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
         ['payment-instructions:'+orderId]
       );
       assert.ok(instruction,'payment instructions must be committed to the outbox with the order');
-      await pool.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=UTC_TIMESTAMP() WHERE status='pending' AND id<>?",[instruction.id]);
+      await pool.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=UTC_TIMESTAMP(),delivery_recorded_at=UTC_TIMESTAMP() WHERE status='pending' AND id<>?",[instruction.id]);
+      await pool.execute("UPDATE telegram_notification_outbox SET delivery_recorded_at=UTC_TIMESTAMP() WHERE notification_type='payment_instructions' AND id<>?",[instruction.id]);
       const {createNotificationOutbox}=require('../src/notification-outbox');
       let telegramSends=0,deliveryHooks=0;
       const notificationWorker=createNotificationOutbox({
