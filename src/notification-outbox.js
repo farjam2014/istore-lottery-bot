@@ -1,7 +1,7 @@
 "use strict";
 const crypto=require("node:crypto");
 
-function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leaseMs=60000,heartbeatMs=Math.max(100,Math.floor(leaseMs/3)),maxAttempts=5}){
+function createNotificationOutbox({db,send,onSent=null,logger=console,pollInterval=1000,leaseMs=60000,heartbeatMs=Math.max(100,Math.floor(leaseMs/3)),maxAttempts=5}){
  if(!db||typeof send!=="function")throw new Error("db and send are required");
  let busy=false,timer=null;
  async function processOne(){
@@ -11,7 +11,7 @@ function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leas
    try{
     await conn.beginTransaction();
     await conn.execute("UPDATE telegram_notification_outbox SET status=IF(attempts>=?,'failed','pending'),next_attempt_at=IF(attempts>=?,NULL,DATE_ADD(NOW(),INTERVAL LEAST(3600,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at < DATE_SUB(NOW(),INTERVAL ? MICROSECOND)",[maxAttempts,maxAttempts,leaseMs*1000]);
-    const [rows]=await conn.query("SELECT id,payload FROM telegram_notification_outbox WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=NOW()) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED");
+    const [rows]=await conn.query("SELECT id,payload,notification_type FROM telegram_notification_outbox WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=NOW()) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED");
     if(!rows.length){await conn.commit();return false;}
     item=rows[0];item.token=crypto.randomUUID();
     await conn.execute("UPDATE telegram_notification_outbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE id=? AND status='pending'",[item.token,item.id]);
@@ -27,6 +27,7 @@ function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leas
    const data=typeof item.payload==="string"?JSON.parse(item.payload):item.payload;
    await send(data.method,data.payload);
    if(leaseLost)throw new Error("Notification outbox processing lease was lost during Telegram delivery");
+   if(typeof onSent==='function')await onSent({id:item.id,notificationType:item.notification_type,payload:data});
    const [result]=await db.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE id=? AND status='processing' AND processing_token=?",[item.id,item.token]);
    if(result.affectedRows!==1)throw new Error("Outbox claim was lost after Telegram send; delivery may be duplicated on retry");
    return true;
