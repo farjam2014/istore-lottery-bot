@@ -241,11 +241,12 @@ export function registerAdminHandlers(bot){
 async function showParticipants(ctx,page=0,query=''){
   const limit=8,offset=Math.max(0,Number(page)||0)*limit;
   const q=String(query||'').trim().slice(0,100);
-  const where=q?"WHERE p.full_name LIKE ? OR p.phone LIKE ? OR p.instagram_handle LIKE ? OR CAST(p.telegram_user_id AS CHAR)=?":"";
-  const params=q?[...Array(3).fill('%'+q.replace(/[!%_]/g,'!'!$&'')+'%'),q,limit,offset]:[limit,offset];
+  const like='%'+q.split('!').join('!!').split('%').join('!%').split('_').join('!_')+'%';
+  const where=q?"WHERE p.full_name LIKE ? ESCAPE '!' OR p.phone LIKE ? ESCAPE '!' OR p.instagram_handle LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=?":"";
+  const params=q?[like,like,like,q,limit,offset]:[limit,offset];
   const [rows]=await pool.execute(
     "SELECT p.id,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle,p.status,p.created_at,(SELECT COUNT(*) FROM campaign_entries e WHERE e.participant_id=p.id) entry_count,(SELECT COUNT(*) FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.participant_id=p.id) code_count FROM participants p "+where+" ORDER BY p.id DESC LIMIT ? OFFSET ?",params);
-  const countParams=q?[...Array(3).fill('%'+q.replace(/[!%_]/g,'!'!$&'')+'%'),q]:[];
+  const countParams=q?[like,like,like,q]:[];
   const [[count]]=await pool.execute("SELECT COUNT(*) total FROM participants p "+where,countParams);
   const total=Number(count.total),pages=Math.max(1,Math.ceil(total/limit));
   const buttons=rows.map(p=>[Markup.button.callback((p.status==='blocked'?'🔴 ':'🟢 ')+p.full_name+' | '+p.phone,'admin:participant:view:'+p.id)]);
