@@ -22,7 +22,7 @@ export function registerUserHandlers(bot){
       campaign.ends_at?'پایان: '+campaign.ends_at:null,
       campaign.draw_at?'زمان قرعه‌کشی: '+campaign.draw_at:null,
       campaign.capacity?'ظرفیت کل: '+campaign.capacity+' | ثبت‌نام/رزرو: '+Number(campaign.participant_count||0):'ظرفیت: نامحدود',
-      campaign.terms?'قوانین و شرایط:\\n'+campaign.terms:null
+      campaign.terms?'قوانین و شرایط:\n'+campaign.terms:null
     ].filter(Boolean);
     const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[[Markup.button.callback('ثبت سفارش و پرداخت','payment:start:'+campaign.id)]];
     buttons.push([Markup.button.callback('بازگشت به کمپین‌ها','user:campaigns')]);
