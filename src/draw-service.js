@@ -151,7 +151,7 @@ function createDrawService({ db, adminId }) {
       const required = Number(draw.winner_count) + Number(draw.alternate_count);
       if (selected.length !== required) throw new Error('تعداد نتایج گردونه باید دقیقاً برابر مجموع برندگان اصلی و ذخیره باشد.');
       await storeWinners(conn,draw,candidates,selected,evidenceReference);
-      await conn.execute("UPDATE campaign_draws SET status='pending_approval',external_reference=? WHERE id=?", [String(externalReference||'').slice(0,255),drawId]);
+      await conn.execute("UPDATE campaign_draws SET status='pending_approval',external_reference=? WHERE id=?", [evidenceReference,drawId]);
       await conn.execute(
         'INSERT INTO draw_evidence(draw_id,evidence_type,reference_uri,content_hash,description,recorded_by) VALUES(?,?,?,?,?,?)',
         [drawId,'live_wheel_result',evidenceReference,evidenceHash,JSON.stringify({selected:candidateReferences}),String(adminId)]
