@@ -493,7 +493,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  async function requestProfileChange({ participantId, field, value }) {
+  async function requestProfileChange({ participantId, field, value, telegramMessageId = null }) {
     const fields = {
       full_name: v => { const x=String(v||'').trim().replace(/\\s+/g,' '); if(!validFullName(x)) throw new Error('نام معتبر نیست.'); return x; },
       phone: v => { const x=normalizePhone(v); if(!validPhone(x)) throw new Error('شماره موبایل معتبر نیست.'); return x; },
@@ -504,7 +504,7 @@ function createCampaignService({ db, adminId }) {
     const [[participant]] = await db.execute(`SELECT id,${field} AS old_value FROM participants WHERE id=? AND status='active' LIMIT 1`, [participantId]);
     if (!participant) throw new Error('پروفایل فعال پیدا نشد.');
     if (String(participant.old_value) === nextValue) throw new Error('مقدار جدید با مقدار فعلی یکسان است.');
-    const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,status) VALUES(?,?,?,?,'pending')", [participantId,field,String(participant.old_value),nextValue]);
+    const [result] = await db.execute("INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,telegram_message_id,status) VALUES(?,?,?,?,?,'pending') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)", [participantId,field,String(participant.old_value),nextValue,telegramMessageId==null?null:Number(telegramMessageId)]);
     const [[recipient]]=await db.execute('SELECT chat_id FROM participants WHERE id=? LIMIT 1',[participantId]);
     if(recipient?.chat_id) await db.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",['profile-change:'+result.insertId,'profile_change_requested',JSON.stringify({method:'sendMessage',payload:{chat_id:String(adminId),text:'📝 درخواست اصلاح پروفایل جدید\nشناسه: '+result.insertId+'\nشرکت‌کننده: '+participantId+'\nفیلد: '+field+'\nمقدار قبلی: '+participant.old_value+'\nمقدار درخواستی: '+nextValue+'\nبرای بررسی به پنل تلگرام بروید: /panel'}})]);
 
