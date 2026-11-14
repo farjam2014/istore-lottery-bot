@@ -277,7 +277,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       }
       if(item.status!=='failed')throw new Error('فقط وب‌هوک ناموفق قابل بازیابی است.');
       await conn.execute("UPDATE webhook_inbox SET status='pending',attempts=0,received_at=UTC_TIMESTAMP(3),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='failed'",[id]);
-      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'retry_webhook','webhook_update',String(id),JSON.stringify({previous_attempts:item.attempts,correlation_id:item.correlation_id||null,source:'telegram'})]);
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'retry_webhook','webhook_update',String(id),JSON.stringify({previous_attempts:item.attempts,original_correlation_id:item.correlation_id||null,source:'telegram'})]);
       await conn.commit();
       return adminMessage({chat_id:chat,text:'وب‌هوک #'+id+' دوباره در صف پردازش قرار گرفت. نتیجه را از همین بخش بررسی کن.',reply_markup:keyboard([[{text:'وب‌هوک‌های ناموفق',callback_data:'adm:webhooks'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
     }catch(error){await conn.rollback();return adminMessage({chat_id:chat,text:'بازیابی انجام نشد: '+error.message});}
@@ -313,11 +313,11 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const conn=await db.getConnection();
     try{
       await conn.beginTransaction();
-      const [[item]]=await conn.execute("SELECT id,status,attempts,notification_type FROM telegram_notification_outbox WHERE id=? FOR UPDATE",[id]);
+      const [[item]]=await conn.execute("SELECT id,status,attempts,notification_type,correlation_id FROM telegram_notification_outbox WHERE id=? FOR UPDATE",[id]);
       if(!item)throw new Error('اعلان پیدا نشد.');
       if(item.status!=='failed')throw new Error('فقط اعلان ناموفق قابل ارسال مجدد است.');
       await conn.execute("UPDATE telegram_notification_outbox SET status='pending',attempts=0,next_attempt_at=UTC_TIMESTAMP(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE id=? AND status='failed'",[id]);
-      await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),'retry_notification','telegram_notification',String(id),JSON.stringify({previous_attempts:item.attempts,notification_type:item.notification_type,source:'telegram'})]);
+      await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),'retry_notification','telegram_notification',String(id),JSON.stringify({previous_attempts:item.attempts,notification_type:item.notification_type,original_correlation_id:item.correlation_id||null,source:'telegram'})]);
       await conn.commit();
       return adminMessage({chat_id:chat,text:'اعلان #'+id+' دوباره در صف ارسال قرار گرفت. نتیجه را پس از اجرای worker بررسی کنید.',reply_markup:keyboard([[{text:'صف اعلان‌ها',callback_data:'adm:outbox'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
     }catch(e){await conn.rollback();return adminMessage({chat_id:chat,text:'ارسال مجدد ثبت نشد: '+e.message});}
