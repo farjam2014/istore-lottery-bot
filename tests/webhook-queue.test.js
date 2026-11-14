@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createWebhookQueue } = require("../src/webhook-queue");
 
-function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, heartbeatMs = 60 * 60 * 1000 } = {}) {
+function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000 } = {}) {
   const calls = [];
   const logs = [];
   let connectionCount = 0;
@@ -57,7 +57,7 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
       calls.push(`db:execute:${sql.includes("SELECT 1 FROM processed_updates") ? "processed-check" : "retry-or-heartbeat"}`);
 
       if (sql.includes("SELECT 1 FROM processed_updates")) {
-        return [[], []];
+        return [alreadyProcessed ? [{ update_id: item.update_id }] : [], []];
       }
 
       if (heartbeatFailure && sql.includes("SET processing_started_at=NOW()")) {
@@ -187,4 +187,17 @@ test("stop returns false instead of waiting forever after its deadline", async (
   const stopped = await queue.stop(10);
   assert.equal(stopped, false);
   await processing;
+});
+
+
+test("already processed update ids are not sent to business handlers again", async () => {
+  let handled = 0;
+  const { queue, calls } = createHarness({
+    alreadyProcessed: true,
+    handler: async () => { handled += 1; }
+  });
+  assert.equal(await queue.processOne(), true);
+  assert.equal(handled, 0);
+  assert.ok(calls.includes("finish:execute:finish"));
+  assert.ok(calls.includes("finish:commit"));
 });
