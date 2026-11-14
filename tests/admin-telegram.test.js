@@ -10,7 +10,7 @@ function harness({webhookStatus='failed',webhookProcessed=false}={}) {
     async commit(){calls.push({sql:'COMMIT'});},
     async rollback(){calls.push({sql:'ROLLBACK'});},
     release(){calls.push({sql:'RELEASE'});},
-    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];if(sql.includes('FROM webhook_inbox WHERE update_id=? FOR UPDATE'))return [[{update_id:123,status:webhookStatus,attempts:5,correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM processed_updates WHERE update_id=?'))return [webhookProcessed?[{update_id:123}]:[]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
+    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample',correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM webhook_inbox WHERE update_id=? FOR UPDATE'))return [[{update_id:123,status:webhookStatus,attempts:5,correlation_id:'123e4567-e89b-42d3-a456-426614174000'}]];if(sql.includes('FROM processed_updates WHERE update_id=?'))return [webhookProcessed?[{update_id:123}]:[]];if(sql.includes('FROM customer_support_tickets WHERE id=? FOR UPDATE'))return [[{id:42,status:'open',chat_id:'777',business_connection_id:null}]];return [{affectedRows:1,insertId:77}];},
     async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
   const db={
@@ -389,7 +389,9 @@ test('Telegram admin can requeue a failed notification with an audit record', as
   const h=harness();
   await h.admin.handleCallback({id:'outbox-retry-1',data:'adm:outbox-retry:19',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:902}});
   assert.ok(h.calls.some(x=>x.sql.includes("SET status='pending'")&&x.params[0]==='19'));
-  assert.ok(h.calls.some(x=>x.sql.includes("INSERT INTO admin_audit_log")&&x.params[1]==='retry_notification'&&x.params[3]==='19'));
+  const retryAudit=h.calls.find(x=>x.sql.includes("INSERT INTO admin_audit_log")&&x.params[1]==='retry_notification'&&x.params[3]==='19');
+  assert.ok(retryAudit);
+  assert.match(retryAudit.params[4],/original_correlation_id/);
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف ارسال')));
 });
 
