@@ -374,7 +374,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   async function campaignWizardReview(chat,state) {
     const v=state.values;
     const body=campaignWizardFields.map((f,i)=>(i+1)+'. '+f.label+': '+campaignWizardValue(state,f.key)).join('\n');
-    const buttons=campaignWizardFields.map((f,i)=>[{text:'✏️ '+(i+1)+'. '+f.label,callback_data:'adm:campaign-wizard-edit:'+i}]);
+    const buttons=campaignWizardFields.map((f,i)=>({f,i})).filter(({f})=>!(v.payment_mode==='free'&&f.key==='payment_card_id')).map(({f,i})=>[{text:'✏️ '+(i+1)+'. '+f.label,callback_data:'adm:campaign-wizard-edit:'+i}]);
     buttons.push([{text:state.editingId?'💾 ذخیره ویرایش پیش‌نویس':'✅ ساخت پیش‌نویس',callback_data:'adm:campaign-wizard-save'},{text:'❌ لغو',callback_data:'adm:campaign-wizard-cancel'}]);
     return adminMessage({chat_id:chat,text:'🔎 بازبینی اطلاعات کمپین\n\n'+body+'\n\nبرای اصلاح هر مورد، دکمه همان مورد را بزن.',reply_markup:keyboard(buttons)});
   }
@@ -519,6 +519,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       }
       p.values[expected]=selected;
       if(p.reviewEdit){p.reviewEdit=false;return campaignWizardReview(chat,p);}
+      // Free campaigns do not require a bank card; skip the payment-card step entirely.
+      if(expected==='draw_basis'&&p.values.payment_mode==='free')return campaignWizardReview(chat,p);
       if(p.step>=campaignWizardFields.length-1)return campaignWizardReview(chat,p);
       p.step++;
       p.expires=Date.now()+1800000;
