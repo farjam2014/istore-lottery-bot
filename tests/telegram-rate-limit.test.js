@@ -15,7 +15,7 @@ function fakeDb({deadlocks=0}={}){
    if(sql.startsWith('UPDATE telegram_rate_limits SET request_count')){const r=rows.get(p[0]+':'+p[1]);r.request_count++;return [{affectedRows:1}];}
    throw new Error('Unexpected SQL '+sql);
   }
- }};}
+ }}};}
 test('rate limit is per Telegram actor and bucket and blocks after configured quota',async()=>{
  const db=fakeDb();
  assert.equal((await consumeTelegramRateLimit(db,{userId:'100',limit:2,windowMs:60000})).allowed,true);
