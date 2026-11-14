@@ -384,6 +384,7 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     const edited=await updatePaymentCard(idB,{bankName:'Updated Integration Bank',cardNumber:cardB,cardHolder:'Updated Integration Holder',instructions:'updated'},'1');
     assert.equal(edited.bank_name,'Updated Integration Bank');
     assert.equal(Number(edited.is_default),1);
+    await setPaymentCardActive(idA,false,'1');
     await assert.rejects(setPaymentCardActive(idB,false,'1'),/ابتدا کارت دیگری اضافه/);
   }finally{
     if(idA)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idA]);
