@@ -193,6 +193,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,'active')",
       [930100,930100,'Migration Participant','0912930100','migrationparticipant']
     );
+    await verify.query('ALTER TABLE profile_change_requests ADD KEY idx_test_profile_participant(participant_id)');
     await verify.query('ALTER TABLE profile_change_requests DROP INDEX uq_profile_change_telegram_message');
     for(const value of ['first request','duplicate request']) {
       await verify.execute(
