@@ -129,10 +129,10 @@ function createCampaignService({ db, adminId }) {
     try{
       await conn.beginTransaction();
       const [rows]=await conn.execute(
-        "SELECT id,status,starts_at,ends_at FROM campaigns WHERE (status='scheduled' AND ((starts_at IS NOT NULL AND starts_at<=UTC_TIMESTAMP()) OR (ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()))) OR (status='open' AND ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) ORDER BY id FOR UPDATE"
+        "SELECT id,status,CASE WHEN ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP() THEN 'closed' ELSE 'open' END AS next_status FROM campaigns WHERE (status='scheduled' AND ((starts_at IS NOT NULL AND starts_at<=UTC_TIMESTAMP()) OR (ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()))) OR (status='open' AND ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) ORDER BY id FOR UPDATE"
       );
       for(const campaign of rows){
-        const nextStatus=campaign.ends_at&&new Date(campaign.ends_at).getTime()<=Date.now()?'closed':'open';
+        const nextStatus=campaign.next_status;
         if(campaign.status===nextStatus)continue;
         await conn.execute('UPDATE campaigns SET status=? WHERE id=? AND status=?',[nextStatus,campaign.id,campaign.status]);
         await conn.execute(
