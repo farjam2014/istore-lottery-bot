@@ -336,7 +336,7 @@ test('scheduled campaign can be closed before it opens', async () => {
     async beginTransaction() { calls.push('BEGIN'); },
     async execute(sql, params = []) {
       calls.push({sql,params});
-      if (sql.includes('SELECT id,status FROM campaigns')) return [[{id:15,status:'scheduled'}], []];
+      if (sql.includes('SELECT id,status,starts_at,ends_at FROM campaigns')) return [[{id:15,status:'scheduled'}], []];
       return [{affectedRows:1}, []];
     },
     async commit() { calls.push('COMMIT'); },
