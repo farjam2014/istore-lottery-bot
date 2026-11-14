@@ -58,7 +58,7 @@ function createNotificationOutbox({db,send,onSent=null,logger=console,pollInterv
      [item.id,status,item.token]
     );
     if(result.affectedRows!==1)leaseLost=true;
-   }catch(error){leaseLost=true;logger.error("Notification outbox lease heartbeat error:",error.message);}
+   }catch(error){leaseLost=true;logger.error("Notification outbox lease heartbeat error ["+(item.correlation_id||item.id)+"]:",error.message);}
   },heartbeatMs);
   heartbeat.unref?.();
   try{
