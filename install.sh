@@ -115,6 +115,13 @@ runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js' -print0 | xargs -0 -n1 node --check"
 
+UNIT_FILE="/etc/systemd/system/$SERVICE.service"
+if [[ -e "$UNIT_FILE" ]]; then
+  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
+  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
+  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
+fi
+
 log "Ensuring the dedicated database and restricted application user exist. No database is dropped."
 mysql <<SQL
 CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -127,13 +134,6 @@ unset DB_PASSWORD BOT_TOKEN
 
 log "Applying versioned database migrations."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm run db:migrate"
-
-UNIT_FILE="/etc/systemd/system/$SERVICE.service"
-if [[ -e "$UNIT_FILE" ]]; then
-  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
-  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
-  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
-fi
 
 log "Installing and starting the systemd service."
 tmp_unit="$(mktemp)"
