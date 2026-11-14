@@ -280,3 +280,16 @@ test('newly registered customer is shown free and paid campaigns immediately', (
   assert.match(handler, /callback_data:"campaign:details:"\+c\.id/);
   assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);
 });
+
+
+test('duplicate free campaign join returns the already-issued codes instead of promising a new message', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf("if(String(q.data||'').startsWith('campaign:quantity:'))");
+  const end = source.indexOf('const adminHandled=await adminTelegram.handleCallback(q)', start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /const joined=await campaignService\.joinFreeCampaign/);
+  assert.match(handler, /if\(joined\.duplicate\)/);
+  assert.match(handler, /joined\.codes\|\|\[\]/);
+  assert.doesNotMatch(handler, /duplicate[\s\S]{0,300}کدها در پیام جداگانه/);
+});
