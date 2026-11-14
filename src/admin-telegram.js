@@ -133,18 +133,6 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const body = rows.length ? rows.map((x,i) => (i+1)+') '+x.action+' | '+x.raffle_code+' | '+x.actor+' | '+x.created_at).join('\n') : 'سابقه‌ای ثبت نشده است.';
     return adminMessage({ chat_id: chat, text: '🧾 تاریخچه کدها\n\n'+body, reply_markup: keyboard([[{text:'↩️ پرونده',callback_data:'adm:entry:'+id}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]]) });
   }
-  async function campaign(chat) {
-    const open = await registrationOpen();
-    const [[draw]] = await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");
-    return adminMessage({ chat_id: chat, text:
-      '⚙️ کنترل کمپین\n\nثبت‌نام: ' + (open ? '🟢 باز' : '🔴 بسته') +
-      '\nقرعه‌کشی: ' + (draw?.setting_value === 'true' ? 'انجام شده' : 'انجام نشده') +
-      '\n\nتغییر وضعیت فقط پس از تأیید انجام می‌شود.',
-      reply_markup: keyboard([
-        [{text:open?'🔒 درخواست بستن ثبت‌نام':'🔓 درخواست بازکردن ثبت‌نام',callback_data:'adm:confirm-registration:'+(open?'false':'true')}],
-        [{text:'↩️ منوی اصلی',callback_data:'adm:home'}]
-      ]) });
-  }
   async function exportCsv(chat, status = 'active', period = 'all') {
     if (!['all','active','inactive'].includes(status) || !['all','today','7d','30d'].includes(period)) {
       return adminMessage({chat_id:chat,text:'فیلتر خروجی نامعتبر است.'});
@@ -457,7 +445,6 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(data.startsWith('adm:campaign-card-apply:')){const [, ,campaignId,cardId]=data.split(':');const p=pending.get(String(adminId));pending.delete(String(adminId));if(!p||p.type!=='campaign-card'||p.campaignId!==campaignId||p.cardId!==cardId||p.expires<Date.now())return adminMessage({chat_id:chat,text:'درخواست منقضی یا نامعتبر است.'});await bankCardService.assignCampaignCard(Number(campaignId),Number(cardId),'changed via Telegram admin panel');return campaignDetail(chat,campaignId);}
     if (data==='adm:home') return home(chat);
     if (data==='adm:stats') return stats(chat);
-    if (data==='adm:campaign') return campaign(chat);
     if (data==='adm:campaigns') return campaignList(chat);
     if (data==='adm:campaign-filter') return campaignFilter(chat);
     if (data.startsWith('adm:campaigns:')) { const [, , status='all', page='0']=data.split(':'); return campaignList(chat,page,status); }
