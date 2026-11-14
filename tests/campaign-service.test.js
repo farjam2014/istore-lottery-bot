@@ -391,3 +391,26 @@ test('free campaign wizard skips payment-card selection and omits it from review
   assert.match(source, /expected==='draw_basis'&&p\.values\.payment_mode==='free'\)return campaignWizardReview\(chat,p\)/);
   assert.match(source, /filter\(\(\{f\}\)=>!\(v\.payment_mode==='free'&&f\.key==='payment_card_id'\)\)/);
 });
+
+
+test('campaign schedule worker opens and closes campaigns from database UTC decisions', async () => {
+  const calls=[];
+  const conn={
+    async beginTransaction(){calls.push('BEGIN');},async commit(){calls.push('COMMIT');},async rollback(){calls.push('ROLLBACK');},release(){},
+    async execute(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('CASE WHEN ends_at'))return [[
+        {id:1,status:'scheduled',next_status:'open'},
+        {id:2,status:'open',next_status:'closed'},
+        {id:3,status:'scheduled',next_status:'closed'}
+      ]];
+      return [{affectedRows:1}];
+    }
+  };
+  const service=require('../src/campaign-service').createCampaignService({db:{async getConnection(){return conn;}},adminId:'admin'});
+  const result=await service.syncCampaignSchedule();
+  assert.deepEqual(result,{opened:1,closed:2});
+  assert.equal(calls.filter(x=>typeof x==='object'&&x.sql.startsWith('UPDATE campaigns SET status')).length,3);
+  assert.equal(calls.filter(x=>typeof x==='object'&&x.sql.includes('INSERT INTO campaign_status_history')).length,3);
+  assert.ok(calls.includes('COMMIT'));
+});
