@@ -1,33 +1,60 @@
-# iStore Lottery Bot
+# UStore Telegram Bot
 
-Clean Telegram-native implementation. Private chats only; no Telegram Business integration.
+Telegram-native bot for private chats. This release does not use Telegram Business and does not include a web administration panel.
 
-Requires Node.js 22+, MySQL 8+, and a Telegram bot token. Copy `.env.example` to `.env`, configure credentials, run `npm install`, `npm run db:migrate`, then `npm start`.
+Requires Node.js 22+, MySQL 8+, and a Telegram bot token.
 
-## User flows
-- Persistent one-time profile registration (name, normalized phone, Instagram handle).
-- Inline user menu and paginated active campaign discovery.
-- Free campaign entry with transaction, immutable profile snapshot, capacity enforcement and unique codes.
-- Repeated entry requests return the original codes, not additional entries.
+## Install manually
 
-## Admin campaign creation
-Open `/admin` → `مدیریت کمپین‌ها` → `افزودن کمپین`. The next screen presents inline `رایگان` and `پولی` buttons. The wizard collects title, description, capacity, codes per entrant, and price for paid campaigns, then stores the campaign as a draft. Admins can review and activate/pause drafts from the campaign list.
-
-Paid order/receipt review and paid code issuance are not implemented yet. Do not activate paid campaigns until those flows are complete.
-
-## Tests
-- `npm test`: unit and (when enabled) integration tests.
-- `npm run test:integration`: MySQL integration tests; use only a disposable database whose name ends in `_ci` or `_test`.
-
-Migrations are non-destructive. This repository change does not deploy to a server or modify a live database.
-
-
-## One-command Ubuntu installer
-
-Supported on Ubuntu 22.04 and 24.04. Run this on a fresh server as a sudo-capable user; it prompts for the Telegram bot token and numeric admin ID, installs Node.js 22 and MySQL, creates a separate database with a random password, applies the schema, and registers a systemd service.
+Copy `.env.example` to `.env`, configure credentials, then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/install/one-command-ubuntu/install.sh | sudo bash
+npm install
+npm run db:migrate
+npm start
 ```
 
-The installer refuses to overwrite /opt/ustore-telegram-bot and creates a uniquely named database; it does not drop existing databases. Credentials are written to /opt/ustore-telegram-bot/.env with mode 600. This release has Telegram-based administration, not a web panel. Review the installer before running it on a production host.
+## Current product scope
+
+- Persistent participant profile (name, Telegram-shared phone contact, Instagram handle).
+- Inline Telegram menus and campaign operations.
+- Free campaign entry with capacity enforcement, profile snapshots and unique entry codes.
+- Paid-order, receipt-review and code-issuance services are present in this code line; do not enable paid campaigns in production until the end-to-end customer/admin flow has been verified against the target database and bot.
+- Campaign draw execution and winner selection remain deferred.
+- Live payment-gateway integration remains deferred; bank-transfer receipt review is manual.
+- Administration is inside Telegram. There is no web-panel password.
+
+See `docs/COMPLETION_SCOPE.md` for product invariants and acceptance requirements.
+
+## Tests
+
+```bash
+npm test
+npm run test:integration
+```
+
+Integration tests require a disposable MySQL database whose name ends in `_ci` or `_test`. Never point integration tests at a production database.
+
+## One-command Ubuntu installation
+
+Supported on Ubuntu 22.04 and 24.04. The installer installs Git, Node.js 22 and MySQL, runs the automated tests, creates a dedicated database and MySQL user, applies versioned migrations, and installs the `ustore-telegram-bot` systemd service.
+
+Run as root on the VPS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/install/resumable-ubuntu-v2/install.sh | sudo bash
+```
+
+### Safe resume behavior
+
+- If `/opt/ustore-telegram-bot` does not exist, the installer creates it.
+- If the directory already contains this repository, has the expected `origin`, is owned by `ustorebot`, and has no tracked local modifications, the installer updates the checkout to this installer branch. Untracked files are not deleted.
+- If a valid `.env` already exists, it is preserved and its secrets are neither prompted for nor printed. If it does not exist, the installer asks for the bot token and numeric admin ID, then writes a mode-600 file.
+- The database and MySQL user are uniquely named and scoped to this application. The installer uses create-if-missing operations and never drops a database.
+- An unrelated existing systemd unit or a checkout with tracked local edits causes a safe stop rather than an overwrite.
+
+The installer does not make a database backup, and it cannot make a partially failed MySQL DDL migration transactional. Use it only after reviewing the code and keeping your own production backup. Do not rerun migrations manually against a database that reports a partially applied migration; inspect the migration state first.
+
+## Deployment boundary
+
+Pushing this branch changes GitHub only. It does not connect to or deploy on a VPS. The installer must be run explicitly on the target server.
