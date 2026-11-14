@@ -53,8 +53,8 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action('admin:participants',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
-  bot.action(/^admin:participants:page:(\\d+)$/,async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]));});
-  bot.action(/^admin:participant:view:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]));});
+  bot.action(/^admin:participant:view:(\d+)$/,async ctx=>{
     if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery();const id=Number(ctx.match[1]);
     const [[p]] = await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants WHERE id=?',[id]);
@@ -62,14 +62,14 @@ export function registerAdminHandlers(bot){
     const [entries]=await pool.execute("SELECT c.id campaign_id,c.title,e.status entry_status,e.created_at,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) code_count,(SELECT GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) codes FROM campaign_entries e JOIN campaigns c ON c.id=e.campaign_id WHERE e.participant_id=? ORDER BY e.id DESC LIMIT 30",[id]);
     const [orders]=await pool.execute("SELECT o.id,o.amount,o.status,o.payment_reference,c.title campaign_title,o.created_at FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id WHERE e.participant_id=? ORDER BY o.id DESC LIMIT 20",[id]);
     const status=p.status==='active'?'فعال':'مسدود';
-    let message='👤 پروفایل شرکت‌کننده\\nشناسه: '+p.id+'\\nTelegram ID: '+p.telegram_user_id+'\\nنام: '+p.full_name+'\\nموبایل: '+p.phone+'\\nاینستاگرام: @'+p.instagram_handle+'\\nنام کاربری تلگرام: '+(p.telegram_username?'@'+p.telegram_username:'ندارد')+'\\nوضعیت: '+status+'\\nعضویت: '+p.created_at+'\\n\\n🎁 سوابق کمپین:';
-    message+='\\n'+(entries.length?entries.map(x=>'#'+x.campaign_id+' '+x.title+' | '+x.entry_status+' | '+x.code_count+' کد'+(x.codes?'\\n'+x.codes:'')).join('\\n'):'بدون سابقه');
-    message+='\\n\\n🧾 سفارش‌ها:';
-    message+='\\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\\n'):'بدون سفارش');
+    let message='👤 پروفایل شرکت‌کننده\nشناسه: '+p.id+'\nTelegram ID: '+p.telegram_user_id+'\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram_handle+'\nنام کاربری تلگرام: '+(p.telegram_username?'@'+p.telegram_username:'ندارد')+'\nوضعیت: '+status+'\nعضویت: '+p.created_at+'\n\n🎁 سوابق کمپین:';
+    message+='\n'+(entries.length?entries.map(x=>'#'+x.campaign_id+' '+x.title+' | '+x.entry_status+' | '+x.code_count+' کد'+(x.codes?'\n'+x.codes:'')).join('\n'):'بدون سابقه');
+    message+='\n\n🧾 سفارش‌ها:';
+    message+='\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\n'):'بدون سفارش');
     const action=p.status==='active'?'block':'unblock';
     return ctx.reply(message,Markup.inlineKeyboard([[Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)],[Markup.button.callback('↩️ فهرست شرکت‌کنندگان','admin:participants')]]));
   });
-  bot.action(/^admin:participant:(block|unblock):(\\d+)$/,async ctx=>{
+  bot.action(/^admin:participant:(block|unblock):(\d+)$/,async ctx=>{
     if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     const id=Number(ctx.match[2]),action=ctx.match[1],status=action==='block'?'blocked':'active';
     const c=await pool.getConnection();try{await c.beginTransaction();const [[p]]=await c.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE',[id]);if(!p){await c.rollback();return ctx.answerCbQuery('شرکت‌کننده پیدا نشد.',{show_alert:true});}if(p.status!==status){await c.execute('UPDATE participants SET status=? WHERE id=?',[status,id]);await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'participant.'+action,'participant',id,JSON.stringify({from:p.status,to:status})]);}await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}
@@ -79,9 +79,9 @@ export function registerAdminHandlers(bot){
     if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery('در حال آماده‌سازی خروجی...');
     const [rows]=await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants ORDER BY id DESC LIMIT 10000');
-    const csvCell=value=>{let v=String(value??'');if(/^[=+@\\-\\t\\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';};
+    const csvCell=value=>{let v=String(value??'');if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';};
     const columns=['id','telegram_user_id','telegram_username','full_name','phone','instagram_handle','status','created_at'];
-    const csv='\\uFEFF'+[columns.join(','),...rows.map(r=>columns.map(k=>csvCell(r[k])).join(','))].join('\\r\\n');
+    const csv='\uFEFF'+[columns.join(','),...rows.map(r=>columns.map(k=>csvCell(r[k])).join(','))].join('\r\n');
     return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'participants-export.csv'},{caption:`خروجی شرکت‌کنندگان: ${rows.length} رکورد (حداکثر ۱۰٬۰۰۰ رکورد)`});
   });
   bot.action('admin:payments',async ctx=>{
