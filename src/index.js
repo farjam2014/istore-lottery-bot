@@ -613,12 +613,16 @@ webhookQueue.start();
 notificationOutbox.start();
 const reservationExpiryTimer=setInterval(()=>campaignService.expireReservations().catch(e=>console.error('Reservation expiry worker error:',e.message)),60000);
 reservationExpiryTimer.unref?.();
+campaignService.syncCampaignSchedule().catch(e=>console.error('Campaign schedule sync error:',e.message));
+const campaignScheduleTimer=setInterval(()=>campaignService.syncCampaignSchedule().catch(e=>console.error('Campaign schedule worker error:',e.message)),30000);
+campaignScheduleTimer.unref?.();
 let shuttingDown=false;
 async function shutdown(signal){
 if(shuttingDown)return;
 shuttingDown=true;
 console.log(signal+" received; draining webhook queue (30s limit)");
 clearInterval(reservationExpiryTimer);
+clearInterval(campaignScheduleTimer);
 const serverClosed=new Promise(resolve=>server.close(resolve));
 const forceExit=setTimeout(()=>{
 console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
