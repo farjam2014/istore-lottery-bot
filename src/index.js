@@ -591,7 +591,7 @@ const [[openCampaigns]]=await db.query("SELECT COUNT(*) total FROM campaigns WHE
 r.json({total:participants.total,activeParticipants:participants.active,memberships:memberships.total,activeMemberships:memberships.active,pending:orders.pending,activeCodes:codes.total,orders:orders.total,approvedOrders:orders.approved,failedUpdates:failed.total,open:openCampaigns.total>0,openCampaigns:openCampaigns.total});
 });
 const {createNotificationOutbox}=require("./notification-outbox");
-const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(method,payload),logger:console});
+const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(method,payload),onSent:async item=>{if(item.notificationType==="payment_instructions"&&item.payload?.delivery_card){await bankCardService.recordDelivery({...item.payload.delivery_card,outboxId:item.id});}},logger:console});
 const {createWebhookQueue}=require("./webhook-queue");
 const webhookQueue=createWebhookQueue({
 db,
