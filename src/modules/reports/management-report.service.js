@@ -1,0 +1,21 @@
+import {pool} from '../../database/pool.js';
+
+export async function getManagementReport(){
+  const [[users]]=await pool.execute("SELECT COUNT(*) total, SUM(status='active') active, SUM(status='blocked') blocked FROM participants");
+  const [[campaigns]]=await pool.execute("SELECT COUNT(*) total, SUM(status='open') open_count, SUM(status='draft') draft_count, SUM(status='closed') closed_count FROM campaigns");
+  const [[entries]]=await pool.execute("SELECT COUNT(*) total, SUM(status='eligible') eligible, SUM(status='pending_payment') pending_payment, SUM(status='cancelled') cancelled FROM campaign_entries");
+  const [[payments]]=await pool.execute("SELECT COUNT(*) total, SUM(status='approved') approved_count, SUM(status IN ('awaiting_receipt','under_review','rejected')) pending_count, SUM(status='rejected') rejected_count, COALESCE(SUM(CASE WHEN status='approved' THEN amount ELSE 0 END),0) revenue, COALESCE(SUM(CASE WHEN status IN ('awaiting_receipt','under_review','rejected') THEN amount ELSE 0 END),0) pending_amount FROM payment_orders");
+  const [[receipts]]=await pool.execute("SELECT COUNT(*) total, SUM(status='submitted') submitted, SUM(status='approved') approved, SUM(status='rejected') rejected FROM payment_receipts");
+  const [topCampaigns]=await pool.execute("SELECT c.id,c.title,c.status,c.participation_type,c.entry_price,COUNT(DISTINCT e.id) entries,SUM(e.status='eligible') eligible,COUNT(DISTINCT CASE WHEN o.status='approved' THEN o.id END) paid_orders,COALESCE(SUM(CASE WHEN o.status='approved' THEN o.amount ELSE 0 END),0) revenue FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id LEFT JOIN payment_orders o ON o.campaign_entry_id=e.id GROUP BY c.id ORDER BY revenue DESC,entries DESC,c.id DESC LIMIT 10");
+  const [[recent]]=await pool.execute("SELECT COUNT(*) orders_30d,COALESCE(SUM(CASE WHEN status='approved' THEN amount ELSE 0 END),0) revenue_30d FROM payment_orders WHERE created_at>=UTC_TIMESTAMP()-INTERVAL 30 DAY");
+  const [[newUsers]]=await pool.execute("SELECT COUNT(*) new_users_30d FROM participants WHERE created_at>=UTC_TIMESTAMP()-INTERVAL 30 DAY");
+  return {users,campaigns,entries,payments,receipts,topCampaigns,recent,newUsers};
+}
+
+export function reportRows(report){
+  return report.topCampaigns.map(c=>({
+    campaign_id:c.id,title:c.title,status:c.status,type:c.participation_type,
+    entry_price:c.entry_price,entries:c.entries,eligible:c.eligible,
+    approved_orders:c.paid_orders,revenue_irr:c.revenue
+  }));
+}
