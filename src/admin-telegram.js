@@ -370,7 +370,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   }
   async function auditLog(chat) {
     const [rows]=await db.query('SELECT action,entity_type,entity_id,created_at,correlation_id FROM admin_audit_log ORDER BY id DESC LIMIT 15');
-    const body=rows.length?rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\n'+x.created_at).join('\n\n'):'هنوز رخدادی ثبت نشده است.';
+    const body=rows.length?rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\n'+x.created_at+'\nهمبستگی: '+(x.correlation_id||'—')).join('\n\n'):'هنوز رخدادی ثبت نشده است.';
     return adminMessage({chat_id:chat,text:'🧾 ۱۵ رخداد اخیر\n\n'+body,reply_markup:keyboard([[{text:'منوی اصلی',callback_data:'adm:home'}]])});
   }
   const cardWizardFields = [
