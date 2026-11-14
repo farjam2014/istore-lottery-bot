@@ -19,6 +19,7 @@ function harness() {
       if(sql.includes('SELECT COUNT(*) AS total FROM participants p WHERE'))return [[{total:1}]];
       if(sql.includes('FROM participants p WHERE')&&sql.includes('LIMIT 8 OFFSET'))return [[{id:31,full_name:'Test Customer',phone:'09123335555',instagram:'testuser',status:'active',campaign_count:1,active_codes:2}]];
       if(sql.includes('SELECT COUNT(*) AS total FROM telegram_notification_outbox'))return [[{total:1}]];
+      if(sql.includes('FROM telegram_notification_outbox')&&sql.includes('LIMIT ? OFFSET ?'))return [[{id:19,notification_type:'sample',status:'sent',attempts:1,last_error:null,created_at:'2026-11-14',sent_at:'2026-11-14',next_attempt_at:null}]];
       if(sql.includes('FROM telegram_notification_outbox WHERE id=? LIMIT 1'))return [[{id:19,dedupe_key:'sample-key',notification_type:'sample',status:'failed',attempts:5,last_error:'Telegram unavailable',created_at:'2026-11-14',sent_at:null,next_attempt_at:null,processing_started_at:null}]];
       if(sql.includes('SELECT COUNT(*) AS total FROM customer_support_messages'))return [[{total:25}]];
       if(sql.includes('FROM campaigns c')||sql.includes('FROM payment_orders o JOIN campaigns'))return [[]];
