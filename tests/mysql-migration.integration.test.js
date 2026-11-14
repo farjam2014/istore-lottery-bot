@@ -317,19 +317,20 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       await pool.execute("UPDATE telegram_notification_outbox SET delivery_recorded_at=UTC_TIMESTAMP() WHERE notification_type='payment_instructions' AND id<>?",[instruction.id]);
       const {createNotificationOutbox}=require('../src/notification-outbox');
       let telegramSends=0,deliveryHooks=0;
+      const outboxErrors=[];
       const notificationWorker=createNotificationOutbox({
-        db:pool,leaseMs:1000,heartbeatMs:1000,
+        db:pool,leaseMs:5000,heartbeatMs:1000,
         send:async()=>{telegramSends++;},
         onSent:async item=>{
           deliveryHooks++;
           if(deliveryHooks===1)throw new Error('simulated card-history write failure');
           await bankCardService.recordDelivery({...item.payload.delivery_card,outboxId:item.id});
         },
-        logger:{error(){}}
+        logger:{error(...args){outboxErrors.push(args.join(' '));}}
       });
       assert.equal(await notificationWorker.processOne(),false,'post-send history failure must remain recoverable');
       const [[sentButUnaudited]]=await pool.execute("SELECT status,delivery_recorded_at FROM telegram_notification_outbox WHERE id=?",[instruction.id]);
-      assert.equal(sentButUnaudited.status,'sent','Telegram success must not be downgraded to pending when card audit fails');
+      assert.equal(sentButUnaudited.status,'sent','Telegram success must not be downgraded to pending when card audit fails; worker errors: '+outboxErrors.join(' | '));
       assert.equal(sentButUnaudited.delivery_recorded_at,null);
       assert.equal(await notificationWorker.processOne(),true,'worker must retry the card audit independently');
       assert.equal(telegramSends,1,'recovery must not resend the payment instructions');
