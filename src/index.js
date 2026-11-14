@@ -8,6 +8,11 @@ async function main(){
  await pingDatabase();
  logger.info('Database connection established');
  const bot=createBot();
+ const webhookInfo=await bot.telegram.getWebhookInfo();
+ if(webhookInfo?.url){
+  logger.warn({webhookConfigured:true},'A stale webhook was found; removing it before long polling. Pending updates are preserved.');
+  await bot.telegram.deleteWebhook({drop_pending_updates:false});
+ }
  let expiryRunning=false,outboxRunning=false,campaignScheduleRunning=false;
  const expiryTimer=setInterval(async()=>{
   if(expiryRunning)return;expiryRunning=true;
