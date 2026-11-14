@@ -64,7 +64,8 @@ async function main() {
       ['contact-gate', require('./contact-gate')],
       ['customer-flow', require('./customer-flow')],
       ['support-threads', require('./support-threads')],
-      ['notification-delivery', require('./notification-delivery')]
+      ['notification-delivery', require('./notification-delivery')],
+      ['operational-observability', require('./operational-observability')]
     ];
     for (const [name, migration] of migrations) {
       const result = await migration.up(db);
