@@ -311,3 +311,15 @@ test('support replies use a unique Telegram message id so reopened tickets can r
   const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
   assert.match(source,/support-reply:\"\+ticketId\+\":\"\+String\(m\.message_id\)/);
 });
+
+
+test('campaign detail callbacks validate identity and answer Telegram callback before profile lookup', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  const start=source.indexOf("if(String(q.data||'').startsWith('campaign:details:'))");
+  const end=source.indexOf("if(q.data==='profile:edit:name'",start);
+  const handler=source.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.ok(handler.indexOf('if(!uid||!chat||')<handler.indexOf('requireActiveParticipant(uid,chat'));
+  assert.ok(handler.indexOf("answerCallbackQuery")<handler.indexOf('requireActiveParticipant(uid,chat'));
+});
