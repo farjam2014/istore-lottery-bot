@@ -118,12 +118,13 @@ export function registerAdminHandlers(bot){
       [Markup.button.callback('عنوان','admin:campaign:edit:'+id+':title'),Markup.button.callback('توضیحات','admin:campaign:edit:'+id+':description')],
       [Markup.button.callback('نام جایزه','admin:campaign:edit:'+id+':prize_title'),Markup.button.callback('توضیح جایزه','admin:campaign:edit:'+id+':prize_description')],
       [Markup.button.callback('قوانین','admin:campaign:edit:'+id+':terms')],
+      [Markup.button.callback('شروع','admin:campaign:edit:'+id+':starts_at'),Markup.button.callback('پایان','admin:campaign:edit:'+id+':ends_at'),Markup.button.callback('زمان قرعه‌کشی','admin:campaign:edit:'+id+':draw_at')],
       [Markup.button.callback('مبلغ شرکت','admin:campaign:edit:'+id+':entry_price'),Markup.button.callback('ظرفیت','admin:campaign:edit:'+id+':capacity')],
       [Markup.button.callback('تعداد کد هر نفر','admin:campaign:edit:'+id+':codes_per_entry)],
       [Markup.button.callback('بازگشت','admin:campaign:list')]
     ]));
   });
-  bot.action(/^admin:campaign:edit:(\d+):(title|description|prize_title|prize_description|terms|entry_price|capacity|codes_per_entry)$/,async ctx=>{
+  bot.action(/^admin:campaign:edit:(\d+):(title|description|prize_title|prize_description|terms|entry_price|capacity|codes_per_entry|starts_at|ends_at|draw_at)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]),field=ctx.match[2];const [[row]]=await pool.execute("SELECT status,participation_type FROM campaigns WHERE id=?",[id]);
     if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
@@ -277,7 +278,7 @@ export function registerAdminHandlers(bot){
     if(!wizard)return next();
     const value=ctx.message.text.trim();const p=wizard.payload;
     if(wizard.step==='campaign_edit_value'){
-      const fields={title:'title',description:'description',prize_title:'prize_title',prize_description:'prize_description',terms:'terms',entry_price:'entry_price',capacity:'capacity',codes_per_entry:'codes_per_entry'};
+      const fields={title:'title',description:'description',prize_title:'prize_title',prize_description:'prize_description',terms:'terms',entry_price:'entry_price',capacity:'capacity',codes_per_entry:'codes_per_entry',starts_at:'starts_at',ends_at:'ends_at',draw_at:'draw_at'};
       const column=fields[p.field];if(!column)return ctx.reply('درخواست ویرایش معتبر نیست.');
       let nextValue=value;
       if(['description','prize_title','prize_description','terms'].includes(column)&&value==='-')nextValue=null;
@@ -286,7 +287,8 @@ export function registerAdminHandlers(bot){
       if(column==='prize_title'&&value.length>180)return ctx.reply('نام جایزه حداکثر ۱۸۰ نویسه باشد.');
       if(column==='prize_description'&&value.length>2000)return ctx.reply('توضیح جایزه حداکثر ۲۰۰۰ نویسه باشد.');
       if(column==='terms'&&value.length>8000)return ctx.reply('قوانین حداکثر ۸۰۰۰ نویسه باشد.');
-      if(column==='entry_price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)return ctx.reply('مبلغ باید عدد صحیح مثبت و به ریال باشد.');nextValue=Number(value);}
+      if(['starts_at','ends_at','draw_at'].includes(column)){if(value==='-')nextValue=null;else{if(!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(value)||Number.isNaN(Date.parse(value.replace(' ','T')+':00Z')))return ctx.reply('زمان را به شکل YYYY-MM-DD HH:mm وارد کنید یا «-» بفرستید.');nextValue=value+':00';}}
+            if(column==='entry_price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)return ctx.reply('مبلغ باید عدد صحیح مثبت و به ریال باشد.');nextValue=Number(value);}
       if(column==='capacity'||column==='codes_per_entry'){if(!/^\d+$/.test(value))return ctx.reply('مقدار باید عدد صحیح نامنفی باشد.');nextValue=Number(value);if(column==='codes_per_entry'&&(nextValue<1||nextValue>100))return ctx.reply('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');if(column==='capacity'&&nextValue>10000000)return ctx.reply('ظرفیت بیش از حد مجاز است.');if(column==='capacity'&&nextValue===0)nextValue=null;}
       const db=await pool.getConnection();try{await db.beginTransaction();const [[locked]]=await db.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[p.campaignId]);if(!locked||locked.status!=='draft')throw new Error('وضعیت کمپین تغییر کرده و دیگر قابل ویرایش نیست.');const [[counts]]=await db.execute('SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=?',[p.campaignId]);if(Number(counts.total)>0)throw new Error('کمپین دارای سابقه شرکت‌کننده است و ویرایش مستقیم آن مجاز نیست.');await db.execute('UPDATE campaigns SET '+column+'=? WHERE id=?',[nextValue,p.campaignId]);await db.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.field_updated','campaign',p.campaignId,JSON.stringify({field:column})]);await db.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(ctx.from.id)]);await db.commit();}catch(error){await db.rollback();return ctx.reply(error.message||'ویرایش کمپین انجام نشد.');}finally{db.release();}
       return ctx.reply('مشخصات کمپین به‌روزرسانی شد.',Markup.inlineKeyboard([[Markup.button.callback('ویرایش فیلدهای دیگر','admin:campaign:edit-menu:'+p.campaignId)],[Markup.button.callback('فهرست کمپین‌ها','admin:campaign:list')]]));
