@@ -317,3 +317,25 @@ test('MySQL integration: transactional outbox notifications roll back and commit
 });
 
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
+
+
+test('MySQL integration: campaign scheduler transitions use database UTC time consistently',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {processCampaignSchedule}=await import('../../src/modules/campaigns/campaign-scheduler.js');
+  const suffix=String(Date.now());const ids=[];
+  try{
+    await migrate();
+    const [a]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,starts_at,ends_at) VALUES(?,?,'scheduled','free',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR))",['schedule-start-'+suffix,'Schedule start']);
+    ids.push(a.insertId);
+    const [b]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,ends_at) VALUES(?,?,'open','free',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE))",['schedule-end-'+suffix,'Schedule end']);
+    ids.push(b.insertId);
+    const processed=await processCampaignSchedule();
+    assert.ok(processed>=2);
+    const [rows]=await pool.execute('SELECT id,status FROM campaigns WHERE id IN (?,?)',ids);
+    assert.equal(rows.find(x=>Number(x.id)===Number(ids[0])).status,'open');
+    assert.equal(rows.find(x=>Number(x.id)===Number(ids[1])).status,'closed');
+  }finally{
+    if(ids.length){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (?,?)",ids);await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
+  }
+});
