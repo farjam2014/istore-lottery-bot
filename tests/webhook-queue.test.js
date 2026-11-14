@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { createWebhookQueue } = require("../src/webhook-queue");
 const { getCorrelationId } = require("../src/correlation-context");
 
-function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000, correlationId = null, rateLimit = async () => ({ limited: false, allowed: true }) } = {}) {
+function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000, correlationId = null, rateLimit = async () => ({ limited: false, allowed: true }), payload = { business_message: { text: "لاتاری" } } } = {}) {
   const calls = [];
   const logs = [];
   let connectionCount = 0;
@@ -15,7 +15,7 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
   const item = {
     update_id: "9001",
     correlation_id: correlationId,
-    payload: { business_message: { text: "لاتاری" } }
+    payload
   };
 
   function makeConnection(kind) {
@@ -124,6 +124,7 @@ test("rate-limited webhook is delayed without consuming attempts and rechecked u
  let checks=0,handled=0;
  const decisions=[{limited:true,retryAfterMs:3000},{limited:false,retryAfterMs:0}];
  const {queue,statements}=createHarness({
+  payload:{business_message:{from:{id:9002},text:"لاتاری"}},
   rateLimit:async()=>{checks++;return decisions.shift();},
   handler:async()=>{handled++;}
  });
