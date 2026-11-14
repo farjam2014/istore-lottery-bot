@@ -1,7 +1,7 @@
 "use strict";
 const crypto = require("node:crypto");
 const { runWithCorrelation } = require("./correlation-context");
-const { consumeTelegramRateLimit, identifyTelegramActor, rateLimitBucket } = require("./telegram-rate-limit");
+const { consumeTelegramRateLimit, identifyTelegramActor, rateLimitBucket, retryableTransactionError } = require("./telegram-rate-limit");
 
 function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000, rateLimit = consumeTelegramRateLimit, adminId = null }) {
   if (!db || !handlers) throw new Error("db and handlers are required");
@@ -59,6 +59,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
               connection: conn
             });
           } catch (rateError) {
+            if (retryableTransactionError(rateError)) throw rateError;
             await conn.execute(
               "UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",
               ["rate_limit_check_failed:" + String(rateError.message || "unknown").slice(0, 400), item.update_id]
