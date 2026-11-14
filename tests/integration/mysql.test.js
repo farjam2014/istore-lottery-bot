@@ -380,7 +380,13 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     assert.equal(Number(defaultCount.total),1);
     await setPaymentCardActive(idB,false,'1');
     current=await getDefaultPaymentCard();
-    assert.equal(Number(current.id),idA);
+    assert.ok(current,'Deactivating the default card must select another active card.');
+    assert.notEqual(Number(current.id),idB,'The deactivated card must not remain the default.');
+    const [[fallbackState]]=await pool.execute('SELECT is_active,is_default FROM payment_bank_cards WHERE id=?',[current.id]);
+    assert.equal(Number(fallbackState.is_active),1);
+    assert.equal(Number(fallbackState.is_default),1);
+    const [[fallbackCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_bank_cards WHERE is_active=1 AND is_default=1');
+    assert.equal(Number(fallbackCount.total),1);
     await setPaymentCardActive(idB,true,'1');
     await setDefaultPaymentCard(idB,'1');
     const edited=await updatePaymentCard(idB,{bankName:'Updated Integration Bank',cardNumber:cardB,cardHolder:'Updated Integration Holder',instructions:'updated'},'1');
