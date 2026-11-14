@@ -13,7 +13,7 @@ function fakeDb(rows=[],{heartbeatFailure=false}={}){
     if(sql.includes("UPDATE telegram_notification_outbox SET status='processing'")){const row=state.rows.find(x=>x.id===params[1]);if(row&&row.status==="pending"){row.status="processing";row.attempts++;row.token=params[0];}return [{affectedRows:row?1:0}];}
     throw new Error("Unexpected connection SQL: "+sql);
    },
-   async query(sql){if(sql.includes("SELECT id,payload FROM telegram_notification_outbox")){const row=state.rows.find(x=>x.status==="pending");return [row?[{id:row.id,payload:row.payload}]:[]];}throw new Error("Unexpected connection query: "+sql);}
+   async query(sql){if(sql.includes("SELECT id,payload FROM telegram_notification_outbox")){const row=state.rows.find(x=>x.status==="pending");return [row?[{id:row.id,payload:row.payload,notification_type:row.notification_type}]:[]];}throw new Error("Unexpected connection query: "+sql);}
   };},
   async execute(sql,params){
    if(sql.includes("SET processing_started_at=NOW()")){
@@ -54,4 +54,20 @@ test("outbox lease heartbeat prevents finalization after lease ownership is lost
  assert.equal(db.state.rows[0].status,"pending");
  assert.ok(logs.some(line=>line.includes("simulated outbox heartbeat failure")));
  assert.ok(logs.some(line=>line.includes("lease was lost")));
+});
+
+
+test("outbox invokes post-delivery hook with durable item identity",async()=>{
+ const db=fakeDb([{method:"sendMessage",payload:{chat_id:"1",text:"payment"}}]);
+ db.state.rows[0].notification_type="payment_instructions";
+ let recorded=null;
+ const worker=createNotificationOutbox({
+  db,send:async()=>{},
+  onSent:async item=>{recorded=item;},
+  logger:{error(){}}
+ });
+ assert.equal(await worker.processOne(),true);
+ assert.equal(recorded.id,1);
+ assert.equal(recorded.notificationType,"payment_instructions");
+ assert.equal(db.state.rows[0].status,"sent");
 });
