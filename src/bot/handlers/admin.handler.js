@@ -13,9 +13,10 @@ const campaignMenu=()=>Markup.inlineKeyboard([
   [Markup.button.callback('📋 فهرست کمپین‌ها','admin:campaign:list')],
   [Markup.button.callback('↩️ بازگشت به مدیریت','admin:home')]
 ]);
-const typeMenu=()=>Markup.inlineKeyboard([
-  [Markup.button.callback('🟢 رایگان','admin:campaign:type:free')],
-  [Markup.button.callback('💳 پولی','admin:campaign:type:paid')],
+const typeMenu=(selected=null)=>Markup.inlineKeyboard([
+  [Markup.button.callback((selected==='free'?'🔘 ':'🟢 ')+'رایگان','admin:campaign:type:free')],
+  [Markup.button.callback((selected==='paid'?'🔘 ':'💳 ')+'پولی','admin:campaign:type:paid')],
+  [Markup.button.callback('ادامه','admin:campaign:continue')],
   [Markup.button.callback('لغو','admin:campaign:cancel')]
 ]);
 async function getWizard(id){const [r]=await pool.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);if(!r[0])return null;return {step:r[0].step,payload:typeof r[0].payload==='string'?JSON.parse(r[0].payload):r[0].payload};}
@@ -27,11 +28,10 @@ export function registerAdminHandlers(bot){
   bot.command('admin',async ctx=>{if(!isAdmin(ctx))return ctx.reply('دسترسی غیرمجاز.');return ctx.reply('پنل مدیریت ربات',menu());});
   bot.action('admin:home',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return ctx.reply('پنل مدیریت ربات',menu());});
   bot.action('admin:campaigns',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return ctx.reply('مدیریت کمپین‌ها',campaignMenu());});
-  bot.action('admin:campaign:add',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await clearWizard(ctx.from.id);await ctx.answerCbQuery();return ctx.reply('نوع کمپین جدید را انتخاب کنید:',typeMenu());});
+  bot.action('admin:campaign:add',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{});await ctx.answerCbQuery();return ctx.reply('نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
   bot.action(/^admin:campaign:type:(free|paid)$/,async ctx=>{
     if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const type=ctx.match[1];await saveWizard(ctx.from.id,'title',{type});await ctx.answerCbQuery();
-    return ctx.reply(type==='free'?'کمپین رایگان انتخاب شد. عنوان کمپین را ارسال کنید.':'کمپین پولی انتخاب شد. عنوان کمپین را ارسال کنید.');
+    const current=await getWizard(ctx.from.id);if(!current||current.step!=='select_type')return ctx.answerCbQuery('ابتدا از افزودن کمپین شروع کنید.',{show_alert:true});const type=ctx.match[1];await saveWizard(ctx.from.id,'select_type',{type});await ctx.answerCbQuery(type==='free'?'رایگان انتخاب شد.':'پولی انتخاب شد.');return ctx.editMessageReplyMarkup(typeMenu(type).reply_markup);
   });
   bot.action('admin:campaign:cancel',async ctx=>{if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await clearWizard(ctx.from.id);await ctx.answerCbQuery('لغو شد.');return ctx.reply('ساخت کمپین لغو شد.',campaignMenu());});
   bot.action('admin:campaign:list',async ctx=>{
