@@ -301,4 +301,19 @@ test('MySQL integration: last active database super admin cannot be deactivated 
   }finally{await pool.execute('DELETE FROM admin_role_events WHERE target_telegram_id IN (?,?)',ids);await pool.execute('DELETE FROM admin_users WHERE telegram_user_id IN (?,?)',ids);}
 });
 
+
+test('MySQL integration: transactional outbox notifications roll back and commit with business changes',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {enqueueTelegramNotification}=await import('../../src/modules/notifications/outbox.service.js');
+  const chatId=String(780000000000n+(BigInt(Date.now())%100000000000n));
+  try{
+    await migrate();
+    const rollback=await pool.getConnection();try{await rollback.beginTransaction();await enqueueTelegramNotification({chatId,text:'must rollback',executor:rollback});await rollback.rollback();}finally{rollback.release();}
+    const [[afterRollback]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?",[chatId]);assert.equal(Number(afterRollback.total),0);
+    const commit=await pool.getConnection();try{await commit.beginTransaction();await enqueueTelegramNotification({chatId,text:'must commit',executor:commit});await commit.commit();}finally{commit.release();}
+    const [[afterCommit]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?",[chatId]);assert.equal(Number(afterCommit.total),1);
+  }finally{await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
