@@ -176,6 +176,12 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND INDEX_NAME='idx_support_messages_ticket'"
     );
     assert.equal(Number(restoredSupportIndex.total),1,'support migration must repair a partially applied index');
+    await verify.query('ALTER TABLE customer_support_messages DROP FOREIGN KEY fk_support_message_ticket');
+    await supportMigration.up(verify);
+    const [[restoredSupportForeignKey]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND COLUMN_NAME='ticket_id' AND REFERENCED_TABLE_NAME='customer_support_tickets'"
+    );
+    assert.equal(Number(restoredSupportForeignKey.total),1,'support migration must repair a missing ticket foreign key');
 
     // Simulate a partially applied customer-flow migration with duplicate Telegram IDs.
     await verify.query('ALTER TABLE customer_support_tickets DROP INDEX uq_support_telegram_message');
