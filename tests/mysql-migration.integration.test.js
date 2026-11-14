@@ -38,6 +38,21 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
   assert.equal(run.status, 0, run.stderr || run.stdout);
   assert.match(run.stdout, /MIGRATIONS_OK/);
 
+  const rerun = spawnSync(process.execPath, [path.join(__dirname, '..', 'migrations', 'run.js')], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DB_HOST: process.env.MYSQL_TEST_HOST,
+      DB_PORT: String(process.env.MYSQL_TEST_PORT || 3306),
+      DB_USER: process.env.MYSQL_TEST_USER,
+      DB_PASSWORD: process.env.MYSQL_TEST_PASSWORD,
+      DB_NAME: database
+    },
+    timeout: 60000
+  });
+  assert.equal(rerun.status, 0, rerun.stderr || rerun.stdout);
+  assert.match(rerun.stdout, /MIGRATIONS_OK/);
+
   const verify = await mysql.createConnection({
     host: process.env.MYSQL_TEST_HOST,
     port: Number(process.env.MYSQL_TEST_PORT || 3306),
