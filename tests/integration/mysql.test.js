@@ -354,3 +354,49 @@ test('MySQL integration: outbox marks expired sending leases uncertain without d
     assert.equal(row.status,'uncertain');assert.equal(row.lease_token,null);assert.equal(row.locked_at,null);
   }finally{if(id)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[id]);}
 });
+
+
+test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {listPaymentCards,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,getDefaultPaymentCard}=await import('../../src/modules/payments/bank-card.service.js');
+  const suffix=String(Date.now()).slice(-12).padStart(12,'0');
+  const cardA='4111'+suffix,cardB='5555'+suffix;
+  let idA,idB,previousDefault;
+  try{
+    await migrate();
+    const existing=await listPaymentCards();
+    previousDefault=existing.find(x=>Number(x.is_default)&&Number(x.is_active))?.id??null;
+    const a=await createPaymentCard({bankName:'Integration Bank A',cardNumber:cardA,cardHolder:'Integration Holder A',instructions:'A'},'1');idA=a.id;
+    const b=await createPaymentCard({bankName:'Integration Bank B',cardNumber:cardB,cardHolder:'Integration Holder B',instructions:'B'},'1');idB=b.id;
+    await assert.rejects(createPaymentCard({bankName:'Duplicate Bank',cardNumber:cardA,cardHolder:'Duplicate Holder'},'1'),/قبلاً ثبت شده/);
+    await setDefaultPaymentCard(idA,'1');
+    await setDefaultPaymentCard(idB,'1');
+    let current=await getDefaultPaymentCard();
+    assert.equal(Number(current.id),idB);
+    await setPaymentCardActive(idB,false,'1');
+    current=await getDefaultPaymentCard();
+    assert.equal(Number(current.id),idA);
+    await setPaymentCardActive(idB,true,'1');
+    await setDefaultPaymentCard(idB,'1');
+    const edited=await updatePaymentCard(idB,{bankName:'Updated Integration Bank',cardNumber:cardB,cardHolder:'Updated Integration Holder',instructions:'updated'},'1');
+    assert.equal(edited.bank_name,'Updated Integration Bank');
+    assert.equal(Number(edited.is_default),1);
+    await assert.rejects(setPaymentCardActive(idB,false,'1'),/ابتدا کارت دیگری اضافه/);
+  }finally{
+    if(idA)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idA]);
+    if(idB)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idB]);
+    if(previousDefault){
+      await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
+      await pool.execute('UPDATE payment_bank_cards SET is_active=1,is_default=1 WHERE id=?',[previousDefault]);
+    }else{
+      const [[remaining]]=await pool.execute('SELECT id FROM payment_bank_cards WHERE is_active=1 ORDER BY id LIMIT 1');
+      if(remaining){
+        await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
+        await pool.execute('UPDATE payment_bank_cards SET is_default=1 WHERE id=?',[remaining.id]);
+      }
+    }
+  }
+});
