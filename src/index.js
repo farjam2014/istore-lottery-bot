@@ -591,8 +591,12 @@ async function audit(adminId,action,type,id,details={}) {
 }
 app.get("/api/admin/audit",admin,async(q,r)=>{
   const limit=Math.min(100,Math.max(1,Number(q.query.limit)||20));
-  const [events]=await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,created_at FROM admin_audit_log ORDER BY id DESC LIMIT "+limit);
-  r.json({events});
+  const correlationId=String(q.query.correlation_id||"").trim();
+  if(correlationId&&!/^[0-9a-f-]{36}$/i.test(correlationId))return r.status(400).json({error:"شناسه همبستگی نامعتبر است."});
+  const [events]=correlationId
+    ? await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,correlation_id,created_at FROM admin_audit_log WHERE correlation_id=? ORDER BY id DESC LIMIT "+limit,[correlationId])
+    : await db.execute("SELECT id,admin_id,action,entity_type,entity_id,details,correlation_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT "+limit);
+  r.json({events,correlationId:correlationId||null});
 });
 app.get("/api/admin/export.csv",admin,async(q,r)=>{
   const [rows]=await db.execute(`SELECT p.full_name,p.phone,p.instagram,c.name AS campaign_name,cc.code,ce.status AS membership_status,cc.issued_at
