@@ -100,7 +100,7 @@ function createBankCardService({db,adminId}) {
     return rows[0]||null;
   }
   async function deliveries(orderId) {
-    const [rows]=await db.execute('SELECT card_label_snapshot,bank_name_snapshot,RIGHT(card_number_snapshot,4) last4,cardholder_name_snapshot,sent_at FROM payment_order_card_deliveries WHERE order_id=? ORDER BY id DESC',[orderId]);
+    const [rows]=await db.execute('SELECT id,order_id,outbox_id,card_id,card_label_snapshot,bank_name_snapshot,RIGHT(card_number_snapshot,4) last4,cardholder_name_snapshot,sent_at FROM payment_order_card_deliveries WHERE order_id=? ORDER BY id DESC',[orderId]);
     return rows;
   }
   return {addCard,listCards,getCard,updateCard,setCardStatus,deleteCard,assignCampaignCard,currentCampaignCard,recordDelivery,deliveries,campaignHistory,suggestCard};
