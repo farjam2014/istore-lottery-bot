@@ -359,7 +359,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       await operationalMigration.up(pool);
       await operationalMigration.up(pool);
       const [[deduplicated]] = await pool.execute(
-        "SELECT COUNT(*) AS linked,SUM(outbox_id IS NULL) AS unlinked FROM payment_order_card_deliveries WHERE order_id=?",
+        "SELECT SUM(outbox_id IS NOT NULL) AS linked,SUM(outbox_id IS NULL) AS unlinked FROM payment_order_card_deliveries WHERE order_id=?",
         [orderId]
       );
       assert.equal(Number(deduplicated.linked),1,'migration must retain exactly one canonical outbox link');
