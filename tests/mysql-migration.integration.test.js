@@ -227,6 +227,9 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     try {
       const { createCampaignService } = require('../src/campaign-service');
       const { createBankCardService } = require('../src/bank-card-service');
+      const { bindPool, runWithCorrelation } = require('../src/correlation-context');
+      bindPool(pool);
+      const correlationId='123e4567-e89b-42d3-a456-426614174099';
       const campaignService = createCampaignService({ db: pool, adminId: 'integration-test' });
       const bankCardService = createBankCardService({ db: pool, adminId: 'integration-test' });
       const [cardResult] = await pool.execute(
@@ -263,15 +266,16 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
         "INSERT INTO campaigns(slug,name,status,payment_mode,current_payment_card_id,price_per_code,currency,max_participants,max_codes,max_codes_per_participant,created_by) VALUES('race-payment','Race payment','open','manual',?,1000,'IRR',10,10,3,'integration-test')",
         [cardId]
       );
-      const sameOrderRace = await Promise.all([
+      const sameOrderRace = await runWithCorrelation(correlationId,()=>Promise.all([
         campaignService.reserveManualOrder({campaignId:paymentCampaign.insertId,participantId:participantIds[2],quantity:2}),
         campaignService.reserveManualOrder({campaignId:paymentCampaign.insertId,participantId:participantIds[2],quantity:2})
-      ]);
+      ]));
       assert.equal(sameOrderRace[0].id,sameOrderRace[1].id,'simultaneous repeated order requests must resolve to one order');
       assert.equal(sameOrderRace.filter(x=>x.duplicate).length,1);
       const orderId = sameOrderRace[0].id;
-      const [[orderCount]] = await pool.execute("SELECT COUNT(*) AS total FROM payment_orders WHERE id=?",[orderId]);
+      const [[orderCount]] = await pool.execute("SELECT COUNT(*) AS total,MAX(correlation_id) AS correlation_id FROM payment_orders WHERE id=?",[orderId]);
       assert.equal(Number(orderCount.total),1);
+      assert.equal(orderCount.correlation_id,correlationId,'payment order must retain the originating webhook correlation ID');
 
       const receiptRace = await Promise.all([
         campaignService.submitReceipt({orderId,fileId:'integration-file-a',fileUniqueId:'integration-file-unique'}),
@@ -301,21 +305,24 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
         ['payment-instructions:'+orderId]
       );
       assert.ok(instruction,'payment instructions must be committed to the outbox with the order');
-      await bankCardService.recordDelivery({
-        orderId,
-        outboxId:instruction.id,
-        card:{id:cardId,label:'Integration card',bank_name:'Test Bank',card_number:'6037990000000000',cardholder_name:'USTORE Test'}
-      });
-      await bankCardService.recordDelivery({
-        orderId,
-        outboxId:instruction.id,
-        card:{id:cardId,label:'Integration card',bank_name:'Test Bank',card_number:'6037990000000000',cardholder_name:'USTORE Test'}
-      });
+      await runWithCorrelation(correlationId,()=>Promise.all([
+        bankCardService.recordDelivery({
+          orderId,
+          outboxId:instruction.id,
+          card:{id:cardId,label:'Integration card',bank_name:'Test Bank',card_number:'6037990000000000',cardholder_name:'USTORE Test'}
+        }),
+        bankCardService.recordDelivery({
+          orderId,
+          outboxId:instruction.id,
+          card:{id:cardId,label:'Integration card',bank_name:'Test Bank',card_number:'6037990000000000',cardholder_name:'USTORE Test'}
+        })
+      ]));
       const [[deliveryCount]] = await pool.execute(
-        "SELECT COUNT(*) AS total FROM payment_order_card_deliveries WHERE order_id=? AND outbox_id=?",
+        "SELECT COUNT(*) AS total,MAX(correlation_id) AS correlation_id FROM payment_order_card_deliveries WHERE order_id=? AND outbox_id=?",
         [orderId,instruction.id]
       );
       assert.equal(Number(deliveryCount.total),1,'the same outbox delivery must not create duplicate card-history rows');
+      assert.equal(deliveryCount.correlation_id,correlationId,'card delivery history must retain the same correlation ID');
 
       // Simulate a partially applied delivery migration and pre-existing duplicate links.
       await pool.query('ALTER TABLE payment_order_card_deliveries DROP INDEX uq_card_delivery_outbox');
