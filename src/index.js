@@ -413,19 +413,18 @@ if(currentSession?.step==="support_message"){
 if(t.length<5||t.length>2000)return reply(chat,conn,"پیام باید بین ۵ تا ۲۰۰۰ نویسه باشد.");
 const messageId=Number(m.message_id);
 if(!Number.isSafeInteger(messageId)||messageId<=0)return reply(chat,conn,"شناسه پیام تلگرام معتبر نیست؛ لطفاً پیام را دوباره ارسال کنید.");
-const ticketConn=await db.getConnection();
-let ticketId;
+const ticketConn=await db.getConnection();let ticketId;
 try{
-  await ticketConn.beginTransaction();
-  const [ticket]=await ticketConn.execute("INSERT INTO customer_support_tickets(telegram_user_id,chat_id,business_connection_id,message,telegram_message_id,status) VALUES(?,?,?,?,?,'open') ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)",[uid,chat,conn||null,t,messageId]);
-  ticketId=Number(ticket.insertId);
-  await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-ticket:"+ticketId,"customer_support_ticket",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پیام پشتیبانی #"+ticketId+" از "+uid+": "+t+"\nپاسخ: /reply "+ticketId+" متن پاسخ"}})]);
-  await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-ticket-customer:"+ticketId,"support_ticket_acknowledgement",JSON.stringify({method:"sendMessage",payload:{chat_id:chat,...(conn?{business_connection_id:conn}:{}),text:"پیام شما ثبت شد. شماره پیگیری: #"+ticketId}})]);
-  await ticketConn.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[uid]);
-  await ticketConn.commit();
-}catch(error){await ticketConn.rollback();throw error;}
-finally{ticketConn.release();}
-return; // Customer acknowledgement is delivered through the durable, deduplicated outbox.
+ await ticketConn.beginTransaction();
+ const [[existing]]=await ticketConn.execute("SELECT id,status FROM customer_support_tickets WHERE telegram_user_id=? AND status IN ('open','answered') ORDER BY id DESC LIMIT 1 FOR UPDATE",[uid]);
+ if(existing){ticketId=Number(existing.id);await ticketConn.execute("UPDATE customer_support_tickets SET status='open',chat_id=?,business_connection_id=? WHERE id=?",[chat,conn||null,ticketId]);}
+ else{const [ticket]=await ticketConn.execute("INSERT INTO customer_support_tickets(telegram_user_id,chat_id,business_connection_id,message,telegram_message_id,status) VALUES(?,?,?,?,?,'open')",[uid,chat,conn||null,t,messageId]);ticketId=Number(ticket.insertId);}
+ await ticketConn.execute("INSERT IGNORE INTO customer_support_messages(ticket_id,sender_type,sender_id,message,telegram_message_id) VALUES(?,'customer',?,?,?)",[ticketId,uid,t,messageId]);
+ await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-message:"+ticketId+":customer:"+messageId,"customer_support_message",JSON.stringify({method:"sendMessage",payload:{chat_id:String(process.env.ADMIN_ID),text:"پیام جدید در تیکت #"+ticketId+" از کاربر "+uid+":\\n"+t+"\\n\\nپاسخ: /reply "+ticketId+" متن پاسخ"}})]);
+ await ticketConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-ticket-customer:"+ticketId+":"+messageId,"support_ticket_acknowledgement",JSON.stringify({method:"sendMessage",payload:{chat_id:chat,...(conn?{business_connection_id:conn}:{}),text:"پیام شما در گفت‌وگوی پشتیبانی ثبت شد. شماره پیگیری: #"+ticketId}})]);
+ await ticketConn.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[uid]);await ticketConn.commit();
+}catch(error){await ticketConn.rollback();throw error;}finally{ticketConn.release();}
+return;
 }
 const profileChangeMatch=t.match(/^اصلاح\s+(نام|موبایل|اینستاگرام)\s*[:：]\s*(.+)$/);
 if(profileChangeMatch){
@@ -440,22 +439,22 @@ if(profileChangeMatch){
 
 if(lower==="/reply"||lower.startsWith("/reply ")){
 if(uid!==String(process.env.ADMIN_ID||""))return;
-const match=t.match(/^\/reply\s+(\d+)\s+([\s\S]{2,2000})$/i);
+const match=t.match(/^\\/reply\\s+(\\d+)\\s+([\\s\\S]{2,2000})$/i);
 if(!match)return reply(chat,conn,"فرمت پاسخ: /reply شماره_تیکت متن پاسخ");
-const ticketId=Number(match[1]),answer=match[2].trim();
+const ticketId=Number(match[1]),answer=match[2].trim(),messageId=Number(m.message_id);
+if(!Number.isSafeInteger(messageId)||messageId<=0)return reply(chat,conn,"شناسه پیام مدیر معتبر نیست؛ پاسخ را دوباره ارسال کنید.");
 const replyConn=await db.getConnection();
-let queued=false;
 try{
-  await replyConn.beginTransaction();
-  const [[ticket]]=await replyConn.execute("SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=? FOR UPDATE",[ticketId]);
-  if(!ticket){await replyConn.rollback();return reply(chat,conn,"تیکت پیدا نشد.");}
-  if(ticket.status!=="open"){await replyConn.rollback();return reply(chat,conn,"این تیکت قبلاً پاسخ داده شده است.");}
-  await replyConn.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=? AND status='open'",[answer,String(uid),ticketId]);
-  await replyConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-reply:"+ticketId+":"+String(m.message_id),"support_ticket_reply",JSON.stringify({method:"sendMessage",payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:"💬 پاسخ پشتیبانی USTORE\n\n"+answer}})]);
-  await replyConn.commit();queued=true;
-}catch(error){await replyConn.rollback();throw error;}
-finally{replyConn.release();}
-return reply(chat,conn,queued?"پاسخ تیکت #"+ticketId+" در صف ارسال مطمئن قرار گرفت.":"پاسخ ثبت نشد.");
+ await replyConn.beginTransaction();
+ const [[ticket]]=await replyConn.execute("SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=? FOR UPDATE",[ticketId]);
+ if(!ticket){await replyConn.rollback();return reply(chat,conn,"تیکت پیدا نشد.");}
+ if(ticket.status==="closed"){await replyConn.rollback();return reply(chat,conn,"این تیکت بسته است؛ ابتدا آن را از پنل بازگشایی کنید.");}
+ await replyConn.execute("INSERT IGNORE INTO customer_support_messages(ticket_id,sender_type,sender_id,message,telegram_message_id) VALUES(?,'admin',?,?,?)",[ticketId,uid,answer,messageId]);
+ await replyConn.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=?",[answer,String(uid),ticketId]);
+ await replyConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-reply:"+ticketId+":"+messageId,"support_ticket_reply",JSON.stringify({method:"sendMessage",payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:"💬 پاسخ پشتیبانی USTORE\\n\\n"+answer}})]);
+ await replyConn.commit();
+}catch(error){await replyConn.rollback();throw error;}finally{replyConn.release();}
+return reply(chat,conn,"پاسخ تیکت #"+ticketId+" ثبت شد و در صف ارسال قرار گرفت.");
 }
 }
 
