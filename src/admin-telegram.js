@@ -18,6 +18,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
     [{ text: '💬 تیکت‌های پشتیبانی', callback_data: 'adm:support' }],
     [{ text: '📨 مدیریت صف اعلان‌ها', callback_data: 'adm:outbox' }],
+    [{ text: '🛠 بازیابی وب‌هوک‌ها', callback_data: 'adm:webhooks' }],
     [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
@@ -244,6 +245,43 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!rows.length)return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'داشبورد',callback_data:'adm:stats'}]])});
     const body=rows.map(x=>{const n=Number(x.total_entries||0),a=Number(x.completed_entries||0);return '#'+x.id+' '+x.name+' · '+x.status+'\nعضویت فعال: '+a+'/'+n+' ('+(n?Math.round(a*100/n):0)+'٪) · معلق: '+Number(x.pending_entries||0)+'\nکد فعال: '+Number(x.active_codes||0)+' · سفارش تأییدشده: '+Number(x.approved_orders||0);}).join('\n\n');
     return adminMessage({chat_id:chat,text:'📈 گزارش کمپین‌ها\n\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'داشبورد',callback_data:'adm:stats'}]])});
+  }
+  async function webhookList(chat) {
+    const [rows]=await db.execute("SELECT update_id,status,attempts,last_error,received_at,correlation_id FROM webhook_inbox WHERE status='failed' ORDER BY received_at DESC LIMIT 15");
+    const buttons=rows.map(x=>[{text:'#'+x.update_id+' · تلاش '+x.attempts,callback_data:'adm:webhook-item:'+x.update_id}]);
+    buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:webhooks'},{text:'🏠 منو',callback_data:'adm:home'}]);
+    const body=rows.length?rows.map(x=>'#'+x.update_id+' · '+x.received_at+'\n'+String(x.last_error||'بدون جزئیات خطا').slice(0,180)).join('\n\n'):'وب‌هوک ناموفقی برای بازیابی وجود ندارد.';
+    return adminMessage({chat_id:chat,text:'🛠 بازیابی وب‌هوک‌ها\n\n'+body,reply_markup:keyboard(buttons)});
+  }
+  async function webhookDetail(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
+    const [[item]]=await db.execute('SELECT update_id,status,attempts,last_error,received_at,processed_at,correlation_id FROM webhook_inbox WHERE update_id=? LIMIT 1',[id]);
+    if(!item)return adminMessage({chat_id:chat,text:'وب‌هوک پیدا نشد.'});
+    const buttons=[];
+    if(item.status==='failed')buttons.push([{text:'🔁 بازیابی و پردازش مجدد',callback_data:'adm:webhook-retry:'+id}]);
+    buttons.push([{text:'↩️ فهرست خطاها',callback_data:'adm:webhooks'},{text:'🏠 منو',callback_data:'adm:home'}]);
+    return adminMessage({chat_id:chat,text:'🛠 جزئیات وب‌هوک #'+item.update_id+'\nوضعیت: '+item.status+'\nتلاش: '+item.attempts+'\nدریافت: '+item.received_at+'\nپردازش: '+(item.processed_at||'—')+'\nهمبستگی: '+(item.correlation_id||'—')+'\nخطا: '+(item.last_error||'—'),reply_markup:keyboard(buttons)});
+  }
+  async function retryWebhook(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
+    const conn=await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[item]]=await conn.execute('SELECT update_id,status,attempts,correlation_id FROM webhook_inbox WHERE update_id=? FOR UPDATE',[id]);
+      if(!item)throw new Error('وب‌هوک پیدا نشد.');
+      const [[processed]]=await conn.execute('SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1',[id]);
+      if(processed) {
+        await conn.execute("UPDATE webhook_inbox SET status='done',processed_at=COALESCE(processed_at,UTC_TIMESTAMP()),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=?",[id]);
+        await conn.commit();
+        return adminMessage({chat_id:chat,text:'این به‌روزرسانی قبلاً پردازش شده بود؛ وضعیت آن با دفتر ثبت پردازش هماهنگ شد.'});
+      }
+      if(item.status!=='failed')throw new Error('فقط وب‌هوک ناموفق قابل بازیابی است.');
+      await conn.execute("UPDATE webhook_inbox SET status='pending',attempts=0,received_at=UTC_TIMESTAMP(3),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='failed'",[id]);
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'retry_webhook','webhook_update',String(id),JSON.stringify({previous_attempts:item.attempts,correlation_id:item.correlation_id||null,source:'telegram'})]);
+      await conn.commit();
+      return adminMessage({chat_id:chat,text:'وب‌هوک #'+id+' دوباره در صف پردازش قرار گرفت. نتیجه را از همین بخش بررسی کن.',reply_markup:keyboard([[{text:'وب‌هوک‌های ناموفق',callback_data:'adm:webhooks'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
+    }catch(error){await conn.rollback();return adminMessage({chat_id:chat,text:'بازیابی انجام نشد: '+error.message});}
+    finally{conn.release();}
   }
   async function outboxList(chat,status='failed',page=0) {
     const allowed=['pending','processing','sent','failed','all'];
@@ -657,6 +695,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی مستقیم می‌توانی از دستورهای زیر هم استفاده کنی:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
     if (data.startsWith('adm:export:')) return exportPeriodMenu(chat,data.slice('adm:export:'.length));
+    if (data==='adm:webhooks') return webhookList(chat);
+    if (data.startsWith('adm:webhook-item:')) return webhookDetail(chat,data.slice('adm:webhook-item:'.length));
+    if (data.startsWith('adm:webhook-retry:')) return retryWebhook(chat,data.slice('adm:webhook-retry:'.length));
     if (data==='adm:outbox') return outboxList(chat);
     if (data.startsWith('adm:outbox-page:')) { const [, , status='failed', page='0']=data.split(':'); return outboxList(chat,status,page); }
     if (data.startsWith('adm:outbox-item:')) return outboxDetail(chat,data.slice('adm:outbox-item:'.length));
