@@ -10,7 +10,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   const isAdmin = (q) => String(q?.from?.id || '') === String(adminId) && q?.message?.chat?.type === 'private';
   const menu = [
     [{ text: '📊 داشبورد', callback_data: 'adm:stats' }, { text: '👥 شرکت‌کنندگان', callback_data: 'adm:entries:0' }],
-    [{ text: '🎟 کدها و خروجی', callback_data: 'adm:export' }, { text: '⚙️ کمپین قدیمی', callback_data: 'adm:campaign' }],
+    [{ text: '🎟 کدها و خروجی', callback_data: 'adm:export' }],
     [{ text: '🧩 مدیریت کمپین‌ها', callback_data: 'adm:campaigns' }],
     [{ text: '💳 مدیریت کارت‌های بانکی', callback_data: 'adm:cards' }],
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
@@ -282,7 +282,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       (SELECT COUNT(*) FROM campaign_entries e WHERE e.campaign_id=c.id AND e.status='active') participants,
       (SELECT COUNT(*) FROM campaign_codes k WHERE k.campaign_id=c.id AND k.status='active') codes
       FROM campaigns c ${where} ORDER BY c.id DESC LIMIT 10 OFFSET ?`,[...params,p*10]);
-    const buttons=rows.map(x=>[{text:'#'+x.id+' '+String(x.name).slice(0,22)+' · '+x.status,callback_data:'adm:campaign-detail:'+x.id}]);
+    const buttons=rows.flatMap(x=>{
+      const detail={text:'#'+x.id+' '+String(x.name).slice(0,22)+' · '+x.status,callback_data:'adm:campaign-detail:'+x.id};
+      const toggle=x.status==='open'?{text:'🔴 خاموش',callback_data:'adm:campaign-confirm:'+x.id+':paused}
+        :(['paused','draft','scheduled'].includes(x.status)?{text:'🟢 روشن',callback_data:'adm:campaign-confirm:'+x.id+':open}:null);
+      return toggle?[[detail],[toggle]]:[[detail]];
+    });
     const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:campaigns:'+status+':'+(p-1)});if(rows.length===10)nav.push({text:'بعدی ➡️',callback_data:'adm:campaigns:'+status+':'+(p+1)});if(nav.length)buttons.push(nav);
     buttons.push([{text:'فیلتر: '+status,callback_data:'adm:campaign-filter'}],[{text:'➕ ساخت کمپین',callback_data:'adm:campaign-create'}],[{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
     const body=rows.length?rows.map(x=>'#'+x.id+' '+x.name+' | '+x.slug+'\nوضعیت: '+x.status+' | افراد: '+x.participants+' | کدها: '+x.codes+' | '+x.payment_mode).join('\n\n'):'کمپینی با این فیلتر پیدا نشد.';
@@ -301,7 +306,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!c)return adminMessage({chat_id:chat,text:'کمپین پیدا نشد.'});
     const [[n]]=await db.execute("SELECT (SELECT COUNT(*) FROM campaign_entries WHERE campaign_id=? AND status='active') participants,(SELECT COUNT(*) FROM campaign_codes WHERE campaign_id=? AND status='active') codes,(SELECT COUNT(*) FROM payment_orders WHERE campaign_id=? AND status IN ('pending_payment','receipt_submitted')) pending_orders",[id,id,id]);
     const next={draft:['open'],scheduled:['open','closed'],open:['paused','closed'],paused:['open','closed'],closed:[],drawn:['archived'],archived:[]};
-    const buttons=(next[c.status]||[]).map(s=>[{text:({open:'🟢 بازکردن',paused:'⏸ توقف',closed:'🔒 بستن',archived:'📦 آرشیو'}[s]),callback_data:'adm:campaign-confirm:'+id+':'+s}]);
+    const buttons=(next[c.status]||[]).map(s=>[{text:({open:'🟢 روشن‌کردن کمپین',paused:'🔴 خاموش‌کردن کمپین',closed:'🔒 بستن نهایی',archived:'📦 آرشیو'}[s]),callback_data:'adm:campaign-confirm:'+id+':'+s}]);
     if(c.status==='draft') buttons.push([{text:'✏️ ویرایش پیش‌نویس',callback_data:'adm:campaign-edit:'+id}]);
     if(c.payment_mode==='manual') buttons.push([{text:'💳 تغییر کارت مقصد',callback_data:'adm:campaign-card:'+id}]);
     if(c.payment_mode==='manual') buttons.push([{text:'🕘 تاریخچه تغییر کارت',callback_data:'adm:campaign-card-history:'+id}]);
