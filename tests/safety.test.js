@@ -246,3 +246,12 @@ test('support replies are committed to the notification outbox before Telegram d
   assert.doesNotMatch(handler, /await reply\(String\(ticket\.chat_id\)/);
   assert.match(handler, /await replyConn\.commit\(\)/);
 });
+
+
+test('profile correction requests use Telegram message id as a durable idempotency key', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const service = fs.readFileSync(require.resolve('../src/campaign-service.js'), 'utf8');
+  assert.match(source, /telegramMessageId:m\.message_id/);
+  assert.match(service, /telegram_message_id,status\) VALUES\(\?,\?,\?,\?,\?,'pending'\) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID\(id\)/);
+});
