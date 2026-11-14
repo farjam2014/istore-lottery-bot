@@ -7,11 +7,36 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: istore_lottery_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      NODE_ENV: test
+      BOT_TOKEN: 12345678901234567890:test_token_for_ci_only
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: istore_lottery_ci
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_POOL_SIZE: 5
+      BOT_ADMIN_IDS: 237573106
+      RUN_MYSQL_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - run: npm install
       - run: npm test
       - run: node --check src/index.js

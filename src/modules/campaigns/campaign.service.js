@@ -1,1 +1,1 @@
-export {listOpenCampaigns,listParticipantCodes} from './campaign.repository.js';
+export {listOpenCampaigns,getCampaignById,listParticipantCodes} from './campaign.repository.js';
