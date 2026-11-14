@@ -24,7 +24,7 @@ npm start
 - Live payment-gateway integration remains deferred; bank-transfer receipt review is manual.
 - Administration is inside Telegram. There is no web-panel password.
 
-See `docs/COMPLETION_SCOPE.md` for product invariants and acceptance requirements.
+## Reliability controls\n\n- Polling startup detects and removes a stale Telegram webhook without discarding pending updates.\n- Telegram update IDs are claimed idempotently; database-backed per-user rate limits are applied to text, callback and other updates.\n- Correlation IDs are carried through async logs, processed-update rows, payment events, audit records and queued notifications.\n- Notification delivery uses a leased outbox with bounded automatic retries. Failed and uncertain deliveries can be retried manually from the super-admin health screen; uncertain retries explicitly warn that duplicates are possible.\n- Bank-card details are snapshotted per order, and successful presentation to a participant is recorded in the payment event history using only the card's last four digits.\n\nSee `docs/COMPLETION_SCOPE.md` for product invariants and acceptance requirements.
 
 ## Tests
 
