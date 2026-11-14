@@ -36,8 +36,8 @@ export async function createPaymentCard(input,adminId){
 export async function updatePaymentCard(id,input,adminId){
   const v=normalizeInput(input);
   try{
-    const [r]=await pool.execute('UPDATE payment_bank_cards SET bank_name=?,card_number=?,card_holder=?,instructions=?,updated_by=? WHERE id=?',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,String(adminId),id]);
-    if(!r.affectedRows)throw new Error('کارت موردنظر پیدا نشد.');
+    await pool.execute('UPDATE payment_bank_cards SET bank_name=?,card_number=?,card_holder=?,instructions=?,updated_by=? WHERE id=?',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,String(adminId),id]);
+    if(!await getPaymentCard(id))throw new Error('کارت موردنظر پیدا نشد.');
   }catch(e){if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت برای کارت دیگری ثبت شده است.');throw e;}
   return getPaymentCard(id);
 }
