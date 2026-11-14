@@ -53,10 +53,10 @@ async function respond(ctx,...args){
       if(message.caption!==undefined)return await ctx.editMessageCaption(...args);
     }catch(error){
       if(/message is not modified/i.test(String(error?.message||'')))return;
-      return respond(ctx,...args);
+      return ctx.reply(...args);
     }
   }
-  return respond(ctx,...args);
+  return ctx.reply(...args);
 }
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const deny=ctx=>ctx.answerCbQuery('برای این عملیات مجوز ندارید.',{show_alert:true});
