@@ -151,7 +151,6 @@ test('MySQL integration: admin roles can be assigned changed and deactivated wit
     assert.equal(after.role,'finance_manager');assert.equal(Number(after.is_active),0);
   }finally{
     await pool.execute('DELETE FROM admin_users WHERE telegram_user_id=?',[id]);
-    await pool.end();
   }
 });
 
