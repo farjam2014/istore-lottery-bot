@@ -120,7 +120,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const [draws]=await db.execute('SELECT id,draw_number,status,method,snapshot_hash FROM campaign_draws WHERE campaign_id=? ORDER BY draw_number DESC LIMIT 5',[campaignId]);
     const buttons=[];
     if(campaign.status==='closed')buttons.push([{text:'📸 آماده‌سازی snapshot قرعه‌کشی',callback_data:'adm:draw-prepare:'+campaignId}]);
-    for(const d of draws){buttons.push([{text:'قرعه‌کشی #'+d.draw_number+' · '+d.status,callback_data:'adm:draw-view:'+d.id}]);if(d.status==='prepared'&&['system','hybrid'].includes(d.method))buttons.push([{text:'▶️ ادامه اجرای قرعه‌کشی #'+d.draw_number,callback_data:'adm:draw-run:'+d.id}]);}
+    for(const d of draws){buttons.push([{text:'قرعه‌کشی #'+d.draw_number+' · '+d.status,callback_data:'adm:draw-view:'+d.id}]);if(d.status==='prepared'&&['system','hybrid'].includes(d.method))buttons.push([{text:'▶️ ادامه اجرای قرعه‌کشی #'+d.draw_number,callback_data:'adm:draw-run:'+d.id}]);if(d.status==='prepared'&&['live_wheel','hybrid'].includes(d.method))buttons.push([{text:'🎡 ثبت نتیجه گردونه زنده #'+d.draw_number,callback_data:'adm:draw-live:'+d.id+':0'}]);}
     buttons.push([{text:'↩️ فهرست کمپین‌ها',callback_data:'adm:draws'}]);
     return adminMessage({chat_id:chat,text:'🏆 '+campaign.name+'\nوضعیت: '+campaign.status+'\nروش: '+campaign.draw_method+'\n\nبرای قرعه‌کشی، ابتدا snapshot واجدان شرایط ثبت می‌شود.',reply_markup:keyboard(buttons)});
   }
@@ -143,6 +143,26 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       const result=await drawService.runSystemDraw(Number(drawId));
       return adminMessage({chat_id:chat,text:'🎲 اجرای قرعه‌کشی بازیابی و نتیجه اولیه ثبت شد.\nقرعه‌کشی: #'+draw.draw_number+'\nSnapshot SHA-256: '+draw.snapshot_hash+'\n\nنتیجه هنوز نهایی نیست و باید تأیید شود.',reply_markup:keyboard([[{text:'✅ تأیید نتیجه',callback_data:'adm:draw-approve:'+drawId}],[{text:'مشاهده جزئیات',callback_data:'adm:draw-view:'+drawId}],[{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+draw.campaign_id}]])});
     } catch(e) { return adminMessage({chat_id:chat,text:'بازیابی اجرای قرعه‌کشی انجام نشد: '+e.message}); }
+  }
+  async function liveWheelCandidatePage(chat,drawId,page=0) {
+    if(!/^\\d+$/.test(String(drawId)))return adminMessage({chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
+    const p=Math.max(0,Math.min(10000,Number(page)||0));
+    const [[draw]]=await db.execute("SELECT id,campaign_id,draw_number,status,method,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[drawId]);
+    if(!draw||draw.status!=='prepared'||!['live_wheel','hybrid'].includes(draw.method))return adminMessage({chat_id:chat,text:'این قرعه‌کشی برای ثبت نتیجه گردونه آماده نیست.'});
+    const [[total]]=await db.execute("SELECT COUNT(*) AS total FROM draw_candidates WHERE draw_id=? AND eligibility='eligible'",[drawId]);
+    const [rows]=await db.execute("SELECT candidate_reference FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference LIMIT 30 OFFSET ?",[drawId,p*30]);
+    const body=rows.map(x=>x.candidate_reference).join('\\n');
+    const buttons=[];
+    const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:draw-live:'+drawId+':'+(p-1)});if((p+1)*30<Number(total.total))nav.push({text:'بعدی ➡️',callback_data:'adm:draw-live:'+drawId+':'+(p+1)});if(nav.length)buttons.push(nav);
+    buttons.push([{text:'📝 شروع ثبت نتیجه',callback_data:'adm:draw-live-start:'+drawId}]);
+    buttons.push([{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+draw.campaign_id}]);
+    return adminMessage({chat_id:chat,text:'🎡 فهرست شناسه‌های واجدان قرعه‌کشی #'+draw.draw_number+'\\nصفحه '+(p+1)+' · مجموع واجدان: '+Number(total.total)+'\\nتعداد نتایج لازم: '+(Number(draw.winner_count)+Number(draw.alternate_count))+'\\n\\nشناسه‌ها را دقیقاً از این فهرست بردارید:\\n'+(body||'موردی وجود ندارد.'),reply_markup:keyboard(buttons)});
+  }
+  async function startLiveWheelResult(chat,drawId) {
+    const [[draw]]=await db.execute("SELECT id,campaign_id,draw_number,status,method,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[drawId]);
+    if(!draw||draw.status!=='prepared'||!['live_wheel','hybrid'].includes(draw.method))return adminMessage({chat_id:chat,text:'این قرعه‌کشی در وضعیت قابل ثبت نیست.'});
+    pending.set(String(adminId),{type:'live-wheel-result',drawId:String(drawId),step:'references',references:null,externalReference:null,expires:Date.now()+1800000,required:Number(draw.winner_count)+Number(draw.alternate_count)});
+    return adminMessage({chat_id:chat,text:'ثبت نتیجه گردونه زنده · قرعه‌کشی #'+draw.draw_number+'\\n\\n'+pending.get(String(adminId)).required+' شناسه واجد را با ویرگول یا فاصله جدا کنید و بفرستید. برای مشاهده شناسه‌ها از فهرست قرعه‌کشی استفاده کنید.\\n\\nبرای لغو /cancel را بفرستید.',reply_markup:keyboard([[{text:'📋 مشاهده شناسه‌های واجدان',callback_data:'adm:draw-live:'+drawId+':0'},{text:'✖️ لغو',callback_data:'adm:draw-live-cancel'}]])});
   }
   async function approveCampaignDraw(chat,drawId) {
     try { await drawService.approveDraw(Number(drawId)); return adminMessage({chat_id:chat,text:'✅ نتیجه قرعه‌کشی تأیید و کمپین نهایی شد.',reply_markup:keyboard([[{text:'🏆 قرعه‌کشی‌ها',callback_data:'adm:draws'}],[{text:'📊 داشبورد',callback_data:'adm:stats'}]])}); }
@@ -482,6 +502,9 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data.startsWith('adm:draw-campaign:')) return campaignDrawAction(chat,data.slice('adm:draw-campaign:'.length));
     if (data.startsWith('adm:draw-prepare:')) return prepareCampaignDraw(chat,data.slice('adm:draw-prepare:'.length));
     if (data.startsWith('adm:draw-run:')) return resumeCampaignDraw(chat,data.slice('adm:draw-run:'.length));
+    if (data.startsWith('adm:draw-live:')) { const [, , id, page='0']=data.split(':'); return liveWheelCandidatePage(chat,id,page); }
+    if (data.startsWith('adm:draw-live-start:')) return startLiveWheelResult(chat,data.slice('adm:draw-live-start:'.length));
+    if (data==='adm:draw-live-cancel') { pending.delete(String(adminId)); return adminMessage({chat_id:chat,text:'ثبت نتیجه لغو شد.'}); }
     if (data.startsWith('adm:draw-approve:')) return approveCampaignDraw(chat,data.slice('adm:draw-approve:'.length));
     if (data.startsWith('adm:draw-view:')) {
       const id=data.slice('adm:draw-view:'.length);
@@ -569,6 +592,39 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (text.toLowerCase().startsWith('/export')) { const parts=text.toLowerCase().split(/\s+/); return exportCsv(m.chat.id,parts[1]||'active',parts[2]||'all'); }
     if (text==='پنل'||text.toLowerCase()==='/panel'||text.toLowerCase()==='/start') { return home(m.chat.id); }
 
+    const liveWheel=pending.get(String(adminId));
+    if(liveWheel?.type==='live-wheel-result'&&text){
+      if(liveWheel.expires<Date.now()){pending.delete(String(adminId));return adminMessage({chat_id:m.chat.id,text:'مهلت ثبت نتیجه تمام شد؛ دوباره از فهرست قرعه‌کشی شروع کنید.'});}
+      if(text.toLowerCase()==='/cancel'){pending.delete(String(adminId));return adminMessage({chat_id:m.chat.id,text:'ثبت نتیجه لغو شد.'});}
+      if(text.toLowerCase()==='/back'){
+        liveWheel.step=liveWheel.step==='hash'?'evidence':'references';
+        return adminMessage({chat_id:m.chat.id,text:liveWheel.step==='references'?'شناسه‌های واجدان را دوباره با ویرگول یا فاصله ارسال کنید.':'لینک یا شناسه مدرک را ارسال کنید.'});
+      }
+      if(liveWheel.step==='references'){
+        const refs=text.split(/[\\s,;،]+/).map(x=>x.trim()).filter(Boolean);
+        if(refs.length!==liveWheel.required||new Set(refs).size!==refs.length)return adminMessage({chat_id:m.chat.id,text:'باید دقیقاً '+liveWheel.required+' شناسه یکتا ارسال کنید. شناسه‌ها را با ویرگول یا فاصله جدا کنید.'});
+        const placeholders=refs.map(()=>'?').join(',');
+        const [found]=await db.execute("SELECT candidate_reference FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' AND candidate_reference IN ("+placeholders+")",[liveWheel.drawId,...refs]);
+        if(found.length!==refs.length)return adminMessage({chat_id:m.chat.id,text:'حداقل یکی از شناسه‌ها در Snapshot این قرعه‌کشی وجود ندارد. شناسه‌ها را بررسی و دوباره ارسال کنید.'});
+        liveWheel.references=refs;liveWheel.step='evidence';
+        return adminMessage({chat_id:m.chat.id,text:'شناسه‌ها پذیرفته شد. اکنون لینک ویدئو، لینک مدرک یا شناسه قابل‌بررسی مدرک اجرای گردونه را ارسال کنید (حداکثر ۲۵۵ نویسه).'});
+      }
+      if(liveWheel.step==='evidence'){
+        const evidence=text.trim();
+        if(evidence.length<3||evidence.length>255)return adminMessage({chat_id:m.chat.id,text:'لینک یا شناسه مدرک باید بین ۳ تا ۲۵۵ نویسه باشد.'});
+        liveWheel.externalReference=evidence;liveWheel.step='hash';
+        return adminMessage({chat_id:m.chat.id,text:'در صورت داشتن SHA-256 فایل مدرک، هش ۶۴ رقمی را ارسال کنید؛ اگر ندارید فقط - بفرستید. برای بازگشت /back را بفرستید.'});
+      }
+      if(liveWheel.step==='hash'){
+        const hash=text.trim()==='-'?null:text.trim().toLowerCase();
+        if(hash&&!/^[a-f0-9]{64}$/.test(hash))return adminMessage({chat_id:m.chat.id,text:'هش باید دقیقاً ۶۴ رقم هگزادسیمال باشد یا برای رد کردن - بفرستید.'});
+        try{
+          const result=await drawService.submitLiveWheelResults({drawId:Number(liveWheel.drawId),candidateReferences:liveWheel.references,externalReference:liveWheel.externalReference,evidenceHash:hash});
+          pending.delete(String(adminId));
+          return adminMessage({chat_id:m.chat.id,text:'✅ نتایج گردونه در انتظار تأیید ثبت شد.\\nقرعه‌کشی #'+result.drawId+'\\nتعداد نتایج: '+liveWheel.references.length+'\\nمدرک: '+liveWheel.externalReference+'\\n\\nتا زمان تأیید مدیر، نتایج نهایی نیستند.',reply_markup:keyboard([[{text:'تأیید نهایی نتیجه',callback_data:'adm:draw-approve:'+result.drawId}],[{text:'مشاهده قرعه‌کشی',callback_data:'adm:draw-view:'+result.drawId}]])});
+        }catch(error){return adminMessage({chat_id:m.chat.id,text:'ثبت نتیجه انجام نشد: '+error.message+'\\nبرای اصلاح ورودی از /back استفاده کنید.'});}
+      }
+    }
     const cardMode=pending.get(String(adminId));
     if(cardMode?.type==='card-wizard' && text && (text.toLowerCase()==='/back'||!text.startsWith('/'))){
       if(cardMode.expires<Date.now()){pending.delete(String(adminId));return adminMessage({chat_id:m.chat.id,text:'مهلت فرم کارت تمام شده است؛ دوباره شروع کن.'});}
