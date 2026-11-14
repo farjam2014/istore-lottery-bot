@@ -107,7 +107,33 @@ export function registerAdminHandlers(bot){
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();
     const [rows]=await pool.execute('SELECT id,title,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN (\'eligible\',\'pending_payment\')) participant_count FROM campaigns ORDER BY id DESC LIMIT 20');
     if(!rows.length)return ctx.reply('هنوز کمپینی ایجاد نشده است.',campaignMenu());
-    for(const c of rows){const label={draft:'پیش‌نویس',scheduled:'زمان‌بندی‌شده',open:'فعال',paused:'متوقف',closed:'بسته',drawn:'قرعه‌کشی‌شده',archived:'بایگانی'}[c.status]||c.status;const detail='#'+c.id+' — '+c.title+'\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+'\nوضعیت: '+label+'\nجایزه: '+(c.prize_title||'ثبت نشده')+'\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+'\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nشروع: '+(c.starts_at||'تعیین نشده')+'\nپایان: '+(c.ends_at||'تعیین نشده')+'\nقرعه‌کشی: '+(c.draw_at||'تعیین نشده')+(c.participation_type==='paid'?'\nمبلغ: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'');await ctx.reply(detail,Markup.inlineKeyboard([[Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین',`admin:campaign:toggle:${c.id}`)],[Markup.button.callback('بازگشت','admin:campaigns')]]));}
+    for(const c of rows){const label={draft:'پیش‌نویس',scheduled:'زمان‌بندی‌شده',open:'فعال',paused:'متوقف',closed:'بسته',drawn:'قرعه‌کشی‌شده',archived:'بایگانی'}[c.status]||c.status;const detail='#'+c.id+' — '+c.title+'\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+'\nوضعیت: '+label+'\nجایزه: '+(c.prize_title||'ثبت نشده')+'\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+'\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nشروع: '+(c.starts_at||'تعیین نشده')+'\nپایان: '+(c.ends_at||'تعیین نشده')+'\nقرعه‌کشی: '+(c.draw_at||'تعیین نشده')+(c.participation_type==='paid'?'\nمبلغ: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'');const actions=[];if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین',`admin:campaign:toggle:${c.id}`)]);actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس',`admin:campaign:copy:${c.id}`)]);if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین',`admin:campaign:archive:${c.id}`)]);actions.push([Markup.button.callback('بازگشت','admin:campaigns')]);await ctx.reply(detail,Markup.inlineKeyboard(actions));}
+  });
+  bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);const [[source]]=await pool.execute('SELECT * FROM campaigns WHERE id=?',[id]);
+    if(!source)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    const slug=slugify(source.title+'-copy');
+    const [created]=await pool.execute("INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",[slug,source.title+' (نسخه کپی)',source.description,source.poster_file_id,source.prize_title,source.prize_description,source.prize_value,source.participation_type,source.entry_price,source.payment_methods,source.starts_at,source.ends_at,source.draw_at,source.terms,source.capacity,source.codes_per_entry]);
+    await audit(ctx.from.id,'campaign.copied','campaign',created.insertId,{sourceCampaignId:id});
+    await ctx.answerCbQuery('پیش‌نویس کپی ساخته شد.');
+    return ctx.reply('یک پیش‌نویس مستقل از کمپین #'+id+' ساخته شد. شرکت‌کنندگان، سفارش‌ها و کدهای کمپین اصلی کپی نشده‌اند.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده فهرست کمپین‌ها','admin:campaign:list')]]));
+  });
+  bot.action(/^admin:campaign:archive:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);const c=await pool.getConnection();let from;
+    try{
+      await c.beginTransaction();
+      const [[row]]=await c.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[id]);
+      if(!row)throw new Error('کمپین پیدا نشد.');
+      if(!['draft','paused','closed'].includes(row.status))throw new Error('فقط کمپین پیش‌نویس، متوقف یا بسته قابل بایگانی است.');
+      const [[pending]]=await c.execute("SELECT COUNT(*) total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND o.status IN ('awaiting_receipt','under_review','rejected')",[id]);
+      if(Number(pending.total)>0)throw new Error('تا تعیین تکلیف سفارش‌های باز، بایگانی مجاز نیست.');
+      from=row.status;await c.execute("UPDATE campaigns SET status='archived' WHERE id=?",[id]);
+      await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.archived','campaign',id,JSON.stringify({from,to:'archived'})]);
+      await c.commit();
+    }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
+    await ctx.answerCbQuery('بایگانی شد.');return ctx.reply('کمپین بایگانی شد؛ سوابق، سفارش‌ها و کدهای قبلی حفظ شده‌اند.',campaignMenu());
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
