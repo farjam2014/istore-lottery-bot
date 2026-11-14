@@ -379,8 +379,8 @@ async function up(db) {
   }
   for (const sql of CAMPAIGN_SCHEMA) await db.query(sql);
   await ensureParticipantBusinessColumn(db);
-  const result = await migrateLegacyEntries(db);
-  return result;
+  // Fresh multi-campaign core: legacy single-campaign records are intentionally not imported.
+  return { migrated: 0, legacyImportDisabled: true };
 }
 
 module.exports = { up, CAMPAIGN_SCHEMA, migrateLegacyEntries, ensureParticipantBusinessColumn };
