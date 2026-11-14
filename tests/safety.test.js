@@ -160,7 +160,11 @@ test('campaign payment session schema binds one pending order to a Telegram Busi
 test('campaign-only profile onboarding is allowed while legacy registration is closed', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
-  assert.match(source, /if\(!legacyRegistrationOpen\)\{\s*const \[\[openCampaign\]\]=await conn\.execute\("SELECT id FROM campaigns WHERE status='open'/);
+  const campaignLookup = source.indexOf('const [[openCampaign]]=await conn.execute("SELECT id FROM campaigns WHERE status=\'open\'');
+  const campaignBranch = source.indexOf('if(openCampaign)', campaignLookup);
+  const legacyGate = source.indexOf('if(!legacyRegistrationOpen)', campaignBranch);
+  assert.ok(campaignLookup >= 0 && campaignBranch > campaignLookup && legacyGate > campaignBranch,
+    'an open campaign must be handled before the legacy registration gate');
   assert.match(source, /INSERT INTO participants\(telegram_user_id,chat_id,business_connection_id,full_name,phone,instagram,status\)/);
   assert.match(source, /if\(!await registrationOpen\(\)\)\{const \[\[campaignOpen\]\]=await db\.execute\("SELECT id FROM campaigns WHERE status='open'/);
 });
