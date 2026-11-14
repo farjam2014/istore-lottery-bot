@@ -514,7 +514,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!o)return adminMessage({chat_id:chat,text:'سفارش پیدا نشد.'});
     const [receipts]=await db.execute('SELECT id,telegram_file_id,declared_tracking_ref,submitted_at,review_status FROM payment_receipts WHERE order_id=? ORDER BY id DESC LIMIT 3',[id]);
     const delivered=bankCardService?await bankCardService.deliveries(id):[];
-    const cardHistory=delivered.length?'\nکارت‌های ارسال‌شده: '+delivered.map(d=>d.card_label_snapshot+' · '+d.last4+' · '+d.sent_at).join('؛ '):'';
+    const cardHistory=delivered.length?'\n\n🧾 تاریخچه تحویل کارت ('+delivered.length+'):\n'+delivered.map((d,i)=>(i+1)+'. '+d.card_label_snapshot+' · '+(d.bank_name_snapshot||'بانک نامشخص')+' · '+d.last4+'\nدارنده: '+(d.cardholder_name_snapshot||'-')+' · '+d.sent_at+'\nشناسه اعلان: '+(d.outbox_id||'ارسال مستقیم/قدیمی')).join('\n\n'):'';
     const textBody='💳 سفارش #'+o.id+'\nمرجع: '+o.order_ref+'\nکمپین: '+o.campaign_name+'\nشرکت‌کننده: '+o.full_name+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram+'\nتعداد کد: '+o.quantity+'\nمبلغ: '+o.total_snapshot+' '+o.currency+'\nوضعیت: '+o.status+'\nانقضا: '+o.expires_at+'\nرسیدها: '+receipts.length+cardHistory;
     const orderButtons=[];
     if(o.status==='pending_payment')orderButtons.push([{text:'📨 ارسال دوباره اطلاعات پرداخت',callback_data:'adm:order-resend:'+id}]);
