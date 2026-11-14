@@ -135,7 +135,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     } catch(e) { return adminMessage({chat_id:chat,text:'آماده‌سازی قرعه‌کشی انجام نشد: '+e.message}); }
   }
   async function resumeCampaignDraw(chat,drawId) {
-    if(!/^\\d+$/.test(String(drawId)))return adminMessage({chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
+    if(!/^\d+$/.test(String(drawId)))return adminMessage({chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
     try {
       const [[draw]]=await db.execute('SELECT id,campaign_id,draw_number,status,method,snapshot_hash FROM campaign_draws WHERE id=? LIMIT 1',[drawId]);
       if(!draw)return adminMessage({chat_id:chat,text:'قرعه‌کشی پیدا نشد.'});
@@ -145,7 +145,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     } catch(e) { return adminMessage({chat_id:chat,text:'بازیابی اجرای قرعه‌کشی انجام نشد: '+e.message}); }
   }
   async function liveWheelCandidatePage(chat,drawId,page=0) {
-    if(!/^\\d+$/.test(String(drawId)))return adminMessage({chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
+    if(!/^\d+$/.test(String(drawId)))return adminMessage({chat_id:chat,text:'شناسه قرعه‌کشی نامعتبر است.'});
     const p=Math.max(0,Math.min(10000,Number(page)||0));
     const [[draw]]=await db.execute("SELECT id,campaign_id,draw_number,status,method,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[drawId]);
     if(!draw||draw.status!=='prepared'||!['live_wheel','hybrid'].includes(draw.method))return adminMessage({chat_id:chat,text:'این قرعه‌کشی برای ثبت نتیجه گردونه آماده نیست.'});
@@ -354,7 +354,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     {key:'ends_at',label:'زمان پایان (ISO 8601)',hint:'مثلاً 2026-12-10T23:59+03:30 یا - برای بدون زمان'},
     {key:'payment_card_id',label:'شناسه کارت بانکی',hint:'برای manual شناسه کارت فعال؛ برای free مقدار -'}
   ];
-  function parseCampaignDate(value) { if(value==='-')return null; if(!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2})$/.test(String(value)))return undefined; const time=Date.parse(value); return Number.isFinite(time)?new Date(time).toISOString().slice(0,19).replace('T',' '):undefined; }
+  function parseCampaignDate(value) { if(value==='-')return null; if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/.test(String(value)))return undefined; const time=Date.parse(value); return Number.isFinite(time)?new Date(time).toISOString().slice(0,19).replace('T',' '):undefined; }
   function campaignWizardValue(state,key) { return state.values[key] == null ? '-' : String(state.values[key]); }
   function campaignWizardPrompt(state) {
     const f=campaignWizardFields[state.step];
