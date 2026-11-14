@@ -450,7 +450,7 @@ try{
   if(!ticket){await replyConn.rollback();return reply(chat,conn,"تیکت پیدا نشد.");}
   if(ticket.status!=="open"){await replyConn.rollback();return reply(chat,conn,"این تیکت قبلاً پاسخ داده شده است.");}
   await replyConn.execute("UPDATE customer_support_tickets SET status='answered',admin_reply=?,replied_at=UTC_TIMESTAMP(),replied_by=? WHERE id=? AND status='open'",[answer,String(uid),ticketId]);
-  await replyConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-reply:"+ticketId,"support_ticket_reply",JSON.stringify({method:"sendMessage",payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:"💬 پاسخ پشتیبانی USTORE\n\n"+answer}})]);
+  await replyConn.execute("INSERT IGNORE INTO telegram_notification_outbox(dedupe_key,notification_type,payload) VALUES(?,?,?)",["support-reply:"+ticketId+":"+String(m.message_id),"support_ticket_reply",JSON.stringify({method:"sendMessage",payload:{chat_id:String(ticket.chat_id),...(ticket.business_connection_id?{business_connection_id:String(ticket.business_connection_id)}:{}),text:"💬 پاسخ پشتیبانی USTORE\n\n"+answer}})]);
   await replyConn.commit();queued=true;
 }catch(error){await replyConn.rollback();throw error;}
 finally{replyConn.release();}
