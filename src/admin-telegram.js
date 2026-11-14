@@ -159,18 +159,18 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!draw||draw.status!=='prepared'||!['live_wheel','hybrid'].includes(draw.method))return adminMessage({chat_id:chat,text:'این قرعه‌کشی برای ثبت نتیجه گردونه آماده نیست.'});
     const [[total]]=await db.execute("SELECT COUNT(*) AS total FROM draw_candidates WHERE draw_id=? AND eligibility='eligible'",[drawId]);
     const [rows]=await db.execute("SELECT candidate_reference FROM draw_candidates WHERE draw_id=? AND eligibility='eligible' ORDER BY candidate_reference LIMIT 30 OFFSET ?",[drawId,p*30]);
-    const body=rows.map(x=>x.candidate_reference).join('\\n');
+    const body=rows.map(x=>x.candidate_reference).join('\n');
     const buttons=[];
     const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:draw-live:'+drawId+':'+(p-1)});if((p+1)*30<Number(total.total))nav.push({text:'بعدی ➡️',callback_data:'adm:draw-live:'+drawId+':'+(p+1)});if(nav.length)buttons.push(nav);
     buttons.push([{text:'📝 شروع ثبت نتیجه',callback_data:'adm:draw-live-start:'+drawId}]);
     buttons.push([{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+draw.campaign_id}]);
-    return adminMessage({chat_id:chat,text:'🎡 فهرست شناسه‌های واجدان قرعه‌کشی #'+draw.draw_number+'\\nصفحه '+(p+1)+' · مجموع واجدان: '+Number(total.total)+'\\nتعداد نتایج لازم: '+(Number(draw.winner_count)+Number(draw.alternate_count))+'\\n\\nشناسه‌ها را دقیقاً از این فهرست بردارید:\\n'+(body||'موردی وجود ندارد.'),reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'🎡 فهرست شناسه‌های واجدان قرعه‌کشی #'+draw.draw_number+'\nصفحه '+(p+1)+' · مجموع واجدان: '+Number(total.total)+'\nتعداد نتایج لازم: '+(Number(draw.winner_count)+Number(draw.alternate_count))+'\n\nشناسه‌ها را دقیقاً از این فهرست بردارید:\n'+(body||'موردی وجود ندارد.'),reply_markup:keyboard(buttons)});
   }
   async function startLiveWheelResult(chat,drawId) {
     const [[draw]]=await db.execute("SELECT id,campaign_id,draw_number,status,method,winner_count,alternate_count FROM campaign_draws WHERE id=? LIMIT 1",[drawId]);
     if(!draw||draw.status!=='prepared'||!['live_wheel','hybrid'].includes(draw.method))return adminMessage({chat_id:chat,text:'این قرعه‌کشی در وضعیت قابل ثبت نیست.'});
     pending.set(String(adminId),{type:'live-wheel-result',drawId:String(drawId),step:'references',references:null,externalReference:null,expires:Date.now()+1800000,required:Number(draw.winner_count)+Number(draw.alternate_count)});
-    return adminMessage({chat_id:chat,text:'ثبت نتیجه گردونه زنده · قرعه‌کشی #'+draw.draw_number+'\\n\\n'+pending.get(String(adminId)).required+' شناسه واجد را با ویرگول یا فاصله جدا کنید و بفرستید. برای مشاهده شناسه‌ها از فهرست قرعه‌کشی استفاده کنید.\\n\\nبرای لغو /cancel را بفرستید.',reply_markup:keyboard([[{text:'📋 مشاهده شناسه‌های واجدان',callback_data:'adm:draw-live:'+drawId+':0'},{text:'✖️ لغو',callback_data:'adm:draw-live-cancel'}]])});
+    return adminMessage({chat_id:chat,text:'ثبت نتیجه گردونه زنده · قرعه‌کشی #'+draw.draw_number+'\n\n'+pending.get(String(adminId)).required+' شناسه واجد را با ویرگول یا فاصله جدا کنید و بفرستید. برای مشاهده شناسه‌ها از فهرست قرعه‌کشی استفاده کنید.\n\nبرای لغو /cancel را بفرستید.',reply_markup:keyboard([[{text:'📋 مشاهده شناسه‌های واجدان',callback_data:'adm:draw-live:'+drawId+':0'},{text:'✖️ لغو',callback_data:'adm:draw-live-cancel'}]])});
   }
   async function approveCampaignDraw(chat,drawId) {
     try { await drawService.approveDraw(Number(drawId)); return adminMessage({chat_id:chat,text:'✅ نتیجه قرعه‌کشی تأیید و کمپین نهایی شد.',reply_markup:keyboard([[{text:'🏆 قرعه‌کشی‌ها',callback_data:'adm:draws'}],[{text:'📊 داشبورد',callback_data:'adm:stats'}]])}); }
@@ -228,11 +228,11 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     const [rows]=await db.execute("SELECT id,notification_type,attempts,last_error,created_at FROM telegram_notification_outbox WHERE status='failed' ORDER BY id DESC LIMIT 15");
     const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.notification_type+' · '+x.attempts+' تلاش',callback_data:'adm:outbox-retry:'+x.id}]);
     buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:outbox'},{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
-    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · تلاش: '+x.attempts+'\\nخطا: '+(x.last_error||'نامشخص')+'\\nثبت: '+x.created_at).join('\\n\\n'):'اعلان ناموفقی در صف وجود ندارد.';
-    return adminMessage({chat_id:chat,text:'⚠️ اعلان‌های ناموفق\\n\\n'+body,reply_markup:keyboard(buttons)});
+    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · تلاش: '+x.attempts+'\nخطا: '+(x.last_error||'نامشخص')+'\nثبت: '+x.created_at).join('\n\n'):'اعلان ناموفقی در صف وجود ندارد.';
+    return adminMessage({chat_id:chat,text:'⚠️ اعلان‌های ناموفق\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function retryOutbox(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
     const conn=await db.getConnection();
     try{
       await conn.beginTransaction();
@@ -260,16 +260,16 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'💬 تیکت‌های پشتیبانی · '+status+' · صفحه '+(p+1),reply_markup:keyboard(buttons)});
   }
   async function supportDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
     const [[ticket]]=await db.execute('SELECT id,telegram_user_id,chat_id,business_connection_id,message,status,admin_reply,replied_at,created_at FROM customer_support_tickets WHERE id=? LIMIT 1',[id]);
     if(!ticket)return adminMessage({chat_id:chat,text:'تیکت پیدا نشد.'});
     const [messages]=await db.execute('SELECT sender_type,sender_id,message,created_at FROM customer_support_messages WHERE ticket_id=? ORDER BY id ASC LIMIT 100',[id]);
-    const history=messages.length?messages.map(m=>(m.sender_type==='customer'?'👤 مشتری':m.sender_type==='admin'?'🛠 مدیر':'⚙️ سیستم')+' · '+m.created_at+'\\n'+m.message).join('\\n\\n'):'تاریخچه پیام‌ها هنوز در دسترس نیست؛ پیام اولیه: '+ticket.message;
+    const history=messages.length?messages.map(m=>(m.sender_type==='customer'?'👤 مشتری':m.sender_type==='admin'?'🛠 مدیر':'⚙️ سیستم')+' · '+m.created_at+'\n'+m.message).join('\n\n'):'تاریخچه پیام‌ها هنوز در دسترس نیست؛ پیام اولیه: '+ticket.message;
     const buttons=[];
     if(ticket.status!=='closed')buttons.push([{text:'🔒 بستن تیکت',callback_data:'adm:support-close:'+id}]);
     else buttons.push([{text:'↻ بازگشایی تیکت',callback_data:'adm:support-reopen:'+id}]);
     buttons.push([{text:'✍️ راهنمای پاسخ',callback_data:'adm:support-reply-help:'+id},{text:'↩️ فهرست',callback_data:'adm:support'}]);
-    return adminMessage({chat_id:chat,text:'💬 گفت‌وگوی پشتیبانی #'+ticket.id+' · '+ticket.status+'\\nکاربر: '+ticket.telegram_user_id+'\\nثبت: '+ticket.created_at+'\\n\\n'+history+'\\n\\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'💬 گفت‌وگوی پشتیبانی #'+ticket.id+' · '+ticket.status+'\nکاربر: '+ticket.telegram_user_id+'\nثبت: '+ticket.created_at+'\n\n'+history+'\n\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
   }
   async function setSupportStatus(chat,id,status) {
     if(!/^\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
@@ -660,8 +660,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
         try{
           const result=await drawService.submitLiveWheelResults({drawId:Number(liveWheel.drawId),candidateReferences:liveWheel.references,externalReference:liveWheel.externalReference,evidenceHash:hash});
           pending.delete(String(adminId));
-          return adminMessage({chat_id:m.chat.id,text:'✅ نتایج گردونه در انتظار تأیید ثبت شد.\\nقرعه‌کشی #'+result.drawId+'\\nتعداد نتایج: '+liveWheel.references.length+'\\nمدرک: '+liveWheel.externalReference+'\\n\\nتا زمان تأیید مدیر، نتایج نهایی نیستند.',reply_markup:keyboard([[{text:'تأیید نهایی نتیجه',callback_data:'adm:draw-approve:'+result.drawId}],[{text:'مشاهده قرعه‌کشی',callback_data:'adm:draw-view:'+result.drawId}]])});
-        }catch(error){return adminMessage({chat_id:m.chat.id,text:'ثبت نتیجه انجام نشد: '+error.message+'\\nبرای اصلاح ورودی از /back استفاده کنید.'});}
+          return adminMessage({chat_id:m.chat.id,text:'✅ نتایج گردونه در انتظار تأیید ثبت شد.\nقرعه‌کشی #'+result.drawId+'\nتعداد نتایج: '+liveWheel.references.length+'\nمدرک: '+liveWheel.externalReference+'\n\nتا زمان تأیید مدیر، نتایج نهایی نیستند.',reply_markup:keyboard([[{text:'تأیید نهایی نتیجه',callback_data:'adm:draw-approve:'+result.drawId}],[{text:'مشاهده قرعه‌کشی',callback_data:'adm:draw-view:'+result.drawId}]])});
+        }catch(error){return adminMessage({chat_id:m.chat.id,text:'ثبت نتیجه انجام نشد: '+error.message+'\nبرای اصلاح ورودی از /back استفاده کنید.'});}
       }
     }
     const cardMode=pending.get(String(adminId));
