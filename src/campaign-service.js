@@ -273,6 +273,8 @@ function createCampaignService({ db, adminId }) {
       if (!receipt || !receipt.submitted_in_time) throw new Error('رسید پس از پایان مهلت سفارش ارسال شده یا رسید معتبری برای بررسی وجود ندارد.');
       const [[campaign]] = await conn.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE', [order.campaign_id]);
       if (approve) {
+        const [[participant]] = await conn.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE', [order.participant_id]);
+        if (!participant || participant.status !== 'active') throw new Error('شرکت‌کننده غیرفعال است؛ ابتدا وضعیت پروفایل را بررسی و فعال کنید.');
         if (!['open','closed','paused'].includes(campaign.status)) throw new Error('وضعیت کمپین اجازه تأیید این سفارش را نمی‌دهد.');
         await conn.execute(
           "INSERT INTO payment_transactions(order_id,provider,provider_reference,amount,currency,status,verified_by) VALUES(?,'manual',?,?,?,'confirmed',?)",
