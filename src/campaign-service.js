@@ -104,10 +104,12 @@ function createCampaignService({ db, adminId }) {
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [[campaign]] = await conn.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
+      const [[campaign]] = await conn.execute('SELECT id,status,starts_at,ends_at FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign) throw new Error('کمپین پیدا نشد.');
       if (campaign.status === 'drawn' && nextStatus !== 'archived') throw new Error('کمپین قرعه‌کشی‌شده قابل بازگشایی نیست.');
       if (campaign.status === 'archived' && nextStatus !== 'archived') throw new Error('کمپین آرشیوشده قابل فعال‌سازی نیست.');
+      if (nextStatus === 'scheduled' && (!['draft','paused'].includes(campaign.status) || !campaign.starts_at)) throw new Error('برای زمان‌بندی، کمپین باید پیش‌نویس یا متوقف‌شده و دارای زمان شروع باشد.');
+      if (campaign.starts_at && campaign.ends_at && new Date(campaign.ends_at).getTime() <= new Date(campaign.starts_at).getTime()) throw new Error('زمان پایان باید بعد از زمان شروع باشد.');
       if (nextStatus === 'open' && !['draft','scheduled','paused'].includes(campaign.status)) throw new Error('این تغییر وضعیت مجاز نیست.');
       if (nextStatus === 'closed' && !['scheduled','open','paused'].includes(campaign.status)) throw new Error('فقط کمپین زمان‌بندی‌شده، باز یا متوقف‌شده قابل بستن است.');
       await conn.execute('UPDATE campaigns SET status=? WHERE id=?', [nextStatus,campaignId]);
