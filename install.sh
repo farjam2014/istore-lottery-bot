@@ -46,7 +46,7 @@ systemctl enable --now mysql
 log "Creating the dedicated service account and downloading application source."
 [[ ! -e "$APP_DIR" ]] || fail "$APP_DIR appeared during installation; refusing to overwrite."
 if ! id "$APP_USER" >/dev/null 2>&1; then
-  useradd --system --home-dir "$APP_DIR" --create-home --shell /usr/sbin/nologin "$APP_USER"
+  useradd --system --home-dir "$APP_DIR" --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 fi
 git clone --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$APP_DIR"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
