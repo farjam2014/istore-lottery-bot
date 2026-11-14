@@ -47,42 +47,40 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
             "SELECT retry_after_ms FROM webhook_rate_limit_events WHERE update_id=? LIMIT 1",
             [item.update_id]
           );
-          if (!priorDecision.length) {
-            const isAdminActor = adminId != null && actorId === String(adminId);
-            let quota;
-            try {
-              quota = await rateLimit(db, {
-                userId: actorId,
-                bucket,
-                limit: isAdminActor ? 120 : (bucket === "callback" ? 50 : 25),
-                windowMs: 60000,
-                blockMs: 5000,
-                connection: conn
-              });
-            } catch (rateError) {
-              await conn.execute(
-                "UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",
-                ["rate_limit_check_failed:" + String(rateError.message || "unknown").slice(0, 400), item.update_id]
-              );
-              await conn.commit();
-              logger.error("Webhook rate-limit check failed [" + item.correlationId + "]:", rateError.message);
-              return false;
-            }
-            const retryMs = quota.limited
-              ? Math.max(100, Math.min(3600000, Number(quota.retryAfterMs) || 5000))
-              : 0;
+          const isAdminActor = adminId != null && actorId === String(adminId);
+          let quota;
+          try {
+            quota = await rateLimit(db, {
+              userId: actorId,
+              bucket,
+              limit: isAdminActor ? 120 : (bucket === "callback" ? 50 : 25),
+              windowMs: 60000,
+              blockMs: 5000
+            });
+          } catch (rateError) {
             await conn.execute(
-              "INSERT IGNORE INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?)",
+              "UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",
+              ["rate_limit_check_failed:" + String(rateError.message || "unknown").slice(0, 400), item.update_id]
+            );
+            await conn.commit();
+            logger.error("Webhook rate-limit check failed [" + item.correlationId + "]:", rateError.message);
+            return false;
+          }
+          if (quota.limited) {
+            const retryMs = Math.max(100, Math.min(3600000, Number(quota.retryAfterMs) || 5000));
+            await conn.execute(
+              "INSERT INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE retry_after_ms=VALUES(retry_after_ms)",
               [item.update_id, actorId, bucket, item.correlationId, retryMs]
             );
-            if (retryMs > 0) {
-              await conn.execute(
-                "UPDATE webhook_inbox SET received_at=DATE_ADD(NOW(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",
-                [retryMs * 1000, "rate_limited:" + bucket + ":" + retryMs, item.update_id]
-              );
-              await conn.commit();
-              return false;
-            }
+            await conn.execute(
+              "UPDATE webhook_inbox SET received_at=DATE_ADD(NOW(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",
+              [retryMs * 1000, "rate_limited:" + bucket + ":" + retryMs, item.update_id]
+            );
+            await conn.commit();
+            return false;
+          }
+          if (priorDecision.length) {
+            await conn.execute("DELETE FROM webhook_rate_limit_events WHERE update_id=?", [item.update_id]);
           }
         }
         item.processingToken = crypto.randomUUID();
