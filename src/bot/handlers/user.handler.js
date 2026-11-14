@@ -99,12 +99,12 @@ async function createProfileChangeRequest(ctx,field,value){
     if(pending){await c.rollback();return ctx.reply('یک درخواست اصلاح اطلاعات شما هنوز در انتظار بررسی است. پس از تعیین تکلیف آن می‌توانید درخواست جدید ثبت کنید.');}
     const [result]=await c.execute("INSERT INTO profile_change_requests(participant_id,requested_profile,status) VALUES(?,?,'pending')",[participant.id,JSON.stringify({field,value})]);
     requestId=result.insertId;
+    const [admins]=await c.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role='super_admin'");
+    const recipients=new Set([...config.adminIds,...admins.map(x=>String(x.telegram_user_id))]);
+    for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:'درخواست اصلاح پروفایل جدید\\nمشتری: '+ctx.state.profile.full_name+'\\nفیلد: '+field+'\\nمقدار درخواستی: '+value,options:{reply_markup:Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+requestId)]]).reply_markup},executor:c});
     await c.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
     await c.commit();
   }catch(error){await c.rollback();throw error;}finally{c.release();}
-  const [admins]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role='super_admin'");
-  const recipients=new Set([...config.adminIds,...admins.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:'درخواست اصلاح پروفایل جدید\nمشتری: '+ctx.state.profile.full_name+'\nفیلد: '+field+'\nمقدار درخواستی: '+value,options:{reply_markup:Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+requestId)]]).reply_markup}});
   await ctx.reply('درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیریت، نتیجه به شما اطلاع داده می‌شود.',Markup.removeKeyboard());
   return ctx.reply('درخواست شما در صف بررسی است.',Markup.inlineKeyboard([[Markup.button.callback('حساب کاربری','user:account')],[Markup.button.callback('پشتیبانی','user:support')]]));
 }
