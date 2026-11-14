@@ -27,7 +27,7 @@ test('rate-limited Telegram updates are deferred without consuming processing at
  assert.equal(handled,0);
  assert.equal(checked.userId,'123456');
  assert.equal(checked.bucket,'message');
- assert.ok(calls.some(x=>typeof x==='object'&&x.sql.includes('received_at=DATE_ADD(UTC_TIMESTAMP(3)')));
+ assert.ok(calls.some(x=>typeof x==='object'&&x.sql.includes('received_at=DATE_ADD(NOW(3)')));
  assert.ok(calls.some(x=>typeof x==='object'&&x.sql.includes('INSERT INTO webhook_rate_limit_events')));
  assert.ok(!calls.some(x=>typeof x==='object'&&x.sql.includes('attempts=attempts+1')));
  assert.ok(calls.includes('commit'));
