@@ -1,11 +1,11 @@
 "use strict";
 const crypto=require("node:crypto");
 
-function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leaseMs=60000,maxAttempts=5}){
+function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leaseMs=60000,heartbeatMs=20000,maxAttempts=5}){
  if(!db||typeof send!=="function")throw new Error("db and send are required");
  let busy=false,timer=null;
  async function processOne(){
-  if(busy)return false; busy=true; let item=null;
+  if(busy)return false; busy=true; let item=null,heartbeat=null,leaseLost=false;
   try{
    const conn=await db.getConnection();
    try{
@@ -17,8 +17,16 @@ function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leas
     await conn.execute("UPDATE telegram_notification_outbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE id=? AND status='pending'",[item.token,item.id]);
     await conn.commit();
    }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+   heartbeat=setInterval(async()=>{
+    try{
+     const [result]=await db.execute("UPDATE telegram_notification_outbox SET processing_started_at=NOW() WHERE id=? AND status='processing' AND processing_token=?",[item.id,item.token]);
+     if(result.affectedRows!==1)leaseLost=true;
+    }catch(error){leaseLost=true;logger.error("Notification outbox lease heartbeat error:",error.message);}
+   },heartbeatMs);
+   heartbeat.unref?.();
    const data=typeof item.payload==="string"?JSON.parse(item.payload):item.payload;
    await send(data.method,data.payload);
+   if(leaseLost)throw new Error("Notification outbox processing lease was lost during Telegram delivery");
    const [result]=await db.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE id=? AND status='processing' AND processing_token=?",[item.id,item.token]);
    if(result.affectedRows!==1)throw new Error("Outbox claim was lost after Telegram send; delivery may be duplicated on retry");
    return true;
@@ -26,7 +34,7 @@ function createNotificationOutbox({db,send,logger=console,pollInterval=1000,leas
    logger.error("Notification outbox error:",e.message);
    if(item?.token)await db.execute("UPDATE telegram_notification_outbox SET status=IF(attempts>=?,'failed','pending'),next_attempt_at=IF(attempts>=?,NULL,DATE_ADD(NOW(),INTERVAL LEAST(3600,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE id=? AND status='processing' AND processing_token=?",[maxAttempts,maxAttempts,String(e.message||"Unknown error").slice(0,500),item.id,item.token]).catch(x=>logger.error("Outbox retry update error:",x.message));
    return false;
-  }finally{busy=false;}
+  }finally{if(heartbeat)clearInterval(heartbeat);busy=false;}
  }
  function start(){if(timer)return;timer=setInterval(()=>processOne().catch(e=>logger.error("Outbox worker error:",e.message)),pollInterval);timer.unref?.();}
  async function stop(timeoutMs=30000){if(timer)clearInterval(timer);timer=null;const deadline=Date.now()+Math.max(0,timeoutMs);while(busy&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));return !busy;}
