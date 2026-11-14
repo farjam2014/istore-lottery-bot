@@ -19,3 +19,8 @@ CREATE TABLE IF NOT EXISTS admin_role_events (
   KEY idx_admin_role_events_target(target_telegram_id,created_at),
   KEY idx_admin_role_events_actor(actor_telegram_id,created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS admin_role_sessions (
+  telegram_user_id BIGINT NOT NULL PRIMARY KEY,
+  role ENUM('campaign_manager','finance_manager','support_agent') NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
