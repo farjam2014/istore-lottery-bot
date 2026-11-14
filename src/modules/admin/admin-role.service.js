@@ -1,12 +1,7 @@
 import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
+import {roleHasPermission,rolePermissions,assignableRoles} from './permissions.js';
 
-const permissions={
-  super_admin:['*'],
-  campaign_manager:['dashboard.read','campaign.read','campaign.write','participant.read'],
-  finance_manager:['dashboard.read','payment.read','payment.review','payment.settings','report.read','participant.read'],
-  support_agent:['dashboard.read','support.read','support.reply','support.manage','participant.read']
-};
 export function isConfiguredSuperAdmin(telegramId){return config.adminIds.has(String(telegramId));}
 export async function getAdminRole(telegramId){
   if(isConfiguredSuperAdmin(telegramId))return {role:'super_admin',is_active:1,source:'environment'};
@@ -16,7 +11,7 @@ export async function getAdminRole(telegramId){
 export async function hasPermission(telegramId,permission){
   const admin=await getAdminRole(telegramId);
   if(!admin||Number(admin.is_active)!==1)return false;
-  return (permissions[admin.role]||[]).includes('*')||(permissions[admin.role]||[]).includes(permission);
+  return roleHasPermission(admin.role,permission);
 }
-export function permissionsForRole(role){return permissions[role]?[...permissions[role]]:[];}
-export const assignableRoles=['campaign_manager','finance_manager','support_agent'];
+export function permissionsForRole(role){return rolePermissions[role]?[...rolePermissions[role]]:[];}
+export {assignableRoles};
