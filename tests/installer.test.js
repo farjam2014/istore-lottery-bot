@@ -14,7 +14,7 @@ test('Ubuntu installer has valid Bash syntax',()=>{
 
 test('installer preserves existing application state',()=>{
   const script=readFileSync(installerPath,'utf8');
-  assert.match(script,/git status --porcelain --untracked-files=no/);
+  assert.match(script,/git -C \\"\\$APP_DIR\\" status --porcelain --untracked-files=no/);
   assert.match(script,/Existing \.env found; preserving it/);
   assert.match(script,/CREATE DATABASE IF NOT EXISTS/);
   assert.doesNotMatch(script,/DROP DATABASE/i);
