@@ -6,7 +6,37 @@ import {listPendingReceipts} from '../../modules/payments/payment.service.js';
 import {toCsv} from '../../shared/csv.js';
 import {hasPermission,isConfiguredSuperAdmin} from '../../modules/admin/admin-role.service.js';
 
-const isAdmin=ctx=>config.adminIds.has(String(ctx.from?.id));
+async function isAdmin(ctx){
+  const id=ctx.from?.id;if(!id)return false;
+  if(isConfiguredSuperAdmin(id))return true;
+  if(ctx.callbackQuery){
+    const data=ctx.callbackQuery.data||'';
+    if(data.startsWith('admin:roles'))return false;
+    if(data.startsWith('admin:campaign'))return hasPermission(id,'campaign.write');
+    if(data.startsWith('admin:participants:export'))return hasPermission(id,'participant.read');
+    if(data.startsWith('admin:participant:'))return hasPermission(id,data.includes(':block:')||data.includes(':unblock:')?'participant.manage':'participant.read');
+    if(data.startsWith('admin:participants'))return hasPermission(id,'participant.read');
+    if(data.startsWith('admin:support:reply'))return hasPermission(id,'support.reply');
+    if(data.startsWith('admin:support:assign')||data.startsWith('admin:support:status')||data.startsWith('admin:support:priority'))return hasPermission(id,'support.manage');
+    if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
+    if(data==='admin:payments')return hasPermission(id,'payment.read');
+    if(data==='admin:payment-settings')return hasPermission(id,'payment.settings');
+    if(data==='admin:stats')return hasPermission(id,'report.read');
+    if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
+    return false;
+  }
+  if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
+  if(ctx.message?.text){
+    const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
+    if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
+    const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);
+    if(wizard?.step==='payment_settings')return hasPermission(id,'payment.settings');
+    if(wizard?.step==='payment_reject')return hasPermission(id,'payment.review');
+    return hasPermission(id,'campaign.write');
+  }
+  if(ctx.message?.photo)return hasPermission(id,'campaign.write');
+  return false;
+}
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const deny=ctx=>ctx.answerCbQuery('برای این عملیات مجوز ندارید.',{show_alert:true});
 const menu=()=>Markup.inlineKeyboard([
@@ -35,7 +65,7 @@ async function clearWizard(id){await pool.execute('DELETE FROM admin_wizards WHE
 async function audit(id,action,type,entityId,details={}){await pool.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(id),action,type,entityId,JSON.stringify(details)]);}
 function slugify(title){const suffix=randomBytes(3).toString('hex');const base=title.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';return `${base}-${suffix}`;}
 export function registerAdminHandlers(bot){
-  bot.command('admin',async ctx=>{if(!isAdmin(ctx))return ctx.reply('دسترسی غیرمجاز.');return ctx.reply('پنل مدیریت ربات',menu());});
+  bot.command('admin',async ctx=>{if(!await isAdmin(ctx))return ctx.reply('دسترسی غیرمجاز.');return ctx.reply('پنل مدیریت ربات',menu());});
   bot.action('admin:roles',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await ctx.answerCbQuery();const [rows]=await pool.execute('SELECT telegram_user_id,role,is_active,display_name FROM admin_users ORDER BY role,telegram_user_id');const buttons=rows.map(r=>[Markup.button.callback((Number(r.is_active)?'🟢 ':'🔴 ')+r.telegram_user_id+' | '+r.role,'admin:roles:member:'+r.telegram_user_id)]);buttons.unshift([Markup.button.callback('➕ افزودن مدیر','admin:roles:add')]);buttons.push([Markup.button.callback('بازگشت','admin:home')]);return ctx.reply('🛡 مدیریت دسترسی مدیران\nمدیران ثبت‌شده: '+rows.length+'\nمدیران تعریف‌شده در BOT_ADMIN_IDS همیشه مدیر کل هستند.',Markup.inlineKeyboard(buttons));});
   bot.action('admin:roles:add',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await ctx.answerCbQuery();return ctx.reply('نقش مدیر جدید را انتخاب کنید:',Markup.inlineKeyboard([[Markup.button.callback('مدیر کمپین','admin:roles:select:campaign_manager')],[Markup.button.callback('مدیر مالی','admin:roles:select:finance_manager')],[Markup.button.callback('اپراتور پشتیبانی','admin:roles:select:support_agent')]]));});
   bot.action(/^admin:roles:select:(campaign_manager|finance_manager|support_agent)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await pool.execute('INSERT INTO admin_role_sessions(telegram_user_id,role) VALUES(?,?) ON DUPLICATE KEY UPDATE role=VALUES(role)',[String(ctx.from.id),ctx.match[1]]);await ctx.answerCbQuery();return ctx.reply('شناسه عددی تلگرام مدیر جدید را ارسال کنید.');});
