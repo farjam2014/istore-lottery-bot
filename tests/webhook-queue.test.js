@@ -3,14 +3,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createWebhookQueue } = require("../src/webhook-queue");
+const { getCorrelationId } = require("../src/correlation-context");
 
-function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000 } = {}) {
+function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, alreadyProcessed = false, heartbeatMs = 60 * 60 * 1000, correlationId = null } = {}) {
   const calls = [];
   const logs = [];
   let connectionCount = 0;
 
   const item = {
     update_id: "9001",
+    correlation_id: correlationId,
     payload: { business_message: { text: "لاتاری" } }
   };
 
@@ -189,6 +191,15 @@ test("stop returns false instead of waiting forever after its deadline", async (
   await processing;
 });
 
+
+test("webhook handler receives the durable correlation id from inbox", async () => {
+  const id="123e4567-e89b-42d3-a456-426614174000";
+  let observed=null;
+  const {queue}=createHarness({correlationId:id,handler:async()=>{observed=getCorrelationId();}});
+  assert.equal(await queue.processOne(),true);
+  assert.equal(observed,id);
+  assert.equal(getCorrelationId(),null);
+});
 
 test("already processed update ids are not sent to business handlers again", async () => {
   let handled = 0;
