@@ -11,6 +11,7 @@ import {normalizeFullName,normalizePhone,normalizeInstagram} from '../../modules
 import {listManagedOrders,searchManagedOrders,getManagedOrderDetail,exportManagedOrders} from '../../modules/payments/payment-admin.service.js';
 import {enqueueTelegramNotification} from '../../modules/notifications/outbox.service.js';
 import {getCorrelationId} from '../../shared/request-context.js';
+import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,normalizeCardNumber} from '../../modules/payments/bank-card.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -26,7 +27,7 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:support:assign')||data.startsWith('admin:support:status')||data.startsWith('admin:support:priority'))return hasPermission(id,'support.manage');
     if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
     if(data.startsWith('admin:payments')||data.startsWith('admin:payment:order:')||data==='admin:payment:export'||data==='admin:payment:search')return hasPermission(id,'payment.read');
-    if(data==='admin:payment-settings')return hasPermission(id,'payment.settings');
+    if(data==='admin:payment-settings'||data==='admin:payment-cards'||data.startsWith('admin:payment-card:'))return hasPermission(id,'payment.settings');
     if(data==='admin:stats'||data.startsWith('admin:reports')||data.startsWith('admin:report:'))return hasPermission(id,'report.read');
     if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
     return false;
@@ -37,6 +38,7 @@ async function isAdmin(ctx){
     const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
+    const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
     const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);
     if(wizard?.step==='payment_settings')return hasPermission(id,'payment.settings');
     if(wizard?.step==='payment_reject')return hasPermission(id,'payment.review');
@@ -69,7 +71,7 @@ const menu=role=>{
   if(role==='super_admin')buttons.push(Markup.button.callback('🛡 مدیران و نقش‌ها','admin:roles'));
   if(allow('report.read'))buttons.push(Markup.button.callback('📊 گزارش‌ها و عملکرد مالی','admin:reports'));
   if(allow('payment.read'))buttons.push(Markup.button.callback('🧾 سفارش‌ها و پرداخت‌ها','admin:payments'));
-  if(allow('payment.settings'))buttons.push(Markup.button.callback('💳 تنظیم کارت بانکی','admin:payment-settings'));
+  if(allow('payment.settings'))buttons.push(Markup.button.callback('💳 مدیریت کارت‌های بانکی','admin:payment-cards'));
   if(role==='super_admin')buttons.push(Markup.button.callback('📝 اصلاح پروفایل','admin:profile-requests'));
   if(role==='super_admin')buttons.push(Markup.button.callback('🩺 سلامت سامانه','admin:system'));
   const rows=[];
@@ -97,6 +99,22 @@ async function getWizard(id){const [r]=await pool.execute('SELECT step,payload F
 async function saveWizard(id,step,payload){await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?) ON DUPLICATE KEY UPDATE step=VALUES(step),payload=VALUES(payload)',[String(id),step,JSON.stringify(payload)]);}
 async function clearWizard(id){await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);}
 async function audit(id,action,type,entityId,details={}){await pool.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(id),getCorrelationId(),action,type,entityId,JSON.stringify(details)]);}
+async function showPaymentCards(ctx){
+  const cards=await listPaymentCards();
+  const buttons=cards.map(card=>[Markup.button.callback(
+    (Number(card.is_active)?'🟢 ':'⚫ ')+(Number(card.is_default)?'⭐ ':'')+card.bank_name+' •••• '+card.card_number.slice(-4),
+    'admin:payment-card:view:'+card.id
+  )]);
+  buttons.push([Markup.button.callback('➕ افزودن کارت جدید','admin:payment-card:add')]);
+  buttons.push([Markup.button.callback('↩️ بازگشت به پنل','admin:home')]);
+  return respond(ctx,'💳 مدیریت کارت‌های بانکی\n\nکارت فعال و پیش‌فرض برای سفارش‌های جدید استفاده می‌شود. اطلاعات کارت سفارش‌های قبلی ثابت می‌ماند.\n\nتعداد کارت‌ها: '+cards.length,Markup.inlineKeyboard(buttons));
+}
+async function beginPaymentCardSession(ctx,step,cardId=null,payload={}){
+  await pool.execute('INSERT INTO payment_card_admin_sessions(telegram_user_id,step,card_id,payload) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=VALUES(step),card_id=VALUES(card_id),payload=VALUES(payload)',[String(ctx.from.id),step,cardId,JSON.stringify(payload)]);
+}
+async function showPaymentCardInput(ctx,editing=false){
+  return respond(ctx,(editing?'✏️ ویرایش کارت بانکی':'➕ افزودن کارت بانکی')+'\n\nمرحله ۱ از ۴: نام بانک را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel'),Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]]));
+}
 function slugify(title){const suffix=randomBytes(3).toString('hex');const base=title.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';return `${base}-${suffix}`;}
 export function registerAdminHandlers(bot){
   bot.command('admin',async ctx=>{if(!await isAdmin(ctx))return respond(ctx,'دسترسی غیرمجاز.');const admin=await getAdminRole(ctx.from.id);return respond(ctx,'پنل مدیریت ربات',menu(admin?.role));});
@@ -256,18 +274,57 @@ export function registerAdminHandlers(bot){
     const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows,columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
-  bot.action('admin:payment-settings',async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,'payment_settings',JSON_OBJECT()) ON DUPLICATE KEY UPDATE step=VALUES(step),payload=VALUES(payload)",[String(ctx.from.id)]);
+  bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await ctx.answerCbQuery();return showPaymentCards(ctx);});
+  bot.action('admin:payment-cards',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await ctx.answerCbQuery();return showPaymentCards(ctx);});
+  bot.action('admin:payment-card:add',async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    await beginPaymentCardSession(ctx,'bank_name',null,{});
     await ctx.answerCbQuery();
-    return respond(ctx,'اطلاعات کارت را در ۴ خط ارسال کنید:\n۱) نام بانک\n۲) شماره کارت ۱۶ رقمی\n۳) نام صاحب کارت\n۴) توضیحات یا -\n\nبرای خروج از این مرحله یکی از دکمه‌های زیر را بزنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو تنظیم کارت','admin:payment-settings:cancel'),Markup.button.callback('↩️ بازگشت به پنل','admin:home')]]));
+    return showPaymentCardInput(ctx,false);
   });
-  bot.action('admin:payment-settings:cancel',async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    await clearWizard(ctx.from.id);
-    await ctx.answerCbQuery('تنظیم کارت لغو شد.');
-    const admin=await getAdminRole(ctx.from.id);
-    return respond(ctx,'تنظیم کارت بانکی لغو شد. پنل مدیریت:',menu(admin?.role));
+  bot.action(/^admin:payment-card:view:(\\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    const card=await getPaymentCard(Number(ctx.match[1]));
+    if(!card)return ctx.answerCbQuery('کارت پیدا نشد.',{show_alert:true});
+    await ctx.answerCbQuery();
+    const status=Number(card.is_active)?'فعال':'غیرفعال';
+    const text='💳 جزئیات کارت #'+card.id+'\nبانک: '+card.bank_name+'\nشماره کارت: '+card.card_number+'\nصاحب کارت: '+card.card_holder+'\nوضعیت: '+status+'\nپیش‌فرض: '+(Number(card.is_default)?'بله':'خیر')+'\nتوضیحات: '+(card.instructions||'—');
+    const buttons=[];
+    buttons.push([Markup.button.callback('✏️ ویرایش','admin:payment-card:edit:'+card.id)]);
+    if(Number(card.is_active)&&!Number(card.is_default))buttons.push([Markup.button.callback('⭐ انتخاب به‌عنوان پیش‌فرض','admin:payment-card:default:'+card.id)]);
+    if(!Number(card.is_active))buttons.push([Markup.button.callback('🟢 فعال‌سازی','admin:payment-card:activate:'+card.id)]);
+    else buttons.push([Markup.button.callback('⚫ غیرفعال‌سازی','admin:payment-card:deactivate:'+card.id)]);
+    buttons.push([Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]);
+    return respond(ctx,text,Markup.inlineKeyboard(buttons));
+  });
+  bot.action(/^admin:payment-card:edit:(\\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    const card=await getPaymentCard(Number(ctx.match[1]));
+    if(!card)return ctx.answerCbQuery('کارت پیدا نشد.',{show_alert:true});
+    await beginPaymentCardSession(ctx,'bank_name',card.id,{bankName:card.bank_name,cardNumber:card.card_number,cardHolder:card.card_holder,instructions:card.instructions||''});
+    await ctx.answerCbQuery();
+    return showPaymentCardInput(ctx,true);
+  });
+  bot.action(/^admin:payment-card:default:(\\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    try{await setDefaultPaymentCard(Number(ctx.match[1]),ctx.from.id);await audit(ctx.from.id,'payment_card.default_changed','payment_bank_card',Number(ctx.match[1]));}
+    catch(e){return ctx.answerCbQuery(e.message||'تغییر کارت پیش‌فرض ناموفق بود.',{show_alert:true});}
+    await ctx.answerCbQuery('کارت پیش‌فرض تغییر کرد.');
+    return showPaymentCards(ctx);
+  });
+  bot.action(/^admin:payment-card:(activate|deactivate):(\\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    const active=ctx.match[1]==='activate',id=Number(ctx.match[2]);
+    try{await setPaymentCardActive(id,active,ctx.from.id);await audit(ctx.from.id,active?'payment_card.activated':'payment_card.deactivated','payment_bank_card',id);}
+    catch(e){return ctx.answerCbQuery(e.message||'تغییر وضعیت کارت ناموفق بود.',{show_alert:true});}
+    await ctx.answerCbQuery(active?'کارت فعال شد.':'کارت غیرفعال شد.');
+    return showPaymentCards(ctx);
+  });
+  bot.action('admin:payment-card:cancel',async ctx=>{
+    if(!await isAdmin(ctx))return deny(ctx);
+    await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    await ctx.answerCbQuery('فرایند لغو شد.');
+    return showPaymentCards(ctx);
   });
 
   bot.action('admin:stats',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return respond(ctx,'گزارش‌ها و عملکرد مالی',Markup.inlineKeyboard([[Markup.button.callback('مشاهده گزارش جامع','admin:reports')],[Markup.button.callback('بازگشت','admin:home')]]));});
