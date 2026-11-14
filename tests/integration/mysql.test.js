@@ -118,4 +118,19 @@ test('MySQL integration: support ticket tables and workflow constraints exist',{
   }finally{}
 });
 
+
+test('MySQL integration: admin role tables and audit history schema exist',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  try{
+    await migrate();
+    const [tables]=await pool.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('admin_users','admin_role_events','admin_role_sessions')");
+    assert.deepEqual(new Set(tables.map(x=>x.TABLE_NAME)),new Set(['admin_users','admin_role_events','admin_role_sessions']));
+    const [[migration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261114_004_admin_roles.sql'");
+    assert.match(migration.checksum,/^[a-f0-9]{64}$/);
+  }finally{}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
