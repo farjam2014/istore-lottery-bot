@@ -254,7 +254,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'🛠 بازیابی وب‌هوک‌ها\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function webhookDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
     const [[item]]=await db.execute('SELECT update_id,status,attempts,last_error,received_at,processed_at,correlation_id FROM webhook_inbox WHERE update_id=? LIMIT 1',[id]);
     if(!item)return adminMessage({chat_id:chat,text:'وب‌هوک پیدا نشد.'});
     const buttons=[];
@@ -263,7 +263,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'🛠 جزئیات وب‌هوک #'+item.update_id+'\nوضعیت: '+item.status+'\nتلاش: '+item.attempts+'\nدریافت: '+item.received_at+'\nپردازش: '+(item.processed_at||'—')+'\nهمبستگی: '+(item.correlation_id||'—')+'\nخطا: '+(item.last_error||'—'),reply_markup:keyboard(buttons)});
   }
   async function retryWebhook(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه وب‌هوک نامعتبر است.'});
     const conn=await db.getConnection();
     try {
       await conn.beginTransaction();
