@@ -26,6 +26,13 @@ function createDrawService({ db, adminId }) {
         [campaignId]
       );
       if (Number(pending.total) > 0) throw new Error('ابتدا همه سفارش‌های پرداخت معلق را تعیین تکلیف کنید.');
+      const [[activeDraw]] = await conn.execute(
+        "SELECT id,status FROM campaign_draws WHERE campaign_id=? AND status IN ('prepared','running','pending_approval','completed') ORDER BY draw_number DESC LIMIT 1 FOR UPDATE",
+        [campaignId]
+      );
+      if (activeDraw) {
+        throw new Error('برای این کمپین قبلاً قرعه‌کشی آماده، در انتظار تأیید یا تکمیل‌شده وجود دارد؛ اجرای قرعه‌کشی مجدد مجاز نیست.');
+      }
       const [[existing]] = await conn.execute('SELECT COALESCE(MAX(draw_number),0) AS last_number FROM campaign_draws WHERE campaign_id=?', [campaignId]);
       const drawNumber = Number(existing.last_number) + 1;
       const [created] = await conn.execute(
