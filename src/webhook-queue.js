@@ -56,7 +56,8 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
                 bucket,
                 limit: isAdminActor ? 120 : (bucket === "callback" ? 50 : 25),
                 windowMs: 60000,
-                blockMs: 5000
+                blockMs: 5000,
+                connection: conn
               });
             } catch (rateError) {
               await conn.execute(
