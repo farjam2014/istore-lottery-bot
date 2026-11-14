@@ -131,7 +131,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
         const selected=await drawService.runSystemDraw(result.drawId);
         return adminMessage({chat_id:chat,text:'🎲 نتیجه اولیه آماده شد و هنوز نهایی نیست.\nقرعه‌کشی: #'+result.drawId+'\nواجدان: '+result.candidates+'\nSnapshot SHA-256: '+result.snapshotHash+'\n\nبرندگان تا تأیید نهایی قطعی نیستند.',reply_markup:keyboard([[{text:'✅ تأیید نتیجه',callback_data:'adm:draw-approve:'+result.drawId}],[{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+campaignId}]])});
       }
-      return adminMessage({chat_id:chat,text:'Snapshot قرعه‌کشی #'+result.drawId+' آماده شد. تعداد واجدان: '+result.candidates+'\nروش کمپین گردونه زنده است؛ نتایج باید از مسیر ثبت نتیجه زنده و با شواهد ثبت شوند. هیچ برنده‌ای خودکار انتخاب نشده است.',reply_markup:keyboard([[{text:'🎡 ثبت نتیجه گردونه زنده',callback_data:'adm:draw-live:'+result.drawId+':0}],[{text:'↩️ بازگشت',callback_data:'adm:draw-campaign:'+campaignId}]])});
+      const liveResultText = "Snapshot قرعه‌کشی #" + result.drawId + " آماده شد. تعداد واجدان: " + result.candidates + "\nروش کمپین گردونه زنده است؛ نتایج باید از مسیر ثبت نتیجه زنده و با شواهد ثبت شوند. هیچ برنده‌ای خودکار انتخاب نشده است.";
+      const liveResultButtons = keyboard([
+        [{text:"🎡 ثبت نتیجه گردونه زنده",callback_data:"adm:draw-live:" + result.drawId + ":0"}],
+        [{text:"↩️ بازگشت",callback_data:"adm:draw-campaign:" + campaignId}]
+      ]);
+      return adminMessage({chat_id:chat,text:liveResultText,reply_markup:liveResultButtons});
     } catch(e) { return adminMessage({chat_id:chat,text:'آماده‌سازی قرعه‌کشی انجام نشد: '+e.message}); }
   }
   async function resumeCampaignDraw(chat,drawId) {
