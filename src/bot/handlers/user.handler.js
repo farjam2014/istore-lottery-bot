@@ -11,7 +11,7 @@ export function registerUserHandlers(bot){
     const campaign=await getCampaignById(Number(ctx.match[1]));
     if(!campaign||campaign.status!=='open')return ctx.reply('این کمپین دیگر در دسترس نیست.');
     const lines=[`🎁 ${campaign.title}`,campaign.description||'توضیحی ثبت نشده است.',`نوع شرکت: ${campaign.participation_type==='free'?'رایگان':'پولی'}`,campaign.participation_type==='paid'?`هزینه شرکت: ${Number(campaign.entry_price||0).toLocaleString('fa-IR')} ریال`:'شرکت رایگان',campaign.capacity? `ظرفیت: ${campaign.capacity}`:'ظرفیت: نامحدود',`تعداد شرکت‌کننده: ${Number(campaign.participant_count||0).toLocaleString('fa-IR')}`];
-    const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[];
+    const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[[Markup.button.callback('ثبت سفارش و پرداخت','payment:start:'+campaign.id)]];
     buttons.push([Markup.button.callback('بازگشت به کمپین‌ها','user:campaigns')]);
     return ctx.reply(lines.join('\n\n'),Markup.inlineKeyboard(buttons));
   });
@@ -25,7 +25,6 @@ export function registerUserHandlers(bot){
   });
   bot.action('user:codes',async ctx=>{await ctx.answerCbQuery();const rows=await listParticipantCodes(ctx.from.id);if(!rows.length)return ctx.reply('هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());return ctx.reply('کدهای شما:\n'+rows.map(x=>`${x.code} — ${x.campaign_title}`).join('\n'),userMenuKeyboard());});
   bot.action('user:account',async ctx=>{await ctx.answerCbQuery();const p=ctx.state.profile;return ctx.reply(`نام: ${p.full_name}\nموبایل: ${p.phone}\nاینستاگرام: @${p.instagram_handle}`,userMenuKeyboard());});
-  bot.action('user:orders',async ctx=>{await ctx.answerCbQuery();return ctx.reply('هنوز سفارش فعالی ندارید.',userMenuKeyboard());});
   bot.action('user:support',async ctx=>{await ctx.answerCbQuery();return ctx.reply('پیام خود را برای پشتیبانی ارسال کنید.',userMenuKeyboard());});
 }
 async function showCampaignPage(ctx,page){
