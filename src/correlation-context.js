@@ -37,10 +37,9 @@ function findMatchingParen(source, openIndex) {
 
 function injectCorrelation(sql, values, correlationId) {
   if (!correlationId || !Array.isArray(values) || typeof sql !== 'string') return { sql, values };
-  const insert = sql.match(/^(INSERT(?:\s+IGNORE)?\s+INTO\s+[\x60]?([a-z0-9_]+)[\x60]?\s*)\(/i);
-  if (!insert || !TARGETS.has(insert[2].toLowerCase())) return { sql, values };
-
-  const columnsOpen = insert[0].length - 1;
+  const insert = sql.match(/^INSERT(?:\s+IGNORE)?\s+INTO\s+([a-z0-9_]+)\s*\(/i);
+  if (!insert || !TARGETS.has(insert[1].toLowerCase())) return { sql, values };
+  const columnsOpen = insert[0].lastIndexOf('(');
   const columnsClose = findMatchingParen(sql, columnsOpen);
   if (columnsClose < 0) return { sql, values };
   const columns = sql.slice(columnsOpen + 1, columnsClose);
