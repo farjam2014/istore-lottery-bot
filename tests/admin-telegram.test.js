@@ -370,3 +370,32 @@ test('Telegram admin can requeue a failed notification with an audit record', as
   assert.ok(h.calls.some(x=>x.sql.includes("retry_notification")&&x.params[3]==='19'));
   assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف ارسال')));
 });
+
+
+test('customer search supports name, phone, Instagram, Telegram ID and internal ID with parameterized filters', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'customer-search-open',data:'adm:participant-search',from:message.from,message:{chat:message.chat}});
+  assert.match(h.telegram.at(-1).payload.text,/نام، شماره موبایل/);
+  await h.admin.handleMessage({...message,text:'09123335555'});
+  const countQuery=h.calls.find(x=>x.sql.includes('COUNT(*) AS total FROM participants p WHERE'));
+  const rowsQuery=h.calls.find(x=>x.sql.includes('FROM participants p WHERE')&&x.sql.includes('LIMIT 8 OFFSET'));
+  assert.ok(countQuery&&rowsQuery);
+  assert.match(rowsQuery.sql,/p\.full_name LIKE \?/);
+  assert.deepEqual(rowsQuery.params,['%09123335555%','%09123335555%','%09123335555%','%09123335555%','09123335555',0]);
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(x=>x.callback_data==='adm:participant-search'));
+});
+
+test('notification center filters all delivery states and exposes a detail action', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'outbox-sent-filter',data:'adm:outbox:sent',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM telegram_notification_outbox WHERE status=?')&&x.params[0]==='sent'));
+  assert.ok(h.telegram.at(-1).payload.reply_markup.inline_keyboard.flat().some(x=>x.callback_data==='adm:outbox:failed'));
+  await h.admin.handleCallback({id:'outbox-detail',data:'adm:outbox-item:19',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('dedupe_key')&&x.sql.includes('FROM telegram_notification_outbox WHERE id=?')));
+});
+
+test('support conversation history is paginated instead of silently truncating after 100 messages', async () => {
+  const h=harness(), message={from:{id:12345},chat:{id:12345,type:'private'}};
+  await h.admin.handleCallback({id:'support-page-two',data:'adm:support-thread:42:1',from:message.from,message:{chat:message.chat}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 20 OFFSET ?')&&x.params[0]==='42'&&x.params[1]===20));
+});
