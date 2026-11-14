@@ -71,7 +71,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       'campaign_payment_sessions','campaign_draws','draw_candidates','draw_winners',
       'draw_evidence','telegram_sessions','telegram_notification_outbox','webhook_inbox',
       'admin_audit_log','processed_updates','customer_support_tickets','bank_cards','web_accounts',
-      'password_reset_requests','account_reset_tokens','telegram_contact_gate'
+      'password_reset_requests','account_reset_tokens','telegram_contact_gate','customer_support_messages'
     ]) assert.ok(names.has(name), 'missing normalized table: ' + name);
     for (const name of [
       'lottery_entries','lottery_settings','lottery_draws','lottery_draw_participants',
