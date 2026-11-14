@@ -414,3 +414,20 @@ test('campaign schedule worker opens and closes campaigns from database UTC deci
   assert.equal(calls.filter(x=>typeof x==='object'&&x.sql.includes('INSERT INTO campaign_status_history')).length,3);
   assert.ok(calls.includes('COMMIT'));
 });
+
+
+test('campaign cannot be moved to scheduled without a start timestamp', async () => {
+  const calls=[];
+  const conn={
+    async beginTransaction(){calls.push('BEGIN');},async commit(){calls.push('COMMIT');},async rollback(){calls.push('ROLLBACK');},release(){},
+    async execute(sql,params=[]){
+      calls.push({sql,params});
+      if(sql.includes('SELECT id,status,starts_at,ends_at'))return [[{id:9,status:'draft',starts_at:null,ends_at:null}]];
+      return [{affectedRows:1}];
+    }
+  };
+  const service=require('../src/campaign-service').createCampaignService({db:{async getConnection(){return conn;}},adminId:'admin'});
+  await assert.rejects(service.setCampaignStatus(9,'scheduled'),/دارای زمان شروع باشد/);
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+});
