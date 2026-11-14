@@ -75,6 +75,14 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND COLUMN_NAME='status'"
     );
     assert.equal(Number(ticketColumns.total), 1);
+    const [[ticketMessageColumns]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND COLUMN_NAME='telegram_message_id'"
+    );
+    assert.equal(Number(ticketMessageColumns.total), 1);
+    const [[ticketMessageIndexes]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND INDEX_NAME='uq_support_telegram_message'"
+    );
+    assert.equal(Number(ticketMessageIndexes.total), 1);
   } finally {
     await verify.end();
     const cleanup = await mysql.createConnection({
