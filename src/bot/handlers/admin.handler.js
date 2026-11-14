@@ -6,6 +6,7 @@ import {listPendingReceipts} from '../../modules/payments/payment.service.js';
 import {toCsv} from '../../shared/csv.js';
 import {hasPermission,isConfiguredSuperAdmin} from '../../modules/admin/admin-role.service.js';
 import {getManagementReport,reportRows} from '../../modules/reports/management-report.service.js';
+import {listManagedOrders,searchManagedOrders,getManagedOrderDetail,exportManagedOrders} from '../../modules/payments/payment-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -20,7 +21,7 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:support:reply'))return hasPermission(id,'support.reply');
     if(data.startsWith('admin:support:assign')||data.startsWith('admin:support:status')||data.startsWith('admin:support:priority'))return hasPermission(id,'support.manage');
     if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
-    if(data==='admin:payments')return hasPermission(id,'payment.read');
+    if(data.startsWith('admin:payments')||data.startsWith('admin:payment:order:')||data==='admin:payment:export'||data==='admin:payment:search')return hasPermission(id,'payment.read');
     if(data==='admin:payment-settings')return hasPermission(id,'payment.settings');
     if(data==='admin:stats'||data.startsWith('admin:reports')||data.startsWith('admin:report:'))return hasPermission(id,'report.read');
     if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
@@ -28,6 +29,7 @@ async function isAdmin(ctx){
   }
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
+    const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);
@@ -136,12 +138,31 @@ export function registerAdminHandlers(bot){
   bot.action('admin:payments',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery();
-    const rows=await listPendingReceipts();
-    if(!rows.length)return ctx.reply('رسید در انتظار بررسی وجود ندارد.',menu());
-    for(const r of rows){
-      const caption='رسید #'+r.receipt_id+' | سفارش #'+r.order_id+'\nکمپین: '+r.campaign_title+'\nمبلغ: '+Number(r.amount).toLocaleString('fa-IR')+' ریال\nکاربر: '+r.full_name+'\nموبایل: '+r.phone+'\nاینستاگرام: @'+r.instagram_handle+'\nیادداشت: '+(r.note||'—');
-      await ctx.telegram.sendPhoto(ctx.chat.id,r.telegram_file_id,{caption,reply_markup:Markup.inlineKeyboard([[Markup.button.callback('تأیید پرداخت','payment:approve:'+r.receipt_id)],[Markup.button.callback('رد رسید','payment:reject:'+r.receipt_id)]]).reply_markup});
-    }
+    return showManagedOrders(ctx,'all',0);
+  });
+  bot.action(/^admin:payments:status:(all|awaiting_receipt|under_review|approved|rejected|cancelled|expired)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery();return showManagedOrders(ctx,ctx.match[1],0);
+  });
+  bot.action(/^admin:payments:page:(all|awaiting_receipt|under_review|approved|rejected|cancelled|expired):(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery();return showManagedOrders(ctx,ctx.match[1],Number(ctx.match[2]));
+  });
+  bot.action(/^admin:payment:order:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery();return showManagedOrderDetail(ctx,Number(ctx.match[1]));
+  });
+  bot.action('admin:payment:search',async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,status_filter) VALUES(?,'search_order','all') ON DUPLICATE KEY UPDATE step=VALUES(step),status_filter='all'",[String(ctx.from.id)]);
+    await ctx.answerCbQuery();return ctx.reply('شناسه سفارش، شناسه پرداخت (ISTPAY-...)، Telegram ID یا شماره موبایل را ارسال کنید.');
+  });
+  bot.action('admin:payment:export',async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery('در حال ساخت خروجی...');
+    const rows=await exportManagedOrders({limit:10000});
+    const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
+    return ctx.replyWithDocument({source:Buffer.from(toCsv(rows,columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
@@ -173,6 +194,8 @@ export function registerAdminHandlers(bot){
   bot.on('text',async(ctx,next)=>{
     if(!await isAdmin(ctx))return next();
     if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return ctx.reply('شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return ctx.reply('این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');const c=await pool.getConnection();try{await c.beginTransaction();const [[old]]=await c.execute('SELECT role FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[target]);await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE role=VALUES(role),is_active=1,added_by=VALUES(added_by)',[target,pending[0].role,String(ctx.from.id)]);await c.execute("INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?, ?,?)",[target,String(ctx.from.id),old?'role_changed':'assigned',old?.role||null,pending[0].role]);await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return ctx.reply('دسترسی مدیر ثبت شد: '+target+' | '+pending[0].role,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
+    const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
+    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return ctx.reply('سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return ctx.reply('نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const wizard=await getWizard(ctx.from.id);
     const [supportRows]=await pool.execute("SELECT step,ticket_id FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     if(supportRows[0]){const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return ctx.reply('متن پاسخ را ارسال کنید.');if(body.length>4000)return ctx.reply('پاسخ حداکثر ۴۰۰۰ نویسه باشد.');const ticketId=supportRows[0].ticket_id;const c=await pool.getConnection();let chatId;try{await c.beginTransaction();const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');chatId=String(t.telegram_user_id);await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}await ctx.telegram.sendMessage(chatId,'پاسخ پشتیبانی برای تیکت شما:\n'+body).catch(()=>{});return ctx.reply('پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));}
@@ -204,6 +227,33 @@ export function registerAdminHandlers(bot){
   });
   bot.action('admin:campaign:restart',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{});await ctx.answerCbQuery();return ctx.reply('نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
 }
+async function showManagedOrders(ctx,status,page){
+  const r=await listManagedOrders({status,page,limit:8});
+  const names={all:'همه',awaiting_receipt:'منتظر رسید',under_review:'در حال بررسی',approved:'تأییدشده',rejected:'ردشده',cancelled:'لغوشده',expired:'منقضی'};
+  const buttons=[
+    [Markup.button.callback('همه','admin:payments:status:all'),Markup.button.callback('منتظر رسید','admin:payments:status:awaiting_receipt')],
+    [Markup.button.callback('در حال بررسی','admin:payments:status:under_review'),Markup.button.callback('تأییدشده','admin:payments:status:approved')],
+    [Markup.button.callback('ردشده','admin:payments:status:rejected'),Markup.button.callback('لغو/انقضا','admin:payments:status:expired')]
+  ];
+  for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
+  const pages=Math.max(1,Math.ceil(r.total/r.limit));
+  const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:payments:page:'+status+':'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:payments:page:'+status+':'+(page+1)));if(nav.length)buttons.push(nav);
+  buttons.push([Markup.button.callback('🔎 جست‌وجوی سفارش','admin:payment:search'),Markup.button.callback('📥 خروجی CSV','admin:payment:export')]);
+  buttons.push([Markup.button.callback('بازگشت به مدیریت','admin:home')]);
+  const text='🧾 مرکز سفارش‌ها و پرداخت‌ها\nفیلتر: '+names[status]+'\nتعداد کل: '+Number(r.total).toLocaleString('fa-IR')+'\nصفحه: '+(page+1)+' از '+pages+'\n\n'+(r.rows.length?r.rows.map(o=>'#'+o.id+' | '+o.full_name+' | '+o.campaign_title+' | '+Number(o.amount).toLocaleString('fa-IR')+' ریال | '+o.status).join('\n'):'سفارشی در این فیلتر وجود ندارد.');
+  return ctx.reply(text,Markup.inlineKeyboard(buttons));
+}
+async function showManagedOrderDetail(ctx,id){
+  const d=await getManagedOrderDetail(id);if(!d)return ctx.reply('سفارش پیدا نشد.');
+  const o=d.order,n=v=>Number(v||0).toLocaleString('fa-IR');
+  const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+o.created_at+'\nانقضا: '+(o.expires_at||'—')+'\nتأیید: '+(o.approved_at||'—')+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+x.created_at+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+x.created_at).join('\n'):'بدون رویداد');
+  const buttons=[];
+  for(const receipt of d.receipts.filter(x=>x.status==='submitted'))buttons.push([Markup.button.callback('تأیید رسید #'+receipt.id,'payment:approve:'+receipt.id),Markup.button.callback('رد رسید #'+receipt.id,'payment:reject:'+receipt.id)]);
+  buttons.push([Markup.button.callback('بازگشت به سفارش‌ها','admin:payments')]);
+  await ctx.reply(text,Markup.inlineKeyboard(buttons));
+  for(const receipt of d.receipts.slice(0,5)){try{await ctx.telegram.sendPhoto(ctx.chat.id,receipt.telegram_file_id,{caption:'تصویر رسید #'+receipt.id+' | وضعیت: '+receipt.status});}catch{}}
+}
+
 async function showConfirmation(ctx,p){
   await saveWizard(ctx.from.id,'confirm',p);
   const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nمبلغ: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
