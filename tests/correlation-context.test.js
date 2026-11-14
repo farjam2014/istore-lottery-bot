@@ -23,6 +23,14 @@ test('injects correlation id only into supported inserts and never duplicates th
  assert.equal(injectCorrelation('INSERT INTO participants(id) VALUES(?)',[1],id).sql,'INSERT INTO participants(id) VALUES(?)');
 });
 
+test('correlation injection preserves nested SQL functions and interval expressions',()=>{
+ const id='123e4567-e89b-42d3-a456-426614174000';
+ const sql='INSERT INTO payment_orders(order_ref,expires_at) VALUES(?,DATE_ADD(NOW(),INTERVAL ? MINUTE))';
+ const result=injectCorrelation(sql,['ORDER-1',15],id);
+ assert.equal(result.sql,'INSERT INTO payment_orders(order_ref,expires_at,correlation_id) VALUES(?,DATE_ADD(NOW(),INTERVAL ? MINUTE),?)');
+ assert.deepEqual(result.values,['ORDER-1',15,id]);
+});
+
 test('pool and transaction connections both inherit the current correlation id',async()=>{
  const calls=[];
  const makeConnection=()=>({async execute(sql,values){calls.push({sql,values});return [[],[]];},async query(sql,values){calls.push({sql,values});return [[],[]];}});
