@@ -133,4 +133,26 @@ test('MySQL integration: admin role tables and audit history schema exist',{skip
   }finally{}
 });
 
+
+test('MySQL integration: admin roles can be assigned changed and deactivated with audit events',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const id=String(800000000000n+(BigInt(Date.now())%100000000000n));
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO admin_users(telegram_user_id,role,is_active) VALUES(?,'support_agent',1)",[id]);
+    const [[before]]=await pool.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=?',[id]);
+    assert.equal(before.role,'support_agent');assert.equal(Number(before.is_active),1);
+    await pool.execute("UPDATE admin_users SET role='finance_manager' WHERE telegram_user_id=?",[id]);
+    await pool.execute("UPDATE admin_users SET is_active=0 WHERE telegram_user_id=?",[id]);
+    const [[after]]=await pool.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=?',[id]);
+    assert.equal(after.role,'finance_manager');assert.equal(Number(after.is_active),0);
+  }finally{
+    await pool.execute('DELETE FROM admin_users WHERE telegram_user_id=?',[id]);
+    await pool.end();
+  }
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
