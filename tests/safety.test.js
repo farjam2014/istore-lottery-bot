@@ -126,7 +126,7 @@ test('profile confirmation persists the profile before clearing the session', ()
   const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
   const handler = source.slice(start, end);
   assert.match(handler, /await saveParticipantProfile\([\s\S]*?await delSession\(uid\)/);
-  assert.match(handler, /پروفایل شما با موفقیت ساخته شد/);
+  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);\n  assert.match(handler, /SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open'/);
 });
 
 test('optional contact gate fails open when CONTACT_PHONE is unset or invalid', () => {
@@ -254,4 +254,29 @@ test('profile correction requests use Telegram message id as a durable idempoten
   const service = fs.readFileSync(require.resolve('../src/campaign-service.js'), 'utf8');
   assert.match(source, /telegramMessageId:m\.message_id/);
   assert.match(service, /telegram_message_id,status\) VALUES\(\?,\?,\?,\?,\?,'pending'\) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID\(id\)/);
+});
+
+
+test('customer start requires profile registration before showing campaign choices', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf("if(lower==='/start'||lower==='لاتاری'");
+  const end = source.indexOf("if(lower==='/cancel'", start);
+  const handler = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(handler, /SELECT id,status FROM participants WHERE telegram_user_id=\? LIMIT 1/);
+  assert.ok(handler.indexOf('if(!existingProfile)') < handler.indexOf('SELECT id,name,payment_mode,price_per_code,currency FROM campaigns'));
+  assert.match(handler, /putSession\(uid,chat,"profile_name"/);
+  assert.match(handler, /existingProfile\.status!=="active"/);
+});
+
+test('newly registered customer is shown free and paid campaigns immediately', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(q.data==="profile:confirm")');
+  const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /payment_mode==="free"\?"رایگان"/);
+  assert.match(handler, /callback_data:"campaign:details:"\+c\.id/);
+  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);
 });
