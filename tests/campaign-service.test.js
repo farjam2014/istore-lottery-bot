@@ -350,3 +350,44 @@ test('scheduled campaign can be closed before it opens', async () => {
   assert.ok(calls.includes('COMMIT'));
   assert.ok(!calls.includes('ROLLBACK'));
 });
+
+
+test('manual payment approval refuses inactive participants before issuing codes', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const calls = [];
+  const conn = {
+    async beginTransaction() { calls.push('BEGIN'); },
+    async commit() { calls.push('COMMIT'); },
+    async rollback() { calls.push('ROLLBACK'); },
+    release() { calls.push('RELEASE'); },
+    async execute(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT * FROM payment_orders')) return [[{
+        id: 91, status: 'receipt_submitted', participant_id: 17, campaign_id: 4,
+        expires_at: '2030-01-01 00:00:00', entry_id: 23, quantity: 2,
+        total_snapshot: 500000, currency: 'IRR'
+      }]];
+      if (sql.includes('SELECT * FROM campaign_capacity_reservations')) return [[{ id: 33, status: 'held' }]];
+      if (sql.includes('AS submitted_in_time')) return [[{ id: 44, submitted_in_time: 1 }]];
+      if (sql.includes('SELECT status FROM campaigns')) return [[{ status: 'open' }]];
+      if (sql.includes('SELECT id,status FROM participants')) return [[{ id: 17, status: 'inactive' }]];
+      throw new Error('Unexpected SQL: ' + sql);
+    }
+  };
+  const service = createCampaignService({ db: { async getConnection() { return conn; } }, adminId: 'admin' });
+  await assert.rejects(
+    service.reviewManualPayment({ orderId: 91, approve: true }),
+    /شرکت‌کننده غیرفعال است/
+  );
+  assert.ok(calls.includes('ROLLBACK'));
+  assert.ok(!calls.includes('COMMIT'));
+  assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO campaign_codes/.test(x.sql)), false);
+  assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO payment_transactions/.test(x.sql)), false);
+});
+
+test('free campaign wizard skips payment-card selection and omits it from review edits', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/admin-telegram.js'), 'utf8');
+  assert.match(source, /expected==='draw_basis'&&p\.values\.payment_mode==='free'\)return campaignWizardReview\(chat,p\)/);
+  assert.match(source, /filter\(\(\{f\}\)=>!\(v\.payment_mode==='free'&&f\.key==='payment_card_id'\)\)/);
+});
