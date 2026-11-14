@@ -45,6 +45,7 @@ export async function setDefaultPaymentCard(id,adminId){
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
+    await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
     const [[card]]=await c.execute('SELECT id,is_active FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
     if(!card)throw new Error('کارت موردنظر پیدا نشد.');
     if(Number(card.is_active)!==1)throw new Error('برای کارت غیرفعال نمی‌توان پیش‌فرض تعیین کرد.');
@@ -57,6 +58,7 @@ export async function setPaymentCardActive(id,active,adminId){
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
+    await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
     const [[card]]=await c.execute('SELECT id,is_active,is_default FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
     if(!card)throw new Error('کارت موردنظر پیدا نشد.');
     if(!active&&Number(card.is_default)===1){
