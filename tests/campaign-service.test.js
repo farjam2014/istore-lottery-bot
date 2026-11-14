@@ -431,3 +431,25 @@ test('campaign cannot be moved to scheduled without a start timestamp', async ()
   assert.ok(calls.includes('ROLLBACK'));
   assert.ok(!calls.includes('COMMIT'));
 });
+
+
+test('campaign lifecycle rejects illegal backwards and premature transitions', async () => {
+  async function attempt(current,next){
+    const calls=[];
+    const conn={
+      async beginTransaction(){calls.push('BEGIN');},async commit(){calls.push('COMMIT');},async rollback(){calls.push('ROLLBACK');},release(){},
+      async execute(sql){
+        calls.push(sql);
+        if(sql.includes('SELECT id,status,starts_at,ends_at'))return [[{id:9,status:current,starts_at:null,ends_at:null}]];
+        return [{affectedRows:1}];
+      }
+    };
+    const service=require('../src/campaign-service').createCampaignService({db:{async getConnection(){return conn;}},adminId:'admin'});
+    await assert.rejects(service.setCampaignStatus(9,next),/تغییر وضعیت .* مجاز نیست/);
+    assert.ok(calls.includes('ROLLBACK'));
+    assert.ok(!calls.includes('COMMIT'));
+  }
+  await attempt('draft','closed');
+  await attempt('open','draft');
+  await attempt('closed','open');
+});
