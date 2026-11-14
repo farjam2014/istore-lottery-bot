@@ -258,17 +258,17 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     buttons.push([{text:'همه',callback_data:'adm:outbox:all'}]);
     const nav=[];if(p>0)nav.push({text:'⬅️ قبلی',callback_data:'adm:outbox-page:'+status+':'+(p-1)});if((p+1)*15<Number(count.total))nav.push({text:'بعدی ➡️',callback_data:'adm:outbox-page:'+status+':'+(p+1)});if(nav.length)buttons.push(nav);
     buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:outbox:'+status},{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
-    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · '+(labels[x.status]||x.status)+' · تلاش: '+x.attempts+'\\n'+(x.last_error?'خطا: '+x.last_error+'\\n':'')+'ثبت: '+x.created_at).join('\\n\\n'):'اعلانی در این وضعیت وجود ندارد.';
-    return adminMessage({chat_id:chat,text:'📨 مدیریت صف اعلان‌ها · '+(labels[status]||'همه')+'\\n'+Number(count.total||0)+' اعلان · صفحه '+(p+1)+'\\n\\n'+body,reply_markup:keyboard(buttons)});
+    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · '+(labels[x.status]||x.status)+' · تلاش: '+x.attempts+'\n'+(x.last_error?'خطا: '+x.last_error+'\n':'')+'ثبت: '+x.created_at).join('\n\n'):'اعلانی در این وضعیت وجود ندارد.';
+    return adminMessage({chat_id:chat,text:'📨 مدیریت صف اعلان‌ها · '+(labels[status]||'همه')+'\n'+Number(count.total||0)+' اعلان · صفحه '+(p+1)+'\n\n'+body,reply_markup:keyboard(buttons)});
   }
   async function outboxDetail(chat,id) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
     const [[item]]=await db.execute('SELECT id,dedupe_key,notification_type,status,attempts,last_error,created_at,sent_at,next_attempt_at,processing_started_at FROM telegram_notification_outbox WHERE id=? LIMIT 1',[id]);
     if(!item)return adminMessage({chat_id:chat,text:'اعلان پیدا نشد.'});
     const labels={pending:'در انتظار',processing:'در حال ارسال',sent:'ارسال‌شده',failed:'ناموفق'};
     const buttons=[];if(item.status==='failed')buttons.push([{text:'🔁 تلاش مجدد',callback_data:'adm:outbox-retry:'+id}]);
     buttons.push([{text:'↩️ بازگشت به صف',callback_data:'adm:outbox:all'},{text:'🏠 منو',callback_data:'adm:home'}]);
-    return adminMessage({chat_id:chat,text:'📨 جزئیات اعلان #'+id+'\\nنوع: '+item.notification_type+'\\nوضعیت: '+(labels[item.status]||item.status)+'\\nتعداد تلاش: '+item.attempts+'\\nکلید یکتا: '+item.dedupe_key+'\\nثبت: '+item.created_at+'\\nارسال موفق: '+(item.sent_at||'-')+'\\nزمان تلاش بعدی: '+(item.next_attempt_at||'-')+'\\nشروع پردازش: '+(item.processing_started_at||'-')+'\\n\\nآخرین خطا:\\n'+(item.last_error||'بدون خطا ثبت‌شده')+'\\n\\nمحتوای payload در پنل نمایش داده نمی‌شود تا اطلاعات شخصی و پرداخت افشا نشود.',reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'📨 جزئیات اعلان #'+id+'\nنوع: '+item.notification_type+'\nوضعیت: '+(labels[item.status]||item.status)+'\nتعداد تلاش: '+item.attempts+'\nکلید یکتا: '+item.dedupe_key+'\nثبت: '+item.created_at+'\nارسال موفق: '+(item.sent_at||'-')+'\nزمان تلاش بعدی: '+(item.next_attempt_at||'-')+'\nشروع پردازش: '+(item.processing_started_at||'-')+'\n\nآخرین خطا:\n'+(item.last_error||'بدون خطا ثبت‌شده')+'\n\nمحتوای payload در پنل نمایش داده نمی‌شود تا اطلاعات شخصی و پرداخت افشا نشود.',reply_markup:keyboard(buttons)});
   }
   async function retryOutbox(chat,id) {
     if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
@@ -299,20 +299,20 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     return adminMessage({chat_id:chat,text:'💬 تیکت‌های پشتیبانی · '+status+' · صفحه '+(p+1),reply_markup:keyboard(buttons)});
   }
   async function supportDetail(chat,id,page=0) {
-    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
+    if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه تیکت نامعتبر است.'});
     const [[ticket]]=await db.execute('SELECT id,telegram_user_id,chat_id,business_connection_id,message,status,admin_reply,replied_at,created_at FROM customer_support_tickets WHERE id=? LIMIT 1',[id]);
     if(!ticket)return adminMessage({chat_id:chat,text:'تیکت پیدا نشد.'});
     const p=Math.max(0,Math.min(10000,Number(page)||0));
     const [[total]]=await db.execute('SELECT COUNT(*) AS total FROM customer_support_messages WHERE ticket_id=?',[id]);
     const [messages]=await db.execute('SELECT sender_type,sender_id,message,created_at FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 20 OFFSET ?',[id,p*20]);
     messages.reverse();
-    const history=messages.length?messages.map(m=>(m.sender_type==='customer'?'👤 مشتری':m.sender_type==='admin'?'🛠 مدیر':'⚙️ سیستم')+' · '+m.created_at+'\\n'+m.message).join('\\n\\n'):'تاریخچه پیام‌ها خالی است؛ پیام اولیه: '+ticket.message;
+    const history=messages.length?messages.map(m=>(m.sender_type==='customer'?'👤 مشتری':m.sender_type==='admin'?'🛠 مدیر':'⚙️ سیستم')+' · '+m.created_at+'\n'+m.message).join('\n\n'):'تاریخچه پیام‌ها خالی است؛ پیام اولیه: '+ticket.message;
     const buttons=[];
     const nav=[];if(p>0)nav.push({text:'پیام‌های جدیدتر ⬅️',callback_data:'adm:support-thread:'+id+':'+(p-1)});if((p+1)*20<Number(total.total))nav.push({text:'پیام‌های قدیمی‌تر ➡️',callback_data:'adm:support-thread:'+id+':'+(p+1)});if(nav.length)buttons.push(nav);
     if(ticket.status!=='closed')buttons.push([{text:'🔒 بستن تیکت',callback_data:'adm:support-close:'+id}]);
     else buttons.push([{text:'↻ بازگشایی تیکت',callback_data:'adm:support-reopen:'+id}]);
     buttons.push([{text:'✍️ راهنمای پاسخ',callback_data:'adm:support-reply-help:'+id},{text:'↩️ فهرست',callback_data:'adm:support'}]);
-    return adminMessage({chat_id:chat,text:'💬 گفت‌وگوی پشتیبانی #'+ticket.id+' · '+ticket.status+'\\nکاربر: '+ticket.telegram_user_id+'\\nثبت: '+ticket.created_at+' · '+Number(total.total)+' پیام · صفحه '+(p+1)+'\\n\\n'+history+'\\n\\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
+    return adminMessage({chat_id:chat,text:'💬 گفت‌وگوی پشتیبانی #'+ticket.id+' · '+ticket.status+'\nکاربر: '+ticket.telegram_user_id+'\nثبت: '+ticket.created_at+' · '+Number(total.total)+' پیام · صفحه '+(p+1)+'\n\n'+history+'\n\nبرای پاسخ: /reply '+ticket.id+' متن پاسخ',reply_markup:keyboard(buttons)});
   }
   async function setSupportStatus(chat,id,status) {
     if(!/^\d+$/.test(String(id))||!['open','closed'].includes(status))return adminMessage({chat_id:chat,text:'درخواست نامعتبر است.'});
