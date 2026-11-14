@@ -372,6 +372,12 @@ test('manual payment approval refuses inactive participants before issuing codes
       if (sql.includes('SELECT campaign_id,participant_id FROM payment_orders')) return [[{campaign_id:4,participant_id:17}]];
       if (sql.includes('SELECT id,status FROM campaigns')) return [[{id:4,status:'open'}]];
       if (sql.includes('SELECT id,status FROM participants')) return [[{ id: 17, status: 'inactive' }]];
+      if (sql.includes('SELECT * FROM payment_orders')) return [[{
+        id:91,status:'receipt_submitted',participant_id:17,campaign_id:4,
+        expires_at:'2030-01-01 00:00:00',entry_id:23,quantity:2,total_snapshot:500000,currency:'IRR'
+      }]];
+      if (sql.includes('SELECT * FROM campaign_capacity_reservations')) return [[{id:33,status:'held'}]];
+      if (sql.includes('AS submitted_in_time')) return [[{id:44,submitted_in_time:1}]];
       throw new Error('Unexpected SQL: ' + sql);
     }
   };
