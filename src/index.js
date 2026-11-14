@@ -234,10 +234,33 @@ if(String(q.data||"").startsWith("order:resume:")){
 }
 if(q.data==='participant:tickets'){
   await tg("answerCallbackQuery",{callback_query_id:q.id});
-  const [rows]=await db.execute("SELECT id,message,status,admin_reply,created_at,replied_at FROM customer_support_tickets WHERE telegram_user_id=? ORDER BY created_at DESC LIMIT 10",[uid]);
+  const [rows]=await db.execute("SELECT id,message,status,created_at FROM customer_support_tickets WHERE telegram_user_id=? ORDER BY created_at DESC LIMIT 10",[uid]);
   const labels={open:"در انتظار پاسخ",answered:"پاسخ داده‌شده",closed:"بسته‌شده"};
-  const body=rows.length?rows.map((x,i)=>(i+1)+") تیکت #"+x.id+" · "+(labels[x.status]||x.status)+"\nپیام شما: "+x.message+(x.admin_reply?"\nپاسخ پشتیبانی: "+x.admin_reply:"")).join("\n\n"):"هنوز تیکتی ثبت نکرده‌اید.";
-  return reply(chat,String(q.message?.business_connection_id||""),body,{reply_markup:{inline_keyboard:[[{text:"➕ ثبت پیام جدید",callback_data:"support:start"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});
+  const buttons=rows.map(x=>[{text:"تیکت #"+x.id+" · "+(labels[x.status]||x.status),callback_data:"participant:ticket:"+x.id+":0"}]);
+  buttons.push([{text:"➕ ثبت پیام جدید",callback_data:"support:start"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]);
+  const body=rows.length?"برای مشاهده تاریخچه و ادامه گفت‌وگو، تیکت موردنظر را انتخاب کنید.":"هنوز تیکتی ثبت نکرده‌اید.";
+  return reply(chat,String(q.message?.business_connection_id||""),body,{reply_markup:{inline_keyboard:buttons}});
+}
+if(q.data.startsWith('participant:ticket:')){
+  await tg("answerCallbackQuery",{callback_query_id:q.id});
+  const [, ,ticketId,pageValue='0']=q.data.split(':');
+  if(!/^\\d+$/.test(ticketId))return reply(chat,String(q.message?.business_connection_id||""),"شناسه تیکت نامعتبر است.");
+  const [[ticket]]=await db.execute("SELECT id,message,status,created_at FROM customer_support_tickets WHERE id=? AND telegram_user_id=? LIMIT 1",[ticketId,uid]);
+  if(!ticket)return reply(chat,String(q.message?.business_connection_id||""),"تیکت برای حساب شما پیدا نشد.");
+  const page=Math.max(0,Math.min(10000,Number(pageValue)||0));
+  const [[total]]=await db.execute("SELECT COUNT(*) AS total FROM customer_support_messages WHERE ticket_id=?",[ticketId]);
+  const [messages]=await db.execute("SELECT sender_type,message,created_at FROM customer_support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 15 OFFSET ?",[ticketId,page*15]);
+  messages.reverse();
+  const labels={open:"در انتظار پاسخ",answered:"پاسخ داده‌شده",closed:"بسته‌شده"};
+  const history=messages.length?messages.map(x=>(x.sender_type==="customer"?"👤 شما":x.sender_type==="admin"?"🛠 پشتیبانی":"⚙️ سیستم")+" · "+x.created_at+"\\n"+x.message).join("\\n\\n"):"پیام اولیه: "+ticket.message;
+  const buttons=[],nav=[];
+  if(page>0)nav.push({text:"پیام‌های جدیدتر ⬅️",callback_data:"participant:ticket:"+ticketId+":"+(page-1)});
+  if((page+1)*15<Number(total.total||0))nav.push({text:"پیام‌های قدیمی‌تر ➡️",callback_data:"participant:ticket:"+ticketId+":"+(page+1)});
+  if(nav.length)buttons.push(nav);
+  if(ticket.status!=="closed")buttons.push([{text:"✍️ ارسال پیام به پشتیبانی",callback_data:"support:start"}]);
+  else buttons.push([{text:"➕ ثبت تیکت جدید",callback_data:"support:start"}]);
+  buttons.push([{text:"↩️ فهرست تیکت‌ها",callback_data:"participant:tickets"}]);
+  return reply(chat,String(q.message?.business_connection_id||""),"💬 تیکت #"+ticket.id+" · "+(labels[ticket.status]||ticket.status)+"\\nثبت: "+ticket.created_at+" · "+Number(total.total||0)+" پیام · صفحه "+(page+1)+"\\n\\n"+history,{reply_markup:{inline_keyboard:buttons}});
 }
 if(q.data==='participant:codes'){await tg("answerCallbackQuery",{callback_query_id:q.id});const [[p]]=await db.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active' LIMIT 1",[uid]);if(!p)return reply(chat,String(q.message?.business_connection_id||""),"ابتدا پروفایل بسازید.");const [rows]=await db.execute("SELECT c.name,cc.code FROM campaign_codes cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.participant_id=? AND cc.status='active' ORDER BY cc.issued_at DESC LIMIT 100",[p.id]);return reply(chat,String(q.message?.business_connection_id||""),rows.length?rows.map((x,i)=>(i+1)+". "+x.name+" — "+x.code).join("\n"):"هنوز کدی ندارید.",{reply_markup:{inline_keyboard:[[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}
 if(q.data==='participant:account'){
