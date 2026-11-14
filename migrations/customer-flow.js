@@ -22,7 +22,11 @@ async function up(db) {
   if (!columns.length) await db.query("ALTER TABLE customer_support_tickets ADD COLUMN telegram_message_id BIGINT NULL");
   const [indexes] = await db.query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND INDEX_NAME='uq_support_telegram_message'");
   if (!indexes.length) await db.query("ALTER TABLE customer_support_tickets ADD UNIQUE KEY uq_support_telegram_message(telegram_user_id,telegram_message_id)");
-  return {ok:true,feature:'customer-flow',idempotentSupportMessages:true};
+  const [profileColumns] = await db.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND COLUMN_NAME='telegram_message_id'");
+  if (!profileColumns.length) await db.query("ALTER TABLE profile_change_requests ADD COLUMN telegram_message_id BIGINT NULL");
+  const [profileIndexes] = await db.query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND INDEX_NAME='uq_profile_change_telegram_message'");
+  if (!profileIndexes.length) await db.query("ALTER TABLE profile_change_requests ADD UNIQUE KEY uq_profile_change_telegram_message(participant_id,telegram_message_id)");
+  return {ok:true,feature:'customer-flow',idempotentSupportMessages:true,idempotentProfileChanges:true};
 }
 
 module.exports={up};
