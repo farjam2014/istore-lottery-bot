@@ -10,7 +10,20 @@ export function registerUserHandlers(bot){
     await ctx.answerCbQuery();
     const campaign=await getCampaignById(Number(ctx.match[1]));
     if(!campaign||campaign.status!=='open')return ctx.reply('این کمپین دیگر در دسترس نیست.');
-    const lines=[\`🎁 \${campaign.title}\`,campaign.description||'توضیحی ثبت نشده است.',campaign.prize_title?\`جایزه: \${campaign.prize_title}\`:null,campaign.prize_description||null,campaign.prize_value?\`ارزش تقریبی جایزه: \${Number(campaign.prize_value).toLocaleString('fa-IR')} ریال\`:null,\`نوع شرکت: \${campaign.participation_type==='free'?'رایگان':'پولی'}\`,campaign.participation_type==='paid'?\`هزینه شرکت: \${Number(campaign.entry_price||0).toLocaleString('fa-IR')} ریال\`:'شرکت رایگان',campaign.starts_at?\`شروع: \${campaign.starts_at}\`:null,campaign.ends_at?\`پایان: \${campaign.ends_at}\`:null,campaign.draw_at?\`زمان قرعه‌کشی: \${campaign.draw_at}\`:null,campaign.capacity?\`ظرفیت کل: \${campaign.capacity} | ثبت‌نام/رزرو: \${Number(campaign.participant_count||0)}\`:'ظرفیت: نامحدود',campaign.terms?\`قوانین و شرایط:\\n\${campaign.terms}\`:null].filter(Boolean);
+    const lines=[
+      '🎁 '+campaign.title,
+      campaign.description||'توضیحی ثبت نشده است.',
+      campaign.prize_title?'جایزه: '+campaign.prize_title:null,
+      campaign.prize_description||null,
+      campaign.prize_value?'ارزش تقریبی جایزه: '+Number(campaign.prize_value).toLocaleString('fa-IR')+' ریال':null,
+      'نوع شرکت: '+(campaign.participation_type==='free'?'رایگان':'پولی'),
+      campaign.participation_type==='paid'?'هزینه شرکت: '+Number(campaign.entry_price||0).toLocaleString('fa-IR')+' ریال':'شرکت رایگان',
+      campaign.starts_at?'شروع: '+campaign.starts_at:null,
+      campaign.ends_at?'پایان: '+campaign.ends_at:null,
+      campaign.draw_at?'زمان قرعه‌کشی: '+campaign.draw_at:null,
+      campaign.capacity?'ظرفیت کل: '+campaign.capacity+' | ثبت‌نام/رزرو: '+Number(campaign.participant_count||0):'ظرفیت: نامحدود',
+      campaign.terms?'قوانین و شرایط:\\n'+campaign.terms:null
+    ].filter(Boolean);
     const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[[Markup.button.callback('ثبت سفارش و پرداخت','payment:start:'+campaign.id)]];
     buttons.push([Markup.button.callback('بازگشت به کمپین‌ها','user:campaigns')]);
     if(campaign.poster_file_id)await ctx.replyWithPhoto(campaign.poster_file_id,{caption:'پوستر کمپین: '+campaign.title});
