@@ -17,7 +17,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
     [{ text: '💬 تیکت‌های پشتیبانی', callback_data: 'adm:support' }],
-    [{ text: '⚠️ صف اعلان‌های ناموفق', callback_data: 'adm:outbox' }],
+    [{ text: '📨 مدیریت صف اعلان‌ها', callback_data: 'adm:outbox' }],
     [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
