@@ -276,7 +276,7 @@ export function registerAdminHandlers(bot){
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows,columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
-  bot.action('admin:payment-cards',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
+  bot.action('admin:payment-cards',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
   bot.action('admin:payment-card:add',async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     await beginPaymentCardSession(ctx,'bank_name',null,{});
