@@ -84,4 +84,20 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
   }
 });
 
+
+test('MySQL integration: versioned campaign migration adds full public campaign metadata',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  try{
+    await migrate();
+    const [columns]=await pool.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns'");
+    const names=new Set(columns.map(x=>x.COLUMN_NAME));
+    for(const name of ['poster_file_id','prize_title','prize_description','prize_value','draw_at','terms','payment_methods'])assert.ok(names.has(name),`Missing campaign column: ${name}`);
+    const [[migration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261114_002_campaign_details.sql'");
+    assert.match(migration.checksum,/^[a-f0-9]{64}$/);
+  }finally{}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
