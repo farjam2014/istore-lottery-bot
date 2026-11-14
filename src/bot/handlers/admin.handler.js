@@ -3,6 +3,7 @@ import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
 import {Markup} from 'telegraf';
 import {listPendingReceipts} from '../../modules/payments/payment.service.js';
+import {toCsv} from '../../shared/csv.js';
 
 const isAdmin=ctx=>config.adminIds.has(String(ctx.from?.id));
 const menu=()=>Markup.inlineKeyboard([
@@ -79,9 +80,8 @@ export function registerAdminHandlers(bot){
     if(!isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery('در حال آماده‌سازی خروجی...');
     const [rows]=await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants ORDER BY id DESC LIMIT 10000');
-    const csvCell=value=>{let v=String(value??'');if(/^[=+@\-\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';};
     const columns=['id','telegram_user_id','telegram_username','full_name','phone','instagram_handle','status','created_at'];
-    const csv='\uFEFF'+[columns.join(','),...rows.map(r=>columns.map(k=>csvCell(r[k])).join(','))].join('\r\n');
+    const csv=toCsv(rows,columns);
     return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'participants-export.csv'},{caption:`خروجی شرکت‌کنندگان: ${rows.length} رکورد (حداکثر ۱۰٬۰۰۰ رکورد)`});
   });
   bot.action('admin:payments',async ctx=>{
