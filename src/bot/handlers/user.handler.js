@@ -11,7 +11,8 @@ async function notifySupportAdmins(telegram,message,markup){
   const recipients=new Set([...config.adminIds,...rows.map(x=>String(x.telegram_user_id))]);
   for(const id of recipients)await telegram.sendMessage(String(id),message,markup).catch(()=>{});
 }
-\nexport function registerUserHandlers(bot){
+
+export function registerUserHandlers(bot){
   bot.action('user:campaigns',async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,0);});
   bot.action(/^user:campaigns:page:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,Number(ctx.match[1]));});
   bot.action(/^campaign:view:(\d+)$/,async ctx=>{
