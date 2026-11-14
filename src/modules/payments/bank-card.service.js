@@ -1,8 +1,8 @@
 import {pool} from '../../database/pool.js';
 
 export function normalizeCardNumber(value){
-  const number=String(value??'').replace(/[\\s-]/g,'');
-  if(!/^\\d{16}$/.test(number))throw new Error('شماره کارت باید دقیقاً ۱۶ رقم باشد.');
+  const number=String(value??'').replace(/[\s-]/g,'');
+  if(!/^\d{16}$/.test(number))throw new Error('شماره کارت باید دقیقاً ۱۶ رقم باشد.');
   return number;
 }
 function normalizeInput({bankName,cardNumber,cardHolder,instructions=''}){
@@ -27,8 +27,8 @@ export async function createPaymentCard(input,adminId){
   const v=normalizeInput(input),c=await pool.getConnection();
   try{
     await c.beginTransaction();
-    const [[count]]=await c.execute('SELECT COUNT(*) total FROM payment_bank_cards FOR UPDATE');
-    const makeDefault=Number(count.total)===0;
+    const [existing]=await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
+    const makeDefault=existing.length===0;
     const [r]=await c.execute('INSERT INTO payment_bank_cards(bank_name,card_number,card_holder,instructions,is_active,is_default,created_by,updated_by) VALUES(?,?,?,?,1,?,?,?)',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,makeDefault?1:0,String(adminId),String(adminId)]);
     await c.commit();return {id:r.insertId,default:makeDefault};
   }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت قبلاً ثبت شده است.');throw e;}finally{c.release();}
