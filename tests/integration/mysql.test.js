@@ -212,4 +212,19 @@ test('MySQL integration: payment admin search session migration exists',{skip:!e
   try{await migrate();const [tables]=await pool.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_admin_sessions'");assert.equal(tables.length,1);const [[m]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261114_005_payment_admin_sessions.sql'");assert.match(m.checksum,/^[a-f0-9]{64}$/);}finally{}
 });
 
+
+test('MySQL integration: update guard and profile change workflow schema are available',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  try{
+    await migrate();
+    const [tables]=await pool.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('admin_search_sessions','telegram_rate_limits','processed_updates','profile_change_sessions','profile_change_requests')");
+    const names=new Set(tables.map(x=>x.TABLE_NAME));
+    for(const name of ['admin_search_sessions','telegram_rate_limits','processed_updates','profile_change_sessions','profile_change_requests'])assert.ok(names.has(name),'Missing workflow table: '+name);
+    const [[migration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261114_007_profile_change_sessions.sql'");
+    assert.match(migration.checksum,/^[a-f0-9]{64}$/);
+  }finally{}
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
