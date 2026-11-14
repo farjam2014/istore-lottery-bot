@@ -6,11 +6,12 @@ import {listOpenCampaigns,getCampaignById,listParticipantCodes} from '../../modu
 import {joinFreeCampaign} from '../../modules/entries/entry.service.js';
 import {userMenuKeyboard} from '../keyboards/user.keyboard.js';
 import {normalizeFullName,normalizePhone,normalizeInstagram} from '../../modules/participants/participant.service.js';
+import {enqueueTelegramNotification} from '../../modules/notifications/outbox.service.js';
 
 async function notifySupportAdmins(telegram,message,markup){
   const [rows]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','support_agent')");
   const recipients=new Set([...config.adminIds,...rows.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await telegram.sendMessage(String(id),message,markup).catch(()=>{});
+  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:message,options:markup?.reply_markup?{reply_markup:markup.reply_markup}:{}});
 }
 
 export function registerUserHandlers(bot){
