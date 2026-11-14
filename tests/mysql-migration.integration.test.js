@@ -163,6 +163,39 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND INDEX_NAME='idx_support_messages_ticket'"
     );
     assert.equal(Number(restoredSupportIndex.total),1,'support migration must repair a partially applied index');
+
+    // Simulate a partially applied customer-flow migration with duplicate Telegram IDs.
+    await verify.query('ALTER TABLE customer_support_tickets DROP INDEX uq_support_telegram_message');
+    await verify.execute(
+      'INSERT INTO customer_support_tickets(telegram_user_id,chat_id,message,telegram_message_id) VALUES(?,?,?,?)',
+      [910001,910001,'Duplicate legacy ticket row',910001]
+    );
+    const [migrationParticipant]=await verify.execute(
+      "INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status) VALUES(?,?,?,?,?,'active')",
+      [930100,930100,'Migration Participant','0912930100','migrationparticipant']
+    );
+    await verify.query('ALTER TABLE profile_change_requests DROP INDEX uq_profile_change_telegram_message');
+    for(const value of ['first request','duplicate request']) {
+      await verify.execute(
+        "INSERT INTO profile_change_requests(participant_id,field_name,old_value,requested_value,telegram_message_id) VALUES(?,'full_name','Old Name',?,930100)",
+        [migrationParticipant.insertId,value]
+      );
+    }
+    const customerFlowMigration=require('../migrations/customer-flow');
+    await customerFlowMigration.up(verify);
+    const [[ticketDedupe]] = await verify.execute(
+      'SELECT SUM(telegram_message_id IS NOT NULL) AS linked,SUM(telegram_message_id IS NULL) AS unlinked FROM customer_support_tickets WHERE telegram_user_id=910001'
+    );
+    assert.equal(Number(ticketDedupe.linked),1);
+    assert.equal(Number(ticketDedupe.unlinked),1);
+    const [[profileDedupe]] = await verify.execute(
+      'SELECT SUM(telegram_message_id IS NOT NULL) AS linked,SUM(telegram_message_id IS NULL) AS unlinked FROM profile_change_requests WHERE participant_id=?',
+      [migrationParticipant.insertId]
+    );
+    assert.equal(Number(profileDedupe.linked),1);
+    assert.equal(Number(profileDedupe.unlinked),1);
+    await supportMigration.up(verify);
+
     await assert.rejects(
       verify.execute("INSERT INTO customer_support_messages(ticket_id,sender_type,sender_id,message) VALUES(999999,'admin','admin','orphan')"),
       error => error && error.code === 'ER_NO_REFERENCED_ROW_2'
