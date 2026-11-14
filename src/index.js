@@ -146,7 +146,16 @@ if(q.data==="profile:confirm"){
 const s=await session(uid),connection=String(q.message?.business_connection_id||"");
 if(!s||s.step!=="profile_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id||"")!==connection)return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مرحله معتبر نیست یا منقضی شده است.",show_alert:true});
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ساخت پروفایل..."});
-try{await saveParticipantProfile(uid,chat,s.full_name,s.phone,s.instagram,connection);await delSession(uid);return reply(chat,connection,"پروفایل شما با موفقیت ساخته شد.",{reply_markup:{inline_keyboard:[[{text:"🧩 کمپین‌ها",callback_data:"campaign:list"}],[{text:"👤 حساب من",callback_data:"participant:account"}],[{text:"🏠 منوی اصلی",callback_data:"participant:home"}]]}});}catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
+try{
+  await saveParticipantProfile(uid,chat,s.full_name,s.phone,s.instagram,connection);
+  await delSession(uid);
+  const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
+  const buttons=campaigns.map(c=>[{text:c.name+" · "+(c.payment_mode==="free"?"رایگان":Number(c.price_per_code).toLocaleString("en-US")+" "+c.currency),callback_data:"campaign:details:"+c.id}]);
+  buttons.push([{text:"👤 حساب من",callback_data:"participant:account"},{text:"🎟 کدهای من",callback_data:"participant:codes"}]);
+  buttons.push([{text:"🔄 تازه‌سازی کمپین‌ها",callback_data:"campaign:list"}]);
+  buttons.push([{text:"💬 پشتیبانی",callback_data:"support:start"}]);
+  return reply(chat,connection,campaigns.length?"✅ ثبت‌نام شما با موفقیت تکمیل شد.\n\n🧩 کمپین‌های فعال را انتخاب کنید:":"✅ ثبت‌نام شما با موفقیت تکمیل شد.\n\nدر حال حاضر کمپین فعالی وجود ندارد؛ بعداً از همین بخش فهرست را تازه‌سازی کنید.",{reply_markup:{inline_keyboard:buttons}});
+}catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
 }
 if(String(q.data||'').startsWith('campaign:details:')){
   const campaignId=String(q.data.split(':')[2]||'');
@@ -346,6 +355,14 @@ if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پ�
   return reply(chat,conn,'👤 پروفایل شما\nنام: '+participant.full_name+'\nموبایل: '+participant.phone+'\nاینستاگرام: @'+participant.instagram+'\nوضعیت: '+participant.status+'\n\n🎟 کمپین‌ها و کدهای شما\n'+entryText+'\n\n💳 سفارش‌ها\n'+orderText,{reply_markup:{inline_keyboard:[[{text:'🧩 کمپین‌های فعال',callback_data:'campaign:list'}]]}});
 }
 if(lower==='/start'||lower==='لاتاری'||lower==='کمپین‌ها'||lower==='کمپین ها'||lower==='/campaigns'){
+  const [[existingProfile]]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
+  if(!existingProfile){
+    await putSession(uid,chat,"profile_name",null,null,conn);
+    return reply(chat,conn,"به USTORE خوش آمدید. برای مشاهده و شرکت در کمپین‌ها، ابتدا ثبت‌نام کوتاه خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید:",{reply_markup:{inline_keyboard:[[{text:"✖️ انصراف",callback_data:"reg:cancel"}]]}});
+  }
+  if(existingProfile.status!=="active"){
+    return reply(chat,conn,"حساب شما در حال حاضر غیرفعال است. برای بررسی و فعال‌سازی با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:[[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+  }
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(x=>[{text:x.name+' · '+(x.payment_mode==='free'?'رایگان':x.price_per_code+' '+x.currency),callback_data:'campaign:details:'+x.id}]);
   buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
