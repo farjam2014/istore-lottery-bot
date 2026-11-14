@@ -114,10 +114,16 @@ function createNotificationOutbox({db,send,onSent=null,logger=console,pollInterv
    return true;
   }catch(error){
    logger.error("Notification outbox error ["+(item?.correlation_id||item?.id||"unclaimed")+"]:",error.message);
-   if(item?.token&&item.mode==='send')await db.execute(
-    "UPDATE telegram_notification_outbox SET status=IF(attempts>=?,'failed','pending'),next_attempt_at=IF(attempts>=?,NULL,DATE_ADD(NOW(),INTERVAL LEAST(3600,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE id=? AND status='processing' AND processing_token=?",
-    [maxAttempts,maxAttempts,String(error.message||"Unknown error").slice(0,500),item.id,item.token]
-   ).catch(updateError=>logger.error("Outbox retry update error:",updateError.message));
+   if(item?.token&&item.mode==='send'){
+    await db.execute(
+     "UPDATE telegram_notification_outbox SET status=IF(attempts>=?,'failed','pending'),next_attempt_at=IF(attempts>=?,NULL,DATE_ADD(NOW(),INTERVAL LEAST(3600,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE id=? AND status='processing' AND processing_token=?",
+     [maxAttempts,maxAttempts,String(error.message||"Unknown error").slice(0,500),item.id,item.token]
+    ).catch(updateError=>logger.error("Outbox retry update error:",updateError.message));
+    await db.execute(
+     "UPDATE telegram_notification_outbox SET post_delivery_started_at=NULL,post_delivery_token=NULL,last_error=? WHERE id=? AND status='sent' AND delivery_recorded_at IS NULL AND post_delivery_token=?",
+     [String(error.message||"Unknown error").slice(0,500),item.id,item.token]
+    ).catch(updateError=>logger.error("Outbox post-delivery reset error:",updateError.message));
+   }
    return false;
   }finally{busy=false;}
  }
