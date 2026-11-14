@@ -285,6 +285,8 @@ test('campaign wizard uses inline Persian buttons for draw settings and shows se
   assert.ok(markup.flat().some(b=>b.text==='👤 به ازای هر شرکت‌کننده'&&b.callback_data.endsWith(':per_participant')));
   assert.equal(h.telegram.at(-1).payload.text.includes('per_code'),false);
   await h.admin.handleCallback({id:'per-code',data:'adm:campaign-wizard-draw-basis:per_code',from:message.from,message:{chat:message.chat}});
+  await h.admin.handleMessage({...message,text:'-'});
+  await h.admin.handleMessage({...message,text:'-'});
 
   markup=h.telegram.at(-1).payload.reply_markup.inline_keyboard;
   const cardButton=markup.flat().find(b=>b.callback_data==='adm:campaign-wizard-card:77');
