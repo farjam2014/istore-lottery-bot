@@ -226,13 +226,14 @@ test('support ticket creation is keyed by Telegram message id and atomically que
   const end = source.indexOf("const profileChangeMatch=", start);
   const handler = source.slice(start, end);
   assert.match(handler, /telegram_message_id/);
-  assert.match(handler, /ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID\(id\)/);
+  assert.match(handler, /SELECT id,status FROM customer_support_tickets WHERE telegram_user_id=.*FOR UPDATE/);
+  assert.match(handler, /INSERT IGNORE INTO customer_support_messages/);
   assert.match(handler, /support-ticket-customer:/);
-  assert.match(handler, /support-ticket:/);
+  assert.match(handler, /support-message:/);
   assert.match(handler, /beginTransaction\(\)/);
   assert.match(handler, /await ticketConn\.commit\(\)/);
   assert.match(handler, /DELETE FROM telegram_sessions/);
-  assert.match(handler, /durable, deduplicated outbox/);
+  assert.match(handler, /INSERT IGNORE INTO telegram_notification_outbox/);
 });
 
 test('support replies are committed to the notification outbox before Telegram delivery', () => {
@@ -309,7 +310,7 @@ test('contact-gate confirmation and stale campaign buttons cannot bypass profile
 test('support replies use a unique Telegram message id so reopened tickets can receive another reply', () => {
   const fs=require('node:fs');
   const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
-  assert.match(source,/support-reply:\"\+ticketId\+\":\"\+String\(m\.message_id\)/);
+  assert.match(source,/support-reply:\"\+ticketId\+\":\"\+messageId/);
 });
 
 
