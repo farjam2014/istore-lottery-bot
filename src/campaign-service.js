@@ -106,12 +106,11 @@ function createCampaignService({ db, adminId }) {
       await conn.beginTransaction();
       const [[campaign]] = await conn.execute('SELECT id,status,starts_at,ends_at FROM campaigns WHERE id=? FOR UPDATE', [campaignId]);
       if (!campaign) throw new Error('کمپین پیدا نشد.');
-      if (campaign.status === 'drawn' && nextStatus !== 'archived') throw new Error('کمپین قرعه‌کشی‌شده قابل بازگشایی نیست.');
-      if (campaign.status === 'archived' && nextStatus !== 'archived') throw new Error('کمپین آرشیوشده قابل فعال‌سازی نیست.');
-      if (nextStatus === 'scheduled' && (!['draft','paused'].includes(campaign.status) || !campaign.starts_at)) throw new Error('برای زمان‌بندی، کمپین باید پیش‌نویس یا متوقف‌شده و دارای زمان شروع باشد.');
+      const transitions={draft:['scheduled','open'],scheduled:['open','closed'],open:['paused','closed'],paused:['open','closed'],closed:[],drawn:['archived'],archived:[]};
+      if(campaign.status===nextStatus)throw new Error('وضعیت کمپین از قبل همین مقدار است.');
+      if(!(transitions[campaign.status]||[]).includes(nextStatus))throw new Error('تغییر وضعیت از '+campaign.status+' به '+nextStatus+' مجاز نیست.');
+      if (nextStatus === 'scheduled' && !campaign.starts_at) throw new Error('برای زمان‌بندی، کمپین باید زمان شروع داشته باشد.');
       if (campaign.starts_at && campaign.ends_at && new Date(campaign.ends_at).getTime() <= new Date(campaign.starts_at).getTime()) throw new Error('زمان پایان باید بعد از زمان شروع باشد.');
-      if (nextStatus === 'open' && !['draft','scheduled','paused'].includes(campaign.status)) throw new Error('این تغییر وضعیت مجاز نیست.');
-      if (nextStatus === 'closed' && !['scheduled','open','paused'].includes(campaign.status)) throw new Error('فقط کمپین زمان‌بندی‌شده، باز یا متوقف‌شده قابل بستن است.');
       await conn.execute('UPDATE campaigns SET status=? WHERE id=?', [nextStatus,campaignId]);
       await conn.execute(
         'INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,?,?,?,?)',
