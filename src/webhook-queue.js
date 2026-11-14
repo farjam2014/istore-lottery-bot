@@ -1,4 +1,6 @@
 "use strict";
+const crypto = require("node:crypto");
+const { runWithCorrelation } = require("./correlation-context");
 
 function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500, leaseMs = 5 * 60 * 1000, heartbeatMs = 60 * 1000 }) {
   if (!db || !handlers) throw new Error("db and handlers are required");
@@ -26,7 +28,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         );
 
         const [rows] = await conn.query(
-          "SELECT update_id,payload FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+          "SELECT update_id,payload,correlation_id FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at,update_id LIMIT 1 FOR UPDATE SKIP LOCKED"
         );
 
         if (!rows.length) {
@@ -35,11 +37,12 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
         }
 
         item = rows[0];
-        item.processingToken = require("node:crypto").randomUUID();
+        item.processingToken = crypto.randomUUID();
+        item.correlationId = item.correlation_id || crypto.randomUUID();
 
         await conn.execute(
-          "UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE update_id=? AND status='pending'",
-          [item.processingToken, item.update_id]
+          "UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=?,correlation_id=COALESCE(correlation_id,?) WHERE update_id=? AND status='pending'",
+          [item.processingToken, item.correlationId, item.update_id]
         );
 
         await conn.commit();
@@ -65,24 +68,26 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
 
       heartbeat.unref?.();
 
-      const [alreadyProcessed] = await db.execute(
-        "SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",
-        [item.update_id]
-      );
+      await runWithCorrelation(item.correlationId, async () => {
+        const [alreadyProcessed] = await db.execute(
+          "SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",
+          [item.update_id]
+        );
 
-      if (!alreadyProcessed.length) {
-        const update = typeof item.payload === "string"
-          ? JSON.parse(item.payload)
-          : item.payload;
+        if (!alreadyProcessed.length) {
+          const update = typeof item.payload === "string"
+            ? JSON.parse(item.payload)
+            : item.payload;
 
-        if (update.business_message && handlers.business) {
-          await handlers.business(update);
-        } else if (update.message && handlers.private) {
-          await handlers.private(update);
-        } else if (update.callback_query && handlers.callback) {
-          await handlers.callback(update.callback_query);
+          if (update.business_message && handlers.business) {
+            await handlers.business(update);
+          } else if (update.message && handlers.private) {
+            await handlers.private(update);
+          } else if (update.callback_query && handlers.callback) {
+            await handlers.callback(update.callback_query);
+          }
         }
-      }
+      });
 
       if (leaseLost) throw new Error("Webhook processing lease was lost");
 
@@ -121,7 +126,7 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
 
       if (item?.processingToken) {
         await db.execute(
-          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL 3 SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",
+          "UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL LEAST(300,POW(2,attempts)) SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",
           [
             String(error.message || "Unknown error").slice(0, 500),
             item.update_id,
