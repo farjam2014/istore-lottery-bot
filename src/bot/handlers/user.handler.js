@@ -103,7 +103,7 @@ async function createProfileChangeRequest(ctx,field,value){
   }catch(error){await c.rollback();throw error;}finally{c.release();}
   const [admins]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role='super_admin'");
   const recipients=new Set([...config.adminIds,...admins.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await ctx.telegram.sendMessage(String(id),'درخواست اصلاح پروفایل جدید\nمشتری: '+ctx.state.profile.full_name+'\nفیلد: '+field+'\nمقدار درخواستی: '+value,Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+requestId)]])).catch(()=>{});
+  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:'درخواست اصلاح پروفایل جدید\nمشتری: '+ctx.state.profile.full_name+'\nفیلد: '+field+'\nمقدار درخواستی: '+value,options:{reply_markup:Markup.inlineKeyboard([[Markup.button.callback('بررسی درخواست','admin:profile-request:view:'+requestId)]]).reply_markup}});
   await ctx.reply('درخواست اصلاح اطلاعات ثبت شد. پس از بررسی مدیریت، نتیجه به شما اطلاع داده می‌شود.',Markup.removeKeyboard());
   return ctx.reply('درخواست شما در صف بررسی است.',Markup.inlineKeyboard([[Markup.button.callback('حساب کاربری','user:account')],[Markup.button.callback('پشتیبانی','user:support')]]));
 }
