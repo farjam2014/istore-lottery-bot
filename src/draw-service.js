@@ -66,7 +66,7 @@ function createDrawService({ db, adminId, seedSecret }) {
       const drawNumber = Number(existing.last_number) + 1;
       const [created] = await conn.execute(
         "INSERT INTO campaign_draws(campaign_id,draw_number,method,status,draw_basis,multiple_win_policy,winner_count,alternate_count,algorithm_version,created_by) VALUES(?,?,?,'prepared',?,?,?,?,?,?)",
-        [campaignId,drawNumber,campaign.draw_method,campaign.draw_basis,campaign.multiple_win_policy,campaign.winner_count,campaign.alternate_count,'istore-draw-v1',String(adminId)]
+        [campaignId,drawNumber,campaign.draw_method,campaign.draw_basis,campaign.multiple_win_policy,campaign.winner_count,campaign.alternate_count,'istore-draw-v2',String(adminId)]
       );
       const drawId = created.insertId;
       let candidates;
