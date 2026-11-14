@@ -44,7 +44,6 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     }
     if(campaignIds.length)await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);
-    await pool.end();
   }
 });
 
@@ -79,9 +78,11 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     await assert.rejects(reviewReceipt({adminId:'1',receiptId:retry.receiptId,decision:'approve'}),/قبلاً/);
     const [[order]]=await pool.execute('SELECT status FROM payment_orders WHERE id=?',[orderId]);assert.equal(order.status,'approved');
   }finally{
-    if(orderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);}
+    if(orderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[orderId]);}
     if(participantId){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[participantId]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[participantId]);await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);}
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     await pool.end();
   }
 });
+
+test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
