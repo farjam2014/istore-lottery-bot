@@ -7,7 +7,7 @@ const {createCampaignService}=require("./campaign-service");
 const {createBankCardService}=require("./bank-card-service");
 const {createDrawService}=require("./draw-service");
 const {createAccountAuth}=require("./account-auth");
-const {bindPool}=require("./correlation-context");
+const {bindPool,runWithCorrelation}=require("./correlation-context");
 const {consumeTelegramRateLimit,identifyTelegramActor,rateLimitBucket}=require("./telegram-rate-limit");
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
@@ -15,6 +15,12 @@ patchAsyncRoutes(app);
 app.disable("x-powered-by");
 app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","same-origin");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cache-Control","no-store");next()});
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
+app.use((req,res,next)=>{
+ const correlationId=crypto.randomUUID();
+ req.correlationId=correlationId;
+ res.setHeader("X-Correlation-ID",correlationId);
+ return runWithCorrelation(correlationId,()=>next());
+});
 const { createSameOriginGuard } = require("./security");
 app.use(createSameOriginGuard());
 app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
@@ -632,9 +638,11 @@ app.post("/telegram/"+secret,async(q,r)=>{
 if(!equal(q.get("x-telegram-bot-api-secret-token")||"",secret))return r.status(401).send("Unauthorized");
 const u=q.body||{};
 if(typeof u.update_id!=="number"||!Number.isSafeInteger(u.update_id))return r.status(400).send("Invalid update");
-const correlationId=crypto.randomUUID();
+const correlationId=q.correlationId||crypto.randomUUID();
+let enqueued=false;
 try{
 await db.execute("INSERT INTO webhook_inbox(update_id,payload,status,correlation_id) VALUES(?,?,'pending',?)",[String(u.update_id),JSON.stringify(u),correlationId]);
+enqueued=true;
 const actorId=identifyTelegramActor(u);
 if(actorId){
  const bucket=rateLimitBucket(u),isAdminActor=actorId===String(process.env.ADMIN_ID);
@@ -649,7 +657,11 @@ if(actorId){
 return r.sendStatus(200);
 }catch(e){
 if(e.code==="ER_DUP_ENTRY")return r.sendStatus(200);
-console.error("Webhook enqueue/rate-limit error:",e.message);
+console.error("Webhook enqueue/rate-limit error ["+correlationId+"]:",e.message);
+if(enqueued){
+ try{await db.execute("UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",['ingress_rate_limit_failed:'+String(e.message||'unknown').slice(0,350),String(u.update_id)]);return r.sendStatus(200);}
+ catch(markError){console.error("Webhook fail-closed marker error:",markError.message);}
+}
 return r.status(503);
 }
 });
