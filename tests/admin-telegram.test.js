@@ -303,6 +303,19 @@ test('campaign wizard uses inline Persian buttons for draw settings and shows se
 });
 
 
+test('system draw preparation exposes commitment before execution and result view exposes seed reveal', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/admin-telegram.js'),'utf8');
+  const start=source.indexOf('async function prepareCampaignDraw');
+  const end=source.indexOf('async function resumeCampaignDraw',start);
+  const prepare=source.slice(start,end);
+  assert.match(prepare,/Seed commitment SHA-256/);
+  assert.match(prepare,/adm:draw-run:/);
+  assert.doesNotMatch(prepare,/drawService\.runSystemDraw/);
+  assert.match(source,/seedReveal=proof\?\.seed\|\|'-'/);
+  assert.match(source,/Seed reveal: '\+seedReveal/);
+});
+
 test('prepared system draws can be resumed from the Telegram admin campaign view', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/admin-telegram.js'), 'utf8');
