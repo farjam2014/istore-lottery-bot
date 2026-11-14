@@ -210,13 +210,7 @@ const s=await session(uid);
 if(!uid||!s||s.step!=="awaiting_confirmation"||String(s.chat_id)!==chat||String(s.business_connection_id)!==String(q.message?.business_connection_id||"")){
 return tg("answerCallbackQuery",{callback_query_id:q.id,text:"این درخواست معتبر نیست یا قبلاً استفاده شده است.",show_alert:true});
 }
-if(!await registrationOpen()){
-const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");
-if(!campaignOpen){
-await delSession(uid);
-return tg("answerCallbackQuery",{callback_query_id:q.id,text:"مهلت ثبت‌نام به پایان رسیده است.",show_alert:true});
-}
-}
+
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"در حال ثبت نهایی..."});
 try{
 await saveEntry(uid,s.chat_id,s.full_name,s.phone,s.instagram,s.business_connection_id);
@@ -386,7 +380,7 @@ if(m.photo?.length){
 }
 if(lower==='/account'||lower==='/profile'||lower==='حساب من'||lower==='پروفایل من'){
   const [[participant]]=await db.execute("SELECT id,full_name,phone,instagram,status FROM participants WHERE telegram_user_id=? LIMIT 1",[uid]);
-  if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع، /campaigns را بزنید و یک کمپین را انتخاب کنید.");
+  if(!participant)return reply(chat,conn,"هنوز پروفایلی ندارید. برای شروع /start را بزنید و از فهرست کمپین‌های فعال اقدام کنید.");
   const [entries]=await db.execute("SELECT c.name,ce.status,GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') AS codes FROM campaign_entries ce JOIN campaigns c ON c.id=ce.campaign_id LEFT JOIN campaign_codes cc ON cc.entry_id=ce.id AND cc.status='active' WHERE ce.participant_id=? GROUP BY ce.id,c.name,ce.status ORDER BY ce.created_at DESC LIMIT 20",[participant.id]);
   const [orders]=await db.execute("SELECT o.order_ref,c.name,o.quantity,o.total_snapshot,o.currency,o.status FROM payment_orders o JOIN campaigns c ON c.id=o.campaign_id WHERE o.participant_id=? ORDER BY o.created_at DESC LIMIT 10",[participant.id]);
   const statusLabel={pending_payment:'در انتظار پرداخت',receipt_submitted:'رسید ارسال‌شده',approved:'تأییدشده',rejected:'ردشده',expired:'منقضی',cancelled:'لغوشده'};
@@ -437,9 +431,9 @@ const [[a]]=await db.query("SELECT COUNT(*) AS total, COUNT(raffle_code) AS code
 const [[b]]=await db.query("SELECT COUNT(*) AS today FROM lottery_entries WHERE status='active' AND DATE(created_at)=CURDATE()");
 return reply(chat,conn,"📊 آمار قرعه‌کشی iStore\n\n👥 شرکت‌کنندگان: "+a.total+"\n🎟 تعداد کدها: "+a.codes+"\n🔑 کدهای یکتا: "+a.unique_codes+"\n📅 ثبت‌نام امروز: "+b.today);
 }
-if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"ثبت‌نام لغو شد. برای شروع دوباره «لاتاری» را بفرستید.")}
+if(lower==="/cancel"||t==="لغو"){await delSession(uid);return reply(chat,conn,"فرآیند جاری لغو شد. برای شروع دوباره /start را بزنید.")}
 if(lower==="لاتاری"||lower==="/start"){const legacyOpen=await registrationOpen();const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!legacyOpen&&!campaignOpen)return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");const old=await entry(uid);if(old&&old.status==="active")return reply(chat,conn,"شما قبلاً ثبت‌نام کرده‌اید.\nکد شما: "+old.raffle_code);await putSession(uid,chat,"name",null,null,conn);if(!legacyOpen)return reply(chat,conn,"🎉 برای شرکت در کمپین‌های فعال، ابتدا پروفایل خود را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید؛ سپس شماره موبایل خودتان را با دکمه رسمی تلگرام تأیید می‌کنید.\nپس از ثبت پروفایل، با ارسال «کمپین‌ها» می‌توانید کمپین موردنظر را انتخاب کنید.",{reply_markup:registrationKeyboard()});return reply(chat,conn,"🎉 به قرعه‌کشی iStore خوش آمدید\n\nبرای شرکت در قرعه‌کشی، ابتدا صفحه زیر را در اینستاگرام دنبال کنید:\n\n📸 @ali_mhdizadeh_\n🔗 https://instagram.com/ali_mhdizadeh_\n\n⚠️ فالو کردن صفحه باید پیش از شروع ثبت‌نام در این ربات انجام شده باشد. افرادی که پس از ثبت‌نام صفحه را دنبال کنند، واجد شرایط شرکت در قرعه‌کشی نخواهند بود.\n\nنام و نام خانوادگی خود را به‌صورت دستی در همین گفتگو وارد کنید؛ اطلاعات پروفایل تلگرام شما دریافت نمی‌شود.\n\nبرای لغو ثبت‌نام از دکمه زیر استفاده کنید.",{reply_markup:registrationKeyboard()})}
-const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی ثبت‌نام منقضی شده است. برای شروع دوباره کلمه «لاتاری» را ارسال کنید.");return}if(String(s.chat_id)!==chat)return;if(!await registrationOpen()){const [[campaignOpen]]=await db.execute("SELECT id FROM campaigns WHERE status='open' AND slug<>'legacy-lottery' LIMIT 1");if(!campaignOpen){await delSession(uid);return reply(chat,conn,"ثبت‌نام فعلاً بسته است.");}}
+const s=await session(uid);if(!s){if(t!=="لغو")return reply(chat,conn,"مرحله قبلی منقضی شده است. برای شروع دوباره /start را بزنید.");return}if(String(s.chat_id)!==chat)return;
 if(s.step==="name"){if(!validFullName(t))return reply(chat,conn,"لطفاً نام و نام خانوادگی معتبر وارد کنید.");const fullName=t.trim().replace(/\s+/g," ");await putSession(uid,chat,"awaiting_contact",fullName,null,conn);return reply(chat,conn,"✅ نام ثبت شد. حالا دکمه زیر را بزنید تا شماره موبایل متعلق به حساب خودتان را مستقیماً در همین ربات به اشتراک بگذارید.",{reply_markup:{keyboard:[[{text:"📱 اشتراک‌گذاری شماره من",request_contact:true}]],resize_keyboard:true,one_time_keyboard:true}})}
 if(s.step==="phone"){await putSession(uid,chat,"awaiting_contact",s.full_name,null,conn,s.instagram||null);const link="https://t.me/istorelotterybot?start="+makeContactPayload(uid);return tg("sendMessage",{chat_id:chat,business_connection_id:conn,text:"برای امنیت ثبت‌نام، شماره‌ای که قبلاً به‌صورت متنی وارد می‌شد پذیرفته نیست. لطفاً شماره متعلق به خودتان را از طریق دکمه زیر و در ربات ارسال کنید.",reply_markup:{inline_keyboard:[[{text:"📱 تأیید شماره موبایل",url:link}]]}})}
 if(s.step==="awaiting_confirmation"){
