@@ -107,7 +107,29 @@ export function registerAdminHandlers(bot){
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();
     const [rows]=await pool.execute('SELECT id,title,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN (\'eligible\',\'pending_payment\')) participant_count FROM campaigns ORDER BY id DESC LIMIT 20');
     if(!rows.length)return ctx.reply('هنوز کمپینی ایجاد نشده است.',campaignMenu());
-    for(const c of rows){const label={draft:'پیش‌نویس',scheduled:'زمان‌بندی‌شده',open:'فعال',paused:'متوقف',closed:'بسته',drawn:'قرعه‌کشی‌شده',archived:'بایگانی'}[c.status]||c.status;const detail='#'+c.id+' — '+c.title+'\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+'\nوضعیت: '+label+'\nجایزه: '+(c.prize_title||'ثبت نشده')+'\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+'\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nشروع: '+(c.starts_at||'تعیین نشده')+'\nپایان: '+(c.ends_at||'تعیین نشده')+'\nقرعه‌کشی: '+(c.draw_at||'تعیین نشده')+(c.participation_type==='paid'?'\nمبلغ: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'');const actions=[];if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین',`admin:campaign:toggle:${c.id}`)]);actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس',`admin:campaign:copy:${c.id}`)]);if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین',`admin:campaign:archive:${c.id}`)]);actions.push([Markup.button.callback('بازگشت','admin:campaigns')]);await ctx.reply(detail,Markup.inlineKeyboard(actions));}
+    for(const c of rows){const label={draft:'پیش‌نویس',scheduled:'زمان‌بندی‌شده',open:'فعال',paused:'متوقف',closed:'بسته',drawn:'قرعه‌کشی‌شده',archived:'بایگانی'}[c.status]||c.status;const detail='#'+c.id+' — '+c.title+'\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+'\nوضعیت: '+label+'\nجایزه: '+(c.prize_title||'ثبت نشده')+'\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+'\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nشروع: '+(c.starts_at||'تعیین نشده')+'\nپایان: '+(c.ends_at||'تعیین نشده')+'\nقرعه‌کشی: '+(c.draw_at||'تعیین نشده')+(c.participation_type==='paid'?'\nمبلغ: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'');const actions=[];if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین',`admin:campaign:toggle:${c.id}`)]);if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس',`admin:campaign:copy:${c.id}`)]);if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین',`admin:campaign:archive:${c.id}`)]);actions.push([Markup.button.callback('بازگشت','admin:campaigns')]);await ctx.reply(detail,Markup.inlineKeyboard(actions));}
+  });
+  bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);const [[row]]=await pool.execute("SELECT id,status FROM campaigns WHERE id=?",[id]);
+    if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
+    await ctx.answerCbQuery();
+    return ctx.reply('فیلدی را برای ویرایش انتخاب کنید:',Markup.inlineKeyboard([
+      [Markup.button.callback('عنوان','admin:campaign:edit:'+id+':title'),Markup.button.callback('توضیحات','admin:campaign:edit:'+id+':description')],
+      [Markup.button.callback('نام جایزه','admin:campaign:edit:'+id+':prize_title'),Markup.button.callback('توضیح جایزه','admin:campaign:edit:'+id+':prize_description')],
+      [Markup.button.callback('قوانین','admin:campaign:edit:'+id+':terms')],
+      [Markup.button.callback('مبلغ شرکت','admin:campaign:edit:'+id+':entry_price'),Markup.button.callback('ظرفیت','admin:campaign:edit:'+id+':capacity')],
+      [Markup.button.callback('تعداد کد هر نفر','admin:campaign:edit:'+id+':codes_per_entry)],
+      [Markup.button.callback('بازگشت','admin:campaign:list')]
+    ]));
+  });
+  bot.action(/^admin:campaign:edit:(\d+):(title|description|prize_title|prize_description|terms|entry_price|capacity|codes_per_entry)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]),field=ctx.match[2];const [[row]]=await pool.execute("SELECT status,participation_type FROM campaigns WHERE id=?",[id]);
+    if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
+    if(field==='entry_price'&&row.participation_type!=='paid')return ctx.answerCbQuery('کمپین رایگان مبلغ شرکت ندارد.',{show_alert:true});
+    await saveWizard(ctx.from.id,'campaign_edit_value',{campaignId:id,field});await ctx.answerCbQuery();
+    return ctx.reply('مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
   });
   bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
@@ -254,6 +276,21 @@ export function registerAdminHandlers(bot){
     if(supportRows[0]){const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return ctx.reply('متن پاسخ را ارسال کنید.');if(body.length>4000)return ctx.reply('پاسخ حداکثر ۴۰۰۰ نویسه باشد.');const ticketId=supportRows[0].ticket_id;const c=await pool.getConnection();let chatId;try{await c.beginTransaction();const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');chatId=String(t.telegram_user_id);await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await enqueueTelegramNotification({chatId,text:'پاسخ پشتیبانی برای تیکت شما:\n'+body,executor:c});await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return ctx.reply('پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));}
     if(!wizard)return next();
     const value=ctx.message.text.trim();const p=wizard.payload;
+    if(wizard.step==='campaign_edit_value'){
+      const fields={title:'title',description:'description',prize_title:'prize_title',prize_description:'prize_description',terms:'terms',entry_price:'entry_price',capacity:'capacity',codes_per_entry:'codes_per_entry'};
+      const column=fields[p.field];if(!column)return ctx.reply('درخواست ویرایش معتبر نیست.');
+      let nextValue=value;
+      if(['description','prize_title','prize_description','terms'].includes(column)&&value==='-')nextValue=null;
+      if(column==='title'&&(value.length<3||value.length>180))return ctx.reply('عنوان باید بین ۳ تا ۱۸۰ نویسه باشد.');
+      if(column==='description'&&value.length>3000)return ctx.reply('توضیحات حداکثر ۳۰۰۰ نویسه باشد.');
+      if(column==='prize_title'&&value.length>180)return ctx.reply('نام جایزه حداکثر ۱۸۰ نویسه باشد.');
+      if(column==='prize_description'&&value.length>2000)return ctx.reply('توضیح جایزه حداکثر ۲۰۰۰ نویسه باشد.');
+      if(column==='terms'&&value.length>8000)return ctx.reply('قوانین حداکثر ۸۰۰۰ نویسه باشد.');
+      if(column==='entry_price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)return ctx.reply('مبلغ باید عدد صحیح مثبت و به ریال باشد.');nextValue=Number(value);}
+      if(column==='capacity'||column==='codes_per_entry'){if(!/^\d+$/.test(value))return ctx.reply('مقدار باید عدد صحیح نامنفی باشد.');nextValue=Number(value);if(column==='codes_per_entry'&&(nextValue<1||nextValue>100))return ctx.reply('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');if(column==='capacity'&&nextValue>10000000)return ctx.reply('ظرفیت بیش از حد مجاز است.');if(column==='capacity'&&nextValue===0)nextValue=null;}
+      const db=await pool.getConnection();try{await db.beginTransaction();const [[locked]]=await db.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[p.campaignId]);if(!locked||locked.status!=='draft')throw new Error('وضعیت کمپین تغییر کرده و دیگر قابل ویرایش نیست.');const [[counts]]=await db.execute('SELECT COUNT(*) total FROM campaign_entries WHERE campaign_id=?',[p.campaignId]);if(Number(counts.total)>0)throw new Error('کمپین دارای سابقه شرکت‌کننده است و ویرایش مستقیم آن مجاز نیست.');await db.execute('UPDATE campaigns SET '+column+'=? WHERE id=?',[nextValue,p.campaignId]);await db.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.field_updated','campaign',p.campaignId,JSON.stringify({field:column})]);await db.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(ctx.from.id)]);await db.commit();}catch(error){await db.rollback();return ctx.reply(error.message||'ویرایش کمپین انجام نشد.');}finally{db.release();}
+      return ctx.reply('مشخصات کمپین به‌روزرسانی شد.',Markup.inlineKeyboard([[Markup.button.callback('ویرایش فیلدهای دیگر','admin:campaign:edit-menu:'+p.campaignId)],[Markup.button.callback('فهرست کمپین‌ها','admin:campaign:list')]]));
+    }
     try{
       if(wizard.step==='title'){if(value.length<3||value.length>180)throw new Error('عنوان باید بین ۳ تا ۱۸۰ نویسه باشد.');p.title=value;await saveWizard(ctx.from.id,'description',p);return ctx.reply('توضیح کمپین را بنویسید. برای بدون توضیح، «-» ارسال کنید.');}
       if(wizard.step==='description'){p.description=value==='-'?'':value;if(p.description.length>3000)throw new Error('توضیح حداکثر ۳۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'poster',p);return ctx.reply('پوستر کمپین را به‌صورت عکس ارسال کنید؛ برای رد کردن این مرحله /skip را بفرستید.');}
