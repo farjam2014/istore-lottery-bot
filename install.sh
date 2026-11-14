@@ -105,6 +105,17 @@ chmod 640 "$APP_DIR/.env"
 log "ساخت جداول دیتابیس تازه"
 mysql --protocol=socket -uroot "$DB_NAME" < schema.sql
 npm run migrate
+log "اعتبارسنجی نصب پاک و ساختار چندکمپینی"
+REQUIRED_TABLES=(participants campaigns campaign_status_history campaign_entries campaign_codes campaign_code_history payment_orders payment_receipts payment_transactions campaign_capacity_reservations campaign_payment_sessions profile_change_requests campaign_draws draw_candidates draw_winners draw_evidence idempotency_keys bank_cards campaign_payment_card_history payment_order_card_deliveries)
+for table in "${REQUIRED_TABLES[@]}"; do
+  present="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$table'")"
+  [[ "$present" == "1" ]] || die "جدول ضروری پس از Migration ساخته نشده است: $table"
+done
+for table in lottery_entries lottery_sessions lottery_draws lottery_draw_participants released_codes lottery_code_history legacy_entry_mappings; do
+  rows="$(mysql --protocol=socket -uroot -Nse "SELECT COUNT(*) FROM \`$DB_NAME\`.\`$table\`")"
+  [[ "$rows" == "0" ]] || die "دیتابیس تازه دارای داده قدیمی غیرمنتظره در $table است؛ نصب متوقف شد."
+done
+log "ساختار جدید تأیید شد؛ جداول سازگاری قدیمی خالی هستند."
 log "ساخت سرویس systemd"
 cat > "/etc/systemd/system/$SERVICE.service" <<UNIT
 [Unit]
