@@ -13,7 +13,7 @@ function fakeDb(rows=[],{heartbeatFailure=false}={}){
     if(sql.includes("UPDATE telegram_notification_outbox SET status='processing'")){const row=state.rows.find(x=>x.id===params[1]);if(row&&row.status==="pending"){row.status="processing";row.attempts++;row.token=params[0];}return [{affectedRows:row?1:0}];}
     throw new Error("Unexpected connection SQL: "+sql);
    },
-   async query(sql){if(sql.includes("SELECT id,payload FROM telegram_notification_outbox")){const row=state.rows.find(x=>x.status==="pending");return [row?[{id:row.id,payload:row.payload,notification_type:row.notification_type}]:[]];}throw new Error("Unexpected connection query: "+sql);}
+   async query(sql){if(sql.includes("SELECT id,payload,notification_type FROM telegram_notification_outbox")){const row=state.rows.find(x=>x.status==="pending");return [row?[{id:row.id,payload:row.payload,notification_type:row.notification_type}]:[]];}throw new Error("Unexpected connection query: "+sql);}
   };},
   async execute(sql,params){
    if(sql.includes("SET processing_started_at=NOW()")){
