@@ -19,7 +19,7 @@ app.use(express.static(path.join(__dirname,"..","public"),{index:false}));
 const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||3306),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,connectionLimit:8,waitForConnections:true,queueLimit:100,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0,charset:"utf8mb4"});
 const campaignService=createCampaignService({db,adminId:process.env.ADMIN_ID});
 const bankCardService=createBankCardService({db,adminId:process.env.ADMIN_ID});
-const drawService=createDrawService({db,adminId:process.env.ADMIN_ID});
+const drawService=createDrawService({db,adminId:process.env.ADMIN_ID,seedSecret:process.env.SESSION_SECRET});
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
 const [[row]]=await db.execute("SELECT COUNT(*) AS total FROM campaigns WHERE status='open'");
