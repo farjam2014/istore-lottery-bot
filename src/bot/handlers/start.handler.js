@@ -1,4 +1,5 @@
 import {findProfile,getSession} from '../../modules/participants/participant.service.js';
+import {getAdminRole} from '../../modules/admin/admin-role.service.js';
 import {registrationKeyboard,userMenuKeyboard,cancelKeyboard,phoneShareKeyboard} from '../keyboards/user.keyboard.js';
 export const promptFor=step=>({
  awaiting_name:'نام و نام خانوادگی خود را وارد کنید.',
@@ -7,6 +8,8 @@ export const promptFor=step=>({
 }[step]||'ثبت‌نام را آغاز کنید.');
 export function registerStartHandlers(bot){
  bot.start(async ctx=>{
+  const admin=await getAdminRole(ctx.from.id);
+  if(admin&&Number(admin.is_active)===1)return ctx.reply('حساب مدیریتی شما فعال است. برای ورود به پنل مدیریت دستور /admin را ارسال کنید.');
   const p=await findProfile(ctx.from.id);
   if(p)return ctx.reply('خوش برگشتید. از منوی زیر استفاده کنید:',userMenuKeyboard());
   const s=await getSession(ctx.from.id);
