@@ -349,11 +349,16 @@ async function showParticipants(ctx,page=0,query=''){
   const countParams=q?[like,like,like,q]:[];
   const [[count]]=await pool.execute("SELECT COUNT(*) total FROM participants p "+where,countParams);
   const total=Number(count.total),pages=Math.max(1,Math.ceil(total/limit));
-  const buttons=rows.map(p=>[Markup.button.callback((p.status==='blocked'?'🔴 ':'🟢 ')+p.full_name+' | '+p.phone,'admin:participant:view:'+p.id)]);
+  const participantButtons=rows.map(p=>Markup.button.callback(
+    (p.status==='blocked'?'🔴 ':'🟢 ')+String(p.full_name||'بدون نام').slice(0,18)+' · #'+p.id,
+    'admin:participant:view:'+p.id
+  ));
+  const buttons=[];
+  for(let i=0;i<participantButtons.length;i+=2)buttons.push(participantButtons.slice(i,i+2));
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:participants:page:'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:participants:page:'+(page+1)));
   if(nav.length)buttons.push(nav);
-  buttons.push([Markup.button.callback('🔎 جست‌وجوی مشتری','admin:participants:search')]);
-  buttons.push([Markup.button.callback('📥 خروجی CSV','admin:participants:export'),Markup.button.callback('بازگشت','admin:home')]);
+  buttons.push([Markup.button.callback('🔎 جست‌وجوی مشتری','admin:participants:search'),Markup.button.callback('📥 خروجی CSV','admin:participants:export')]);
+  buttons.push([Markup.button.callback('بازگشت','admin:home')]);
   const summary=rows.map(p=>'#'+p.id+' | '+p.full_name+' | '+p.status+' | '+p.entry_count+' شرکت | '+p.code_count+' کد').join('\n');
   return respond(ctx,'👥 مدیریت مشتریان\nتعداد: '+total+' | صفحه '+(page+1)+' از '+pages+(q?'\nجست‌وجو: '+q:'')+'\n\n'+(summary||'مشتری‌ای پیدا نشد.'),Markup.inlineKeyboard(buttons));
 }
