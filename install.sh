@@ -103,8 +103,8 @@ DB_PASSWORD="$(read_env MYSQL_PASSWORD)"
 DB_HOST="$(read_env MYSQL_HOST)"
 BOT_TOKEN="$(read_env BOT_TOKEN)"
 ADMIN_ID="$(read_env BOT_ADMIN_IDS)"
-[[ "$DB_NAME" =~ ^ustore_bot_[a-f0-9]{12}$ ]] || fail "MYSQL_DATABASE in .env is not a generated UStore database name."
-[[ "$DB_USER" =~ ^ustore_app_[a-f0-9]{12}$ ]] || fail "MYSQL_USER in .env is not a generated UStore database user."
+[[ "$DB_NAME" =~ ^ustore_bot_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_DATABASE in .env is not a generated UStore database name."
+[[ "$DB_USER" =~ ^ustore_app_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_USER in .env is not a generated UStore database user."
 [[ "$DB_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || fail "MYSQL_PASSWORD in .env must be the generated 64-character hex password."
 [[ "$DB_HOST" == 127.0.0.1 ]] || fail "This installer expects MYSQL_HOST=127.0.0.1."
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
@@ -117,10 +117,10 @@ runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js'
 
 log "Ensuring the dedicated database and restricted application user exist. No database is dropped."
 mysql <<SQL
-CREATE DATABASE IF NOT EXISTS `$DB_NAME` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';
 ALTER USER '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON `$DB_NAME`.* TO '$DB_USER'@'127.0.0.1';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON $DB_NAME.* TO '$DB_USER'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 unset DB_PASSWORD BOT_TOKEN
