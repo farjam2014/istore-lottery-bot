@@ -54,7 +54,7 @@ function fakeDb(payloads,{heartbeatFailure=false}={}){
     const row=state.rows.find(x=>x.id===params[3]);
     if(row&&row.status==='processing'&&row.processing_token===params[4]){
      row.status='sent';row.sent_at=Date.now();row.processing_started_at=null;row.processing_token=null;
-     if(params[0]){row.post_delivery_started_at=Date.now();row.post_delivery_token=params[1];}
+     if(params[0]){row.post_delivery_started_at=Date.now();row.post_delivery_token=params[2];}
      return [{affectedRows:1}];
     }
     return [{affectedRows:0}];
