@@ -8,7 +8,7 @@ const {createBankCardService}=require("./bank-card-service");
 const {createDrawService}=require("./draw-service");
 const {createAccountAuth}=require("./account-auth");
 const {bindPool,runWithCorrelation}=require("./correlation-context");
-const {consumeTelegramRateLimit,identifyTelegramActor,rateLimitBucket}=require("./telegram-rate-limit");
+
 const app=express();
 const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
 patchAsyncRoutes(app);
@@ -631,6 +631,7 @@ const notificationOutbox=createNotificationOutbox({db,send:(method,payload)=>tg(
 const {createWebhookQueue}=require("./webhook-queue");
 const webhookQueue=createWebhookQueue({
 db,
+adminId:process.env.ADMIN_ID,
 handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallbackQuery},
 logger:console
 });
@@ -639,30 +640,13 @@ if(!equal(q.get("x-telegram-bot-api-secret-token")||"",secret))return r.status(4
 const u=q.body||{};
 if(typeof u.update_id!=="number"||!Number.isSafeInteger(u.update_id))return r.status(400).send("Invalid update");
 const correlationId=q.correlationId||crypto.randomUUID();
-let enqueued=false;
 try{
 await db.execute("INSERT INTO webhook_inbox(update_id,payload,status,correlation_id) VALUES(?,?,'pending',?)",[String(u.update_id),JSON.stringify(u),correlationId]);
-enqueued=true;
-const actorId=identifyTelegramActor(u);
-if(actorId){
- const bucket=rateLimitBucket(u),isAdminActor=actorId===String(process.env.ADMIN_ID);
- const limit=isAdminActor?120:(bucket==='callback'?50:25);
- const rate=await consumeTelegramRateLimit(db,{userId:actorId,bucket,limit,windowMs:60000,blockMs:5000});
- if(rate.limited){
-  const retryMs=Math.max(100,Math.min(3600000,rate.retryAfterMs));
-  await db.execute("UPDATE webhook_inbox SET received_at=DATE_ADD(NOW(3),INTERVAL ? MICROSECOND),last_error=? WHERE update_id=? AND status='pending'",[retryMs*1000,'rate_limited:'+bucket+':'+retryMs,String(u.update_id)]);
-  await db.execute("INSERT IGNORE INTO webhook_rate_limit_events(update_id,telegram_user_id,bucket,correlation_id,retry_after_ms) VALUES(?,?,?,?,?)",[String(u.update_id),actorId,bucket,correlationId,retryMs]);
- }
-}
 return r.sendStatus(200);
 }catch(e){
 if(e.code==="ER_DUP_ENTRY")return r.sendStatus(200);
-console.error("Webhook enqueue/rate-limit error ["+correlationId+"]:",e.message);
-if(enqueued){
- try{await db.execute("UPDATE webhook_inbox SET status='failed',last_error=? WHERE update_id=? AND status='pending'",['ingress_rate_limit_failed:'+String(e.message||'unknown').slice(0,350),String(u.update_id)]);return r.sendStatus(200);}
- catch(markError){console.error("Webhook fail-closed marker error:",markError.message);}
-}
-return r.status(503);
+console.error("Webhook enqueue error ["+correlationId+"]:",e.message);
+return r.status(503).send("Unavailable");
 }
 });
 app.use(createErrorMiddleware(console));
