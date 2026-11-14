@@ -388,7 +388,7 @@ test('manual payment approval refuses inactive participants before issuing codes
 test('free campaign wizard skips payment-card selection and omits it from review edits', () => {
   const fs = require('node:fs');
   const source = fs.readFileSync(require.resolve('../src/admin-telegram.js'), 'utf8');
-  assert.match(source, /expected==='draw_basis'&&p\.values\.payment_mode==='free'\)return campaignWizardReview\(chat,p\)/);
+  assert.match(source, /expected==='ends_at'&&p\.values\.payment_mode==='free'\)return campaignWizardReview\(chat,p\)/);
   assert.match(source, /filter\(\(\{f\}\)=>!\(v\.payment_mode==='free'&&f\.key==='payment_card_id'\)\)/);
 });
 
@@ -427,7 +427,7 @@ test('campaign cannot be moved to scheduled without a start timestamp', async ()
     }
   };
   const service=require('../src/campaign-service').createCampaignService({db:{async getConnection(){return conn;}},adminId:'admin'});
-  await assert.rejects(service.setCampaignStatus(9,'scheduled'),/دارای زمان شروع باشد/);
+  await assert.rejects(service.setCampaignStatus(9,'scheduled'),/زمان شروع داشته باشد/);
   assert.ok(calls.includes('ROLLBACK'));
   assert.ok(!calls.includes('COMMIT'));
 });
