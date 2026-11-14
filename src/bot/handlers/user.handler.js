@@ -28,6 +28,7 @@ async function notifySupportAdmins(telegram,message,markup){
 }
 
 export function registerUserHandlers(bot){
+  bot.action('user:home',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'منوی اصلی حساب کاربری:',userMenuKeyboard());});
   bot.action('user:campaigns',async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,0);});
   bot.action(/^user:campaigns:page:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,Number(ctx.match[1]));});
   bot.action(/^campaign:view:(\d+)$/,async ctx=>{
@@ -66,13 +67,13 @@ export function registerUserHandlers(bot){
   bot.action('user:history',async ctx=>{await ctx.answerCbQuery();return showUserHistory(ctx,0);});
   bot.action(/^user:history:page:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserHistory(ctx,Number(ctx.match[1]));});
   bot.action('user:codes',async ctx=>{await ctx.answerCbQuery();const rows=await listParticipantCodes(ctx.from.id);if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());return screenReply(ctx,'کدهای شما:\n'+rows.map(x=>`${x.code} — ${x.campaign_title}`).join('\n'),userMenuKeyboard());});
-  bot.action('user:account',async ctx=>{await ctx.answerCbQuery();const p=ctx.state.profile;return screenReply(ctx,`نام: ${p.full_name}\nموبایل: ${p.phone}\nاینستاگرام: @${p.instagram_handle}`,Markup.inlineKeyboard([[Markup.button.callback('✏️ درخواست اصلاح اطلاعات','user:profile:edit')],[Markup.button.callback('بازگشت به منو','user:campaigns')]]));});
+  bot.action('user:account',async ctx=>{await ctx.answerCbQuery();const p=ctx.state.profile;return screenReply(ctx,`نام: ${p.full_name}\nموبایل: ${p.phone}\nاینستاگرام: @${p.instagram_handle}`,Markup.inlineKeyboard([[Markup.button.callback('✏️ درخواست اصلاح اطلاعات','user:profile:edit')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
 
-  bot.action('user:profile:edit',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'کدام اطلاعات را می‌خواهید اصلاح کنید؟',Markup.inlineKeyboard([[Markup.button.callback('نام و نام خانوادگی','user:profile:field:full_name')],[Markup.button.callback('شماره موبایل','user:profile:field:phone')],[Markup.button.callback('آیدی اینستاگرام','user:profile:field:instagram_handle')],[Markup.button.callback('بازگشت','user:account')]]));});
+  bot.action('user:profile:edit',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'کدام اطلاعات را می‌خواهید اصلاح کنید؟',Markup.inlineKeyboard([[Markup.button.callback('نام و نام خانوادگی','user:profile:field:full_name')],[Markup.button.callback('شماره موبایل','user:profile:field:phone')],[Markup.button.callback('آیدی اینستاگرام','user:profile:field:instagram_handle')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
   bot.action(/^user:profile:field:(full_name|phone|instagram_handle)$/,async ctx=>{const field=ctx.match[1];await pool.execute('INSERT INTO profile_change_sessions(telegram_user_id,step) VALUES(?,?) ON DUPLICATE KEY UPDATE step=VALUES(step)',[String(ctx.from.id),field]);await ctx.answerCbQuery();if(field==='phone'){await screenReply(ctx,'برای تغییر شماره، فقط شماره متعلق به حساب تلگرام خودتان را با دکمه زیر ارسال کنید.',Markup.keyboard([[Markup.button.contactRequest('اشتراک‌گذاری شماره من')]]).oneTime().resize());return screenReply(ctx,'برای لغو این فرایند:',Markup.inlineKeyboard([[Markup.button.callback('لغو درخواست اصلاح','user:profile:cancel')]]));}return screenReply(ctx,field==='full_name'?'نام و نام خانوادگی جدید را ارسال کنید.':'آیدی اینستاگرام جدید را ارسال کنید؛ با یا بدون @.',Markup.inlineKeyboard([[Markup.button.callback('لغو درخواست اصلاح','user:profile:cancel')]]));});
-  bot.action('user:profile:cancel',async ctx=>{await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery('فرایند لغو شد.');await screenReply(ctx,'درخواست اصلاح لغو شد.',Markup.removeKeyboard());return screenReply(ctx,'حساب کاربری',Markup.inlineKeyboard([[Markup.button.callback('بازگشت','user:account')]]));});
+  bot.action('user:profile:cancel',async ctx=>{await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery('فرایند لغو شد.');await screenReply(ctx,'درخواست اصلاح لغو شد.',Markup.removeKeyboard());return screenReply(ctx,'حساب کاربری',Markup.inlineKeyboard([[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
   bot.on('contact',async(ctx,next)=>{const [[session]]=await pool.execute('SELECT step FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(session?.step!=='phone')return next();if(!ctx.message.contact?.user_id||String(ctx.message.contact.user_id)!==String(ctx.from.id))return screenReply(ctx,'این مخاطب متعلق به حساب تلگرام شما نیست. لطفاً شماره خودتان را با دکمه اشتراک‌گذاری ارسال کنید.');let phone;try{phone=normalizePhone(ctx.message.contact.phone_number);}catch(e){return screenReply(ctx,e.message);}return createProfileChangeRequest(ctx,'phone',phone);});
-  bot.action('user:support',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'پشتیبانی: درخواست جدید ثبت کنید یا سوابق تیکت‌ها را ببینید.',Markup.inlineKeyboard([[Markup.button.callback('➕ ثبت درخواست جدید','support:user:new')],[Markup.button.callback('📂 تیکت‌های من','support:user:list')],[Markup.button.callback('بازگشت','user:account')]]));});
+  bot.action('user:support',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'پشتیبانی: درخواست جدید ثبت کنید یا سوابق تیکت‌ها را ببینید.',Markup.inlineKeyboard([[Markup.button.callback('➕ ثبت درخواست جدید','support:user:new')],[Markup.button.callback('📂 تیکت‌های من','support:user:list')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
   bot.action('support:user:new',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'موضوع درخواست را انتخاب کنید:',Markup.inlineKeyboard([[Markup.button.callback('مالی و پرداخت','support:user:category:financial')],[Markup.button.callback('کمپین و شرکت','support:user:category:campaign')],[Markup.button.callback('مشکل فنی','support:user:category:technical')],[Markup.button.callback('امنیت حساب','support:user:category:security')],[Markup.button.callback('سایر موارد','support:user:category:other')]]));});
   bot.action(/^support:user:category:(financial|campaign|technical|security|other)$/,async ctx=>{await ctx.answerCbQuery();await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category) VALUES(?,'new_message',?) ON DUPLICATE KEY UPDATE step='new_message',ticket_id=NULL,category=VALUES(category)",[String(ctx.from.id),ctx.match[1]]);return screenReply(ctx,'شرح درخواست را در یک پیام ارسال کنید. لطفاً اطلاعات حساس بانکی یا رمز عبور نفرستید.');});
   bot.action('support:user:list',async ctx=>{await ctx.answerCbQuery();const [rows]=await pool.execute('SELECT t.id,t.ticket_number,t.subject,t.status,t.priority,t.last_message_at FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE p.telegram_user_id=? ORDER BY t.last_message_at DESC LIMIT 20',[String(ctx.from.id)]);if(!rows.length)return screenReply(ctx,'هنوز تیکتی ثبت نکرده‌اید.');for(const t of rows)await screenReply(ctx,'#'+t.ticket_number+' | '+t.subject+'\nوضعیت: '+({new:'جدید',in_progress:'در حال بررسی',answered:'پاسخ داده‌شده',closed:'بسته'}[t.status]||t.status)+' | اولویت: '+t.priority,Markup.inlineKeyboard([[Markup.button.callback('مشاهده و پاسخ','support:user:view:'+t.id)]]));});
@@ -92,7 +93,7 @@ async function showUserHistory(ctx,page=0){
   }
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','user:history:page:'+(page-1)));if(hasNext)nav.push(Markup.button.callback('صفحه بعد','user:history:page:'+(page+1)));
   if(nav.length)buttons.push(nav);
-  buttons.push([Markup.button.callback('بازگشت به منو','user:account')]);
+  buttons.push([Markup.button.callback('🏠 منوی اصلی','user:home')]);
   return screenReply(ctx,'📚 سوابق شرکت شما\nتعداد نمایش در این صفحه: '+visible.length+'\nبرای مشاهده جزئیات هر سابقه، آن را انتخاب کنید.',Markup.inlineKeyboard(buttons));
 }
 async function showUserHistoryDetail(ctx,entryId){
@@ -111,7 +112,7 @@ async function showCampaignPage(ctx,page){
   }
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','user:campaigns:page:'+(page-1)));if(hasNext)nav.push(Markup.button.callback('صفحه بعد','user:campaigns:page:'+(page+1)));
   if(nav.length)buttons.push(nav);
-  buttons.push([Markup.button.callback('بازگشت به منو','user:account')]);
+  buttons.push([Markup.button.callback('🏠 منوی اصلی','user:home')]);
   return screenReply(ctx,'🎁 کمپین‌های فعال\nتعداد کمپین در این صفحه: '+visible.length+'\nبرای دیدن شرایط و شرکت، کمپین موردنظر را انتخاب کنید.',Markup.inlineKeyboard(buttons));
 }
 
