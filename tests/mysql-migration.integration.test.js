@@ -307,10 +307,11 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
 
       // The outbox id is the durable identity used to record card delivery.
       const [[instruction]] = await pool.execute(
-        "SELECT id FROM telegram_notification_outbox WHERE dedupe_key=?",
+        "SELECT id,correlation_id FROM telegram_notification_outbox WHERE dedupe_key=?",
         ['payment-instructions:'+orderId]
       );
       assert.ok(instruction,'payment instructions must be committed to the outbox with the order');
+      assert.equal(instruction.correlation_id,correlationId,'outbox notification must inherit the webhook correlation ID');
       await pool.execute("UPDATE telegram_notification_outbox SET status='sent',sent_at=UTC_TIMESTAMP(),delivery_recorded_at=UTC_TIMESTAMP() WHERE status='pending' AND id<>?",[instruction.id]);
       await pool.execute("UPDATE telegram_notification_outbox SET delivery_recorded_at=UTC_TIMESTAMP() WHERE notification_type='payment_instructions' AND id<>?",[instruction.id]);
       const {createNotificationOutbox}=require('../src/notification-outbox');
