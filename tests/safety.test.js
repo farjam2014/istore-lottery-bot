@@ -126,7 +126,8 @@ test('profile confirmation persists the profile before clearing the session', ()
   const end = source.indexOf("if(String(q.data||'').startsWith('campaign:details:')", start);
   const handler = source.slice(start, end);
   assert.match(handler, /await saveParticipantProfile\([\s\S]*?await delSession\(uid\)/);
-  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);\n  assert.match(handler, /SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open'/);
+  assert.match(handler, /ثبت‌نام شما با موفقیت تکمیل شد/);
+  assert.match(handler, /SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open'/);
 });
 
 test('optional contact gate fails open when CONTACT_PHONE is unset or invalid', () => {
