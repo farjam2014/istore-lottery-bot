@@ -5,7 +5,6 @@ const CAMPAIGN_SCHEMA = [
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     telegram_user_id BIGINT NOT NULL,
     chat_id BIGINT NULL,
-    business_connection_id VARCHAR(128) NULL,
     full_name VARCHAR(150) NOT NULL,
     phone VARCHAR(25) NOT NULL,
     instagram VARCHAR(40) NOT NULL,
@@ -163,10 +162,23 @@ const CAMPAIGN_SCHEMA = [
     CONSTRAINT fk_capacity_participant FOREIGN KEY(participant_id) REFERENCES participants(id) ON DELETE RESTRICT,
     CONSTRAINT fk_capacity_order FOREIGN KEY(order_id) REFERENCES payment_orders(id) ON DELETE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS telegram_user_sessions (
+    telegram_user_id BIGINT NOT NULL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    step ENUM('name','awaiting_contact','instagram','awaiting_confirmation') NOT NULL,
+    full_name VARCHAR(150) NULL,
+    phone VARCHAR(25) NULL,
+    instagram VARCHAR(40) NULL,
+    campaign_id BIGINT UNSIGNED NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_user_session_expiry(expires_at),
+    CONSTRAINT fk_user_session_campaign FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `CREATE TABLE IF NOT EXISTS campaign_payment_sessions (
     telegram_user_id BIGINT NOT NULL PRIMARY KEY,
     chat_id BIGINT NOT NULL,
-    business_connection_id VARCHAR(128) NOT NULL,
     order_id BIGINT UNSIGNED NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -264,123 +276,11 @@ const CAMPAIGN_SCHEMA = [
     UNIQUE KEY uq_idempotency_key(idempotency_key),
     KEY idx_idempotency_actor(actor,created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-  `CREATE TABLE IF NOT EXISTS legacy_entry_mappings (
-    legacy_entry_id BIGINT UNSIGNED PRIMARY KEY,
-    participant_id BIGINT UNSIGNED NOT NULL,
-    campaign_entry_id BIGINT UNSIGNED NOT NULL,
-    campaign_code_id BIGINT UNSIGNED NOT NULL,
-    migrated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_legacy_campaign_entry(campaign_entry_id),
-    CONSTRAINT fk_legacy_participant FOREIGN KEY(participant_id) REFERENCES participants(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_legacy_campaign_entry FOREIGN KEY(campaign_entry_id) REFERENCES campaign_entries(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_legacy_campaign_code FOREIGN KEY(campaign_code_id) REFERENCES campaign_codes(id) ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
 ];
 
-async function ensureParticipantBusinessColumn(db) {
-  const [rows] = await db.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME='business_connection_id'");
-  if (!rows.length) await db.query('ALTER TABLE participants ADD COLUMN business_connection_id VARCHAR(128) NULL AFTER chat_id');
-}
-
-async function tableExists(db, table) {
-  const [rows] = await db.execute(
-    'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? LIMIT 1',
-    [table]
-  );
-  return rows.length > 0;
-}
-
-async function migrateLegacyEntries(db) {
-  const [legacy] = await db.query(
-    'SELECT id,telegram_user_id,chat_id,full_name,phone,instagram,raffle_code,status,created_at,updated_at FROM lottery_entries ORDER BY id'
-  );
-  if (!legacy.length) return { migrated: 0 };
-
-  const [[campaign]] = await db.execute(
-    "SELECT id FROM campaigns WHERE slug='legacy-lottery' LIMIT 1"
-  );
-  let campaignId = campaign?.id;
-  if (!campaignId) {
-    const [created] = await db.execute(
-      "INSERT INTO campaigns(slug,name,description,status,payment_mode,price_per_code,max_codes_per_participant,draw_basis,winner_count,created_by) VALUES('legacy-lottery','کمپین قدیمی','مهاجرت خودکار از سیستم تک‌کمپینی','closed','free',0,1,'per_code',1,'migration')"
-    );
-    campaignId = created.insertId;
-  }
-
-  let migrated = 0;
-  for (const row of legacy) {
-    const [[mapping]] = await db.execute(
-      'SELECT legacy_entry_id FROM legacy_entry_mappings WHERE legacy_entry_id=?',
-      [row.id]
-    );
-    if (mapping) continue;
-
-    const [pRows] = await db.execute(
-      'SELECT id FROM participants WHERE telegram_user_id=? LIMIT 1',
-      [String(row.telegram_user_id)]
-    );
-    let participantId = pRows[0]?.id;
-    if (!participantId) {
-      const [p] = await db.execute(
-        'INSERT INTO participants(telegram_user_id,chat_id,full_name,phone,instagram,status,created_at) VALUES(?,?,?,?,?,?,?)',
-        [String(row.telegram_user_id), String(row.chat_id), row.full_name, row.phone, row.instagram, row.status === 'deleted' ? 'deleted' : row.status, row.created_at]
-      );
-      participantId = p.insertId;
-    }
-
-    const [entryRows] = await db.execute(
-      'SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=? LIMIT 1',
-      [campaignId, participantId]
-    );
-    let entryId = entryRows[0]?.id;
-    if (!entryId) {
-      const [entry] = await db.execute(
-        'INSERT INTO campaign_entries(campaign_id,participant_id,status,created_at,updated_at) VALUES(?,?,?,?,?)',
-        [campaignId, participantId, row.status === 'active' ? 'active' : row.status === 'deleted' ? 'disqualified' : 'inactive', row.created_at, row.updated_at || row.created_at]
-      );
-      entryId = entry.insertId;
-    }
-
-    const [codeRows] = await db.execute(
-      'SELECT id FROM campaign_codes WHERE code=? LIMIT 1',
-      [row.raffle_code]
-    );
-    let codeId = codeRows[0]?.id;
-    if (!codeId) {
-      const [createdCode] = await db.execute(
-        'INSERT INTO campaign_codes(campaign_id,entry_id,participant_id,code,status,issued_at) VALUES(?,?,?,?,?,?)',
-        [campaignId, entryId, participantId, row.raffle_code, row.status === 'active' ? 'active' : 'voided', row.created_at]
-      );
-      codeId = createdCode.insertId;
-      await db.execute(
-        "INSERT INTO campaign_code_history(campaign_code_id,code,action,actor,reason,created_at) VALUES(?,?,'issued','migration','legacy code preserved',?)",
-        [codeId, row.raffle_code, row.created_at]
-      );
-      if (row.status !== 'active') {
-        await db.execute(
-          "INSERT INTO campaign_code_history(campaign_code_id,code,action,actor,reason,created_at) VALUES(?,?,'voided','migration','legacy entry not active',?)",
-          [codeId, row.raffle_code, row.updated_at || row.created_at]
-        );
-      }
-    }
-
-    await db.execute(
-      'INSERT INTO legacy_entry_mappings(legacy_entry_id,participant_id,campaign_entry_id,campaign_code_id) VALUES(?,?,?,?)',
-      [row.id, participantId, entryId, codeId]
-    );
-    migrated++;
-  }
-  return { migrated, campaignId };
-}
-
 async function up(db) {
-  if (!(await tableExists(db, 'lottery_entries'))) {
-    throw new Error('Cannot migrate multi-campaign schema: lottery_entries is missing.');
-  }
   for (const sql of CAMPAIGN_SCHEMA) await db.query(sql);
-  await ensureParticipantBusinessColumn(db);
-  // Fresh multi-campaign core: legacy single-campaign records are intentionally not imported.
-  return { migrated: 0, legacyImportDisabled: true };
+  return { multiCampaignSchema: true, legacyImportDisabled: true, businessIntegration: false };
 }
 
-module.exports = { up, CAMPAIGN_SCHEMA, migrateLegacyEntries, ensureParticipantBusinessColumn };
+module.exports = { up, CAMPAIGN_SCHEMA };
