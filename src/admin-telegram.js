@@ -610,7 +610,8 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی مستقیم می‌توانی از دستورهای زیر هم استفاده کنی:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
     if (data.startsWith('adm:export:')) return exportPeriodMenu(chat,data.slice('adm:export:'.length));
-    if (data==='adm:outbox') return outboxList(chat);\n    if (data.startsWith('adm:outbox-retry:')) return retryOutbox(chat,data.slice('adm:outbox-retry:'.length));\n    if (data==='adm:support') return supportList(chat,'open',0);
+    if (data==='adm:outbox') return outboxList(chat);
+    if (data.startsWith('adm:outbox-retry:')) return retryOutbox(chat,data.slice('adm:outbox-retry:'.length));\n    if (data==='adm:support') return supportList(chat,'open',0);
     if (data.startsWith('adm:support-page:')) { const [, , status='open', page='0']=data.split(':'); return supportList(chat,status,page); }
     if (data.startsWith('adm:support:')) return supportList(chat,data.slice('adm:support:'.length),0);
     if (data.startsWith('adm:support-ticket:')) return supportDetail(chat,data.slice('adm:support-ticket:'.length));
