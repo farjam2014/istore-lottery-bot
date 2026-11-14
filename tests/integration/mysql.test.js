@@ -364,11 +364,14 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
   const {listPaymentCards,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,getDefaultPaymentCard}=await import('../../src/modules/payments/bank-card.service.js');
   const suffix=String(Date.now()).slice(-12).padStart(12,'0');
   const cardA='4111'+suffix,cardB='5555'+suffix;
-  let idA,idB,previousDefault;
+  let idA,idB,previousCards=[];
   try{
     await migrate();
-    const existing=await listPaymentCards();
-    previousDefault=existing.find(x=>Number(x.is_default)&&Number(x.is_active))?.id??null;
+    const [existingRows]=await pool.execute('SELECT id,is_active,is_default FROM payment_bank_cards ORDER BY id');
+    previousCards=existingRows;
+    // Isolate this scenario from legacy cards already present in the CI database.
+    await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
+    await pool.execute('UPDATE payment_bank_cards SET is_active=0');
     const a=await createPaymentCard({bankName:'Integration Bank A',cardNumber:cardA,cardHolder:'Integration Holder A',instructions:'A'},'1');idA=a.id;
     const b=await createPaymentCard({bankName:'Integration Bank B',cardNumber:cardB,cardHolder:'Integration Holder B',instructions:'B'},'1');idB=b.id;
     await assert.rejects(createPaymentCard({bankName:'Duplicate Bank',cardNumber:cardA,cardHolder:'Duplicate Holder'},'1'),/قبلاً ثبت شده/);
@@ -397,14 +400,15 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
   }finally{
     if(idA)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idA]);
     if(idB)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idB]);
-    if(previousDefault){
-      await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
-      await pool.execute('UPDATE payment_bank_cards SET is_active=1,is_default=1 WHERE id=?',[previousDefault]);
-    }else{
-      const [[remaining]]=await pool.execute('SELECT id FROM payment_bank_cards WHERE is_active=1 ORDER BY id LIMIT 1');
-      if(remaining){
-        await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
-        await pool.execute('UPDATE payment_bank_cards SET is_default=1 WHERE id=?',[remaining.id]);
+    await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
+    for(const row of previousCards){
+      if(Number(row.is_active)===1){
+        await pool.execute('UPDATE payment_bank_cards SET is_active=1 WHERE id=?',[row.id]);
+      }
+    }
+    for(const row of previousCards){
+      if(Number(row.is_default)===1){
+        await pool.execute('UPDATE payment_bank_cards SET is_default=1 WHERE id=?',[row.id]);
       }
     }
   }
