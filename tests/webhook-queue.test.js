@@ -46,8 +46,12 @@ function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = fal
         if (sql.includes('SELECT retry_after_ms FROM webhook_rate_limit_events')) {
           return [rateLimitDecision ? [{retry_after_ms:3000}] : [], []];
         }
-        if (sql.includes('INSERT IGNORE INTO webhook_rate_limit_events')) {
+        if (sql.includes('INSERT INTO webhook_rate_limit_events')) {
           rateLimitDecision = true;
+          return [{affectedRows:1}, []];
+        }
+        if (sql.includes('DELETE FROM webhook_rate_limit_events')) {
+          rateLimitDecision = false;
           return [{affectedRows:1}, []];
         }
 
@@ -116,21 +120,23 @@ test("successful update is handled and marked done", async () => {
   assert.ok(calls.includes("finish:commit"));
 });
 
-test("rate-limited webhook is delayed without consuming attempts and its decision is not repeated",async()=>{
+test("rate-limited webhook is delayed without consuming attempts and rechecked until allowed",async()=>{
  let checks=0,handled=0;
+ const decisions=[{limited:true,retryAfterMs:3000},{limited:false,retryAfterMs:0}];
  const {queue,statements}=createHarness({
-  rateLimit:async()=>{checks++;return {limited:true,retryAfterMs:3000};},
+  rateLimit:async()=>{checks++;return decisions.shift();},
   handler:async()=>{handled++;}
  });
  assert.equal(await queue.processOne(),false);
  assert.equal(checks,1);
  assert.equal(handled,0);
  assert.ok(statements.some(x=>x.sql.includes("SET received_at=DATE_ADD(NOW(3)")));
- assert.ok(statements.some(x=>x.sql.includes("INSERT IGNORE INTO webhook_rate_limit_events")));
+ assert.ok(statements.some(x=>x.sql.includes("INSERT INTO webhook_rate_limit_events")));
  assert.equal(statements.some(x=>x.sql.includes("SET status='processing'")),false);
  assert.equal(await queue.processOne(),true);
- assert.equal(checks,1,'the durable rate-limit decision must not be counted again on retry');
+ assert.equal(checks,2,'deferred updates must be checked again against the active quota');
  assert.equal(handled,1);
+ assert.ok(statements.some(x=>x.sql.includes("DELETE FROM webhook_rate_limit_events")));
 });
 
 test("handler failure does not mark update done and schedules retry", async () => {
