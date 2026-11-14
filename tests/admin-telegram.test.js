@@ -18,6 +18,8 @@ function harness() {
       calls.push({sql,params});
       if(sql.includes('FROM campaigns c')||sql.includes('FROM payment_orders o JOIN campaigns'))return [[]];
       if(sql.includes('FROM bank_cards'))return [[]];
+      if(sql.includes('FROM customer_support_tickets'))return [[{id:42,telegram_user_id:'777',chat_id:'777',business_connection_id:null,message:'پیام اولیه',status:'open',admin_reply:null,replied_at:null,created_at:'2026-11-14'}]];
+      if(sql.includes('FROM customer_support_messages'))return [[{sender_type:'customer',sender_id:'777',message:'پیام اولیه',created_at:'2026-11-14'}]];
       if(sql.includes('FROM participants p'))return [[]];
       return [{affectedRows:1,insertId:77}];
     },
