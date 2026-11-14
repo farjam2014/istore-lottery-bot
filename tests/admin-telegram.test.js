@@ -10,7 +10,7 @@ function harness() {
     async commit(){calls.push({sql:'COMMIT'});},
     async rollback(){calls.push({sql:'ROLLBACK'});},
     release(){calls.push({sql:'RELEASE'});},
-    async execute(sql,params=[]){calls.push({sql,params});return [{affectedRows:1,insertId:77}];},
+    async execute(sql,params=[]){calls.push({sql,params});if(sql.includes('FROM telegram_notification_outbox WHERE id=? FOR UPDATE'))return [[{id:19,status:'failed',attempts:5,notification_type:'sample'}]];return [{affectedRows:1,insertId:77}];},
     async query(sql,params=[]){calls.push({sql,params});return [[]];}
   };
   const db={
