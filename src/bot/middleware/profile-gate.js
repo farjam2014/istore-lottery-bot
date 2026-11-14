@@ -6,6 +6,7 @@ export function profileGate(){return async(ctx,next)=>{
   if(!ctx.from)return;
   if(config.adminIds.has(String(ctx.from.id)))return next();
   const p=await findProfile(ctx.from.id);
+  if(p?.status==='blocked'){if(ctx.callbackQuery)await ctx.answerCbQuery('حساب شما مسدود است. برای پیگیری با پشتیبانی تماس بگیرید.',{show_alert:true}).catch(()=>{});else await ctx.reply('حساب شما مسدود است. برای پیگیری با پشتیبانی تماس بگیرید.');return;}
   if(p){ctx.state.profile=p;return next();}
   const session=await getSession(ctx.from.id);
   const allowed=isRegistrationUpdateAllowed({
