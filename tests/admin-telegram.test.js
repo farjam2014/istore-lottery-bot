@@ -310,3 +310,17 @@ test('prepared system draws can be resumed from the Telegram admin campaign view
   assert.match(source, /drawService\.runSystemDraw\(Number\(drawId\)\)/);
   assert.match(source, /data\.startsWith\('adm:draw-run:'\)/);
 });
+
+
+test('Telegram admin exposes live-wheel candidate references, result capture and evidence review', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/admin-telegram.js'),'utf8');
+  assert.match(source,/callback_data:'adm:draw-live:'\+d\.id\+'\:0'/);
+  assert.match(source,/async function liveWheelCandidatePage\(chat,drawId,page=0\)/);
+  assert.match(source,/async function startLiveWheelResult\(chat,drawId\)/);
+  assert.match(source,/type:'live-wheel-result'/);
+  assert.match(source,/drawService\.submitLiveWheelResults\(/);
+  assert.match(source,/data==='adm:draw-live-cancel'/);
+  assert.match(source,/liveWheel\.step==='evidence'/);
+  assert.match(source,/liveWheel\.step==='hash'/);
+});
