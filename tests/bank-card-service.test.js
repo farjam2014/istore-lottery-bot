@@ -25,3 +25,15 @@ test('adds valid cards using normalized digits and parameterized SQL',async()=>{
   assert.equal(call.params[2],'6037991812345678');
   assert.equal(call.params[4],'admin');
 });
+
+
+test('delivery history returns outbox linkage and masked card snapshot fields',async()=>{
+  let call;
+  const expected=[{id:3,order_id:7,outbox_id:19,card_id:2,card_label_snapshot:'کارت اصلی',bank_name_snapshot:'ملت',last4:'5678',cardholder_name_snapshot:'علی رضایی',sent_at:'2026-11-14 12:00:00'}];
+  const service=createBankCardService({db:{async execute(sql,params){call={sql,params};return [expected];}},adminId:'admin'});
+  const rows=await service.deliveries(7);
+  assert.deepEqual(rows,expected);
+  assert.match(call.sql,/outbox_id/);
+  assert.match(call.sql,/cardholder_name_snapshot/);
+  assert.deepEqual(call.params,[7]);
+});
