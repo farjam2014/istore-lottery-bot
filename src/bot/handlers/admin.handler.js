@@ -5,6 +5,7 @@ import {Markup} from 'telegraf';
 import {listPendingReceipts} from '../../modules/payments/payment.service.js';
 import {toCsv} from '../../shared/csv.js';
 import {hasPermission,isConfiguredSuperAdmin} from '../../modules/admin/admin-role.service.js';
+import {getManagementReport,reportRows} from '../../modules/reports/management-report.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -21,7 +22,7 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
     if(data==='admin:payments')return hasPermission(id,'payment.read');
     if(data==='admin:payment-settings')return hasPermission(id,'payment.settings');
-    if(data==='admin:stats')return hasPermission(id,'report.read');
+    if(data==='admin:stats'||data.startsWith('admin:reports')||data.startsWith('admin:report:'))return hasPermission(id,'report.read');
     if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
     return false;
   }
@@ -44,7 +45,7 @@ const menu=()=>Markup.inlineKeyboard([
   [Markup.button.callback('👥 مدیریت شرکت‌کنندگان','admin:participants')],
   [Markup.button.callback('💬 تیکت‌های پشتیبانی','admin:support')],
   [Markup.button.callback('🛡 مدیریت مدیران و نقش‌ها','admin:roles')],
-  [Markup.button.callback('📊 آمار کاربران','admin:stats')],
+  [Markup.button.callback('📊 گزارش‌ها و عملکرد مالی','admin:reports')],
   [Markup.button.callback('🧾 رسیدهای پرداخت','admin:payments')],
   [Markup.button.callback('💳 تنظیم کارت بانکی','admin:payment-settings')]
 ]);
@@ -149,7 +150,25 @@ export function registerAdminHandlers(bot){
     return ctx.reply('اطلاعات کارت را در ۴ خط ارسال کنید:\nنام بانک\nشماره کارت ۱۶ رقمی\nنام صاحب کارت\nتوضیحات یا -');
   });
 
-  bot.action('admin:stats',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();const [[u]]=await pool.query('SELECT COUNT(*) total FROM participants');const [[c]]=await pool.query('SELECT COUNT(*) total FROM campaigns');const [[e]]=await pool.query('SELECT COUNT(*) total FROM campaign_entries');return ctx.reply(`کاربران: ${u.total}\nکمپین‌ها: ${c.total}\nورودی‌های کمپین: ${e.total}`,menu());});
+  bot.action('admin:stats',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return ctx.reply('گزارش‌ها و عملکرد مالی',Markup.inlineKeyboard([[Markup.button.callback('مشاهده گزارش جامع','admin:reports')],[Markup.button.callback('بازگشت','admin:home')]]));});
+  bot.action('admin:reports',async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery();
+    const r=await getManagementReport();
+    const n=v=>Number(v||0).toLocaleString('fa-IR');
+    const msg='📊 گزارش مدیریتی ربات\n\n👥 کاربران\nکل کاربران: '+n(r.users.total)+'\nفعال: '+n(r.users.active)+' | مسدود: '+n(r.users.blocked)+'\nکاربران جدید ۳۰ روز اخیر: '+n(r.newUsers.new_users_30d)+'\n\n🎯 کمپین‌ها\nکل: '+n(r.campaigns.total)+'\nفعال: '+n(r.campaigns.open_count)+' | پیش‌نویس: '+n(r.campaigns.draft_count)+' | بسته: '+n(r.campaigns.closed_count)+'\n\n🎟 شرکت‌کنندگان\nکل ورودی‌ها: '+n(r.entries.total)+'\nواجد شرایط: '+n(r.entries.eligible)+' | منتظر پرداخت: '+n(r.entries.pending_payment)+' | لغوشده: '+n(r.entries.cancelled)+'\n\n💳 امور مالی\nکل سفارش‌ها: '+n(r.payments.total)+'\nپرداخت تأییدشده: '+n(r.payments.approved_count)+' | در انتظار/ردشده: '+n(r.payments.pending_count)+'\nدرآمد تأییدشده: '+n(r.payments.revenue)+' ریال\nمبالغ سفارش‌های باز: '+n(r.payments.pending_amount)+' ریال\nدرآمد ۳۰ روز اخیر بر اساس تاریخ ثبت سفارش: '+n(r.recent.revenue_30d)+' ریال\n\n🧾 رسیدها\nکل: '+n(r.receipts.total)+' | بررسی‌نشده: '+n(r.receipts.submitted)+' | تأیید: '+n(r.receipts.approved)+' | رد: '+n(r.receipts.rejected);
+    const top=r.topCampaigns.length?r.topCampaigns.map((c,i)=>(i+1)+'. '+c.title+' | ورودی: '+n(c.entries)+' | تأیید پرداخت: '+n(c.paid_orders)+' | درآمد: '+n(c.revenue)+' ریال').join('\n'):'هنوز کمپینی ثبت نشده است.';
+    return ctx.reply(msg+'\n\n🏆 ۱۰ کمپین برتر بر اساس درآمد\n'+top,Markup.inlineKeyboard([[Markup.button.callback('📥 خروجی CSV کمپین‌ها','admin:report:export')],[Markup.button.callback('↩️ بازگشت','admin:home')]]));
+  });
+  bot.action('admin:report:export',async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await ctx.answerCbQuery('در حال ساخت گزارش...');
+    const report=await getManagementReport();
+    const rows=reportRows(report);
+    const columns=['campaign_id','title','status','type','entry_price','entries','eligible','approved_orders','revenue_irr'];
+    const csv=toCsv(rows,columns);
+    return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-financial-report.csv'},{caption:'گزارش کمپین‌ها؛ درآمد فقط شامل سفارش‌های تأییدشده است. مبلغ‌ها به ریال هستند.'});
+  });
   bot.on('photo',async(ctx,next)=>{if(!await isAdmin(ctx))return next();const wizard=await getWizard(ctx.from.id);if(!wizard||wizard.step!=='poster')return next();const photo=ctx.message.photo.at(-1);wizard.payload.posterFileId=photo.file_id;await saveWizard(ctx.from.id,'prize_title',wizard.payload);return ctx.reply('پوستر دریافت شد. نام جایزه را وارد کنید (برای نداشتن جایزه «-»).');});
   bot.on('text',async(ctx,next)=>{
     if(!await isAdmin(ctx))return next();
