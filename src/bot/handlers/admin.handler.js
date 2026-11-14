@@ -105,9 +105,14 @@ export function registerAdminHandlers(bot){
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const id=Number(ctx.match[1]);const [[row]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[id]);if(!row)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
-    const next=row.status==='open'?'paused':'open';if(!['draft','paused','open'].includes(row.status))return ctx.answerCbQuery('تغییر وضعیت این کمپین مجاز نیست.',{show_alert:true});
-    await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});await ctx.answerCbQuery('وضعیت به‌روزرسانی شد.');return ctx.reply(next==='open'?'کمپین فعال شد.':'کمپین متوقف شد.',campaignMenu());
+    const id=Number(ctx.match[1]);const [[row]]=await pool.execute('SELECT status,starts_at,ends_at FROM campaigns WHERE id=?',[id]);if(!row)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    if(!['draft','scheduled','paused','open'].includes(row.status))return ctx.answerCbQuery('تغییر وضعیت این کمپین مجاز نیست.',{show_alert:true});
+    if(row.status==='open'){const next='paused';await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});await ctx.answerCbQuery('کمپین متوقف شد.');return ctx.reply('کمپین متوقف شد.',campaignMenu());}
+    if(row.ends_at&&new Date(row.ends_at).getTime()<=Date.now())return ctx.answerCbQuery('زمان پایان کمپین گذشته است؛ امکان فعال‌سازی وجود ندارد.',{show_alert:true});
+    const next=row.starts_at&&new Date(row.starts_at).getTime()>Date.now()?'scheduled':'open';
+    await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});
+    await ctx.answerCbQuery(next==='scheduled'?'برای شروع زمان‌بندی شد.':'کمپین فعال شد.');
+    return ctx.reply(next==='scheduled'?'کمپین زمان‌بندی شد و در زمان شروع به‌صورت خودکار فعال می‌شود.':'کمپین فعال شد.',campaignMenu());
   });
 
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
