@@ -80,7 +80,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     );
     assert.equal(Number(ticketMessageColumns.total), 1);
     const [[ticketMessageIndexes]] = await verify.execute(
-      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND INDEX_NAME='uq_support_telegram_message'"
+      "SELECT COUNT(DISTINCT INDEX_NAME) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND INDEX_NAME='uq_support_telegram_message'"
     );
     assert.equal(Number(ticketMessageIndexes.total), 1);
     const [[profileMessageColumns]] = await verify.execute(
@@ -88,7 +88,7 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     );
     assert.equal(Number(profileMessageColumns.total), 1);
     const [[profileMessageIndexes]] = await verify.execute(
-      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND INDEX_NAME='uq_profile_change_telegram_message'"
+      "SELECT COUNT(DISTINCT INDEX_NAME) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND INDEX_NAME='uq_profile_change_telegram_message'"
     );
     assert.equal(Number(profileMessageIndexes.total), 1);
   } finally {
