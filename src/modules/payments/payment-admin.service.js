@@ -14,7 +14,7 @@ export async function searchManagedOrders(query,{limit=20}={}){
   const q=String(query||'').trim().slice(0,100);if(!q)throw Error('عبارت جست‌وجو خالی است.');
   const like='%'+q.replace(/[\\%_]/g,'\\\\$&')+'%';
   const [rows]=await pool.execute(
-    "SELECT o.id,o.payment_reference,o.amount,o.currency,o.status,o.expires_at,o.created_at,c.title campaign_title,p.telegram_user_id,p.full_name,p.phone FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE o.payment_reference=? OR CAST(o.id AS CHAR)=? OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ORDER BY o.id DESC LIMIT ?",
+    "SELECT o.id,o.payment_reference,o.amount,o.currency,o.status,o.expires_at,o.created_at,c.title campaign_title,p.telegram_user_id,p.full_name,p.phone FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE o.payment_reference=? OR CAST(o.id AS CHAR)=? OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!' ORDER BY o.id DESC LIMIT ?",
     [q,q,q,like,Math.max(1,Math.min(50,Number(limit)||20))]);
   return rows;
 }
