@@ -81,6 +81,7 @@ if(q.data==="contact:confirm"){
 if(!configuredContactPhone()){await tg("answerCallbackQuery",{callback_query_id:q.id,text:"شماره مدیریت هنوز در تنظیمات ربات ثبت نشده است.",show_alert:true});return;}
 await db.execute("INSERT INTO telegram_contact_gate(telegram_user_id,chat_id,accepted_at) VALUES(?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),accepted_at=COALESCE(accepted_at,CURRENT_TIMESTAMP)",[String(uid),String(chat)]);
 await tg("answerCallbackQuery",{callback_query_id:q.id,text:"تأیید شد؛ خوش آمدید."});
+if(!await requireActiveParticipant(uid,chat,connection))return;
 const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
 const buttons=campaigns.map(x=>[{text:x.name+" · "+(x.payment_mode==="free"?"رایگان":x.price_per_code+" "+x.currency),callback_data:"campaign:details:"+x.id}]);
 buttons.push([{text:"👤 حساب من و کدها",callback_data:"participant:account"}]);
@@ -106,6 +107,19 @@ function admin(req,res,next){if(!isAdmin(req))return res.status(401).json({error
 async function session(uid){const [r]=await db.execute("SELECT * FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)]);const item=r[0];if(!item)return null;const age=Date.now()-new Date(item.updated_at).getTime();if(!Number.isFinite(age)||age>24*60*60*1000){await delSession(uid);return null}return item}
 async function putSession(uid,chat,step,name,phone,conn,instagram=null){await db.execute(`INSERT INTO telegram_sessions(telegram_user_id,chat_id,step,full_name,phone,instagram,business_connection_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE chat_id=VALUES(chat_id),step=VALUES(step),full_name=VALUES(full_name),phone=VALUES(phone),instagram=VALUES(instagram),business_connection_id=VALUES(business_connection_id)`,[String(uid),String(chat),step,name,phone,instagram,conn])}
 async function delSession(uid){await db.execute("DELETE FROM telegram_sessions WHERE telegram_user_id=?",[String(uid)])}
+async function requireActiveParticipant(uid,chat,connection){
+const [[participant]]=await db.execute("SELECT id,status FROM participants WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
+if(!participant){
+await putSession(uid,chat,"profile_name",null,null,connection);
+await reply(chat,connection,"برای مشاهده کمپین‌ها ابتدا ثبت‌نام را تکمیل کنید.\n\nنام و نام خانوادگی خود را وارد کنید:",{reply_markup:{inline_keyboard:[[{text:"✖️ انصراف",callback_data:"reg:cancel"}]]}});
+return false;
+}
+if(participant.status!=="active"){
+await reply(chat,connection,"حساب شما غیرفعال است. برای بررسی و فعال‌سازی با پشتیبانی تماس بگیرید.",{reply_markup:{inline_keyboard:[[{text:"💬 پشتیبانی",callback_data:"support:start"}]]}});
+return false;
+}
+return true;
+}
 async function saveParticipantProfile(uid,chat,name,phone,inst,businessConnection){
 const conn=await db.getConnection();
 try{
@@ -158,6 +172,7 @@ try{
 }catch(e){return reply(chat,connection,e.code==="DUPLICATE_CONTACT"?"این شماره یا آیدی اینستاگرام قبلاً ثبت شده است.":"ساخت پروفایل ناموفق بود؛ اطلاعات شما حفظ شده است.");}
 }
 if(String(q.data||'').startsWith('campaign:details:')){
+  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
   const campaignId=String(q.data.split(':')[2]||'');
   if(!uid||!chat||!/^[0-9]+$/.test(campaignId))return tg('answerCallbackQuery',{callback_query_id:q.id,text:'درخواست نامعتبر است.',show_alert:true});
   await tg('answerCallbackQuery',{callback_query_id:q.id});
@@ -241,6 +256,7 @@ if(q.data==='participant:home'){
 }
 if(q.data==='campaign:list'){
   await tg('answerCallbackQuery',{callback_query_id:q.id});
+  if(!await requireActiveParticipant(uid,chat,String(q.message?.business_connection_id||'')))return;
   const [campaigns]=await db.execute("SELECT id,name,payment_mode,price_per_code,currency FROM campaigns WHERE status='open' ORDER BY id DESC LIMIT 20");
   const buttons=campaigns.map(c=>[{text:c.name+' · '+(c.payment_mode==='free'?'رایگان':c.price_per_code+' '+c.currency),callback_data:'campaign:details:'+c.id}]);
   buttons.push([{text:'👤 حساب و پروفایل',callback_data:'participant:account'},{text:'🎟 کدهای من',callback_data:'participant:codes'}]);
