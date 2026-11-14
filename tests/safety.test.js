@@ -216,3 +216,33 @@ test('customer order recovery, cancellation, order history and support history a
   assert.match(service, /status='released'/);
   assert.match(service, /DELETE FROM campaign_payment_sessions WHERE order_id/);
 });
+
+
+test('support ticket creation is keyed by Telegram message id and atomically queues both notifications', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(currentSession?.step==="support_message")');
+  const end = source.indexOf("const profileChangeMatch=", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /telegram_message_id/);
+  assert.match(handler, /ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID\(id\)/);
+  assert.match(handler, /support-ticket-customer:/);
+  assert.match(handler, /support-ticket:/);
+  assert.match(handler, /beginTransaction\(\)/);
+  assert.match(handler, /await ticketConn\.commit\(\)/);
+  assert.match(handler, /DELETE FROM telegram_sessions/);
+  assert.match(handler, /durable, deduplicated outbox/);
+});
+
+test('support replies are committed to the notification outbox before Telegram delivery', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../src/index.js'), 'utf8');
+  const start = source.indexOf('if(lower==="/reply"||lower.startsWith("/reply "))');
+  const end = source.indexOf("\n}\n\napp.get(\"/\"", start);
+  const handler = source.slice(start, end);
+  assert.match(handler, /SELECT id,chat_id,business_connection_id,status FROM customer_support_tickets WHERE id=\? FOR UPDATE/);
+  assert.match(handler, /support-reply:/);
+  assert.match(handler, /INSERT IGNORE INTO telegram_notification_outbox/);
+  assert.doesNotMatch(handler, /await reply\(String\(ticket\.chat_id\)/);
+  assert.match(handler, /await replyConn\.commit\(\)/);
+});
