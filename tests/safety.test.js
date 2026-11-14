@@ -294,3 +294,20 @@ test('duplicate free campaign join returns the already-issued codes instead of p
   assert.match(handler, /joined\.codes\|\|\[\]/);
   assert.doesNotMatch(handler, /duplicate[\s\S]{0,300}کدها در پیام جداگانه/);
 });
+
+
+test('contact-gate confirmation and stale campaign buttons cannot bypass profile registration', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  assert.match(source,/async function requireActiveParticipant\(uid,chat,connection\)/);
+  assert.match(source,/if\(!await requireActiveParticipant\(uid,chat,connection\)\)return/);
+  assert.match(source,/if\(!await requireActiveParticipant\(uid,chat,String\(q\.message\?\.business_connection_id\|\|''\)\)\)return/);
+  const gate=source.slice(source.indexOf('async function handleContactGateCallback'),source.indexOf('const adminTelegram'));
+  assert.ok(gate.indexOf('requireActiveParticipant(uid,chat,connection)')<gate.indexOf('SELECT id,name,payment_mode,price_per_code,currency FROM campaigns'));
+});
+
+test('support replies use a unique Telegram message id so reopened tickets can receive another reply', () => {
+  const fs=require('node:fs');
+  const source=fs.readFileSync(require.resolve('../src/index.js'),'utf8');
+  assert.match(source,/support-reply:\"\+ticketId\+\":\"\+String\(m\.message_id\)/);
+});
