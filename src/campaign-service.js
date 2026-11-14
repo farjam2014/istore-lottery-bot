@@ -123,6 +123,30 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
+  async function syncCampaignSchedule() {
+    const conn=await db.getConnection();
+    const result={opened:0,closed:0};
+    try{
+      await conn.beginTransaction();
+      const [rows]=await conn.execute(
+        "SELECT id,status,starts_at,ends_at FROM campaigns WHERE (status='scheduled' AND ((starts_at IS NOT NULL AND starts_at<=UTC_TIMESTAMP()) OR (ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()))) OR (status='open' AND ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) ORDER BY id FOR UPDATE"
+      );
+      for(const campaign of rows){
+        const nextStatus=campaign.ends_at&&new Date(campaign.ends_at).getTime()<=Date.now()?'closed':'open';
+        if(campaign.status===nextStatus)continue;
+        await conn.execute('UPDATE campaigns SET status=? WHERE id=? AND status=?',[nextStatus,campaign.id,campaign.status]);
+        await conn.execute(
+          'INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,?,?,?,?)',
+          [campaign.id,campaign.status,nextStatus,'system',nextStatus==='open'?'campaign start time reached':'campaign end time reached']
+        );
+        result[nextStatus==='open'?'opened':'closed']++;
+      }
+      await conn.commit();
+      return result;
+    }catch(error){await conn.rollback();throw error;}
+    finally{conn.release();}
+  }
+
   async function reserveManualOrder({ campaignId, participantId, quantity, termsVersion = '1', holdMinutes = 30 }) {
     const qty = assertInteger(quantity, 'تعداد کد', 1, 1000);
     const hold = assertInteger(holdMinutes, 'مدت رزرو', 5, 1440);
@@ -551,7 +575,7 @@ function createCampaignService({ db, adminId }) {
     } finally { conn.release(); }
   }
 
-  return { createCampaign, updateDraftCampaign, setCampaignStatus, reserveManualOrder, cancelManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
+  return { createCampaign, updateDraftCampaign, setCampaignStatus, syncCampaignSchedule, reserveManualOrder, cancelManualOrder, submitReceipt, reviewManualPayment, joinFreeCampaign, expireReservations, requestProfileChange, reviewProfileChange };
 }
 
 module.exports = { createCampaignService, assertCampaignInput };
