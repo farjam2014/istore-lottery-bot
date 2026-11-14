@@ -10,7 +10,7 @@ export function profileGate(){return async(ctx,next)=>{
   const session=await getSession(ctx.from.id);
   const allowed=isRegistrationUpdateAllowed({
     callbackData:ctx.callbackQuery?.data,
-    command:(ctx.message?.text||'').split(/\\s/)[0],
+    command:(ctx.message?.text||'').split(/\s/)[0],
     session,
     message:ctx.message
   });
