@@ -391,8 +391,7 @@ test('manual payment approval refuses inactive participants before issuing codes
   const campaignLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT id,status FROM campaigns'));
   const participantLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT id,status FROM participants'));
   const orderLock=calls.findIndex(x=>typeof x==='object'&&x.sql.includes('SELECT * FROM payment_orders'));
-  assert.ok(campaignLock>0&&participantLock>campaignLock,'payment review must lock campaign then participant');
-  assert.equal(orderLock,-1,'inactive participant is rejected before acquiring the order lock');
+  assert.ok(campaignLock>0&&participantLock>campaignLock&&orderLock>participantLock,'payment review must lock campaign, participant, then order');
   assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO campaign_codes/.test(x.sql)), false);
   assert.equal(calls.some(x => typeof x === 'object' && /INSERT INTO payment_transactions/.test(x.sql)), false);
 });
