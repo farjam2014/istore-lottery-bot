@@ -271,12 +271,12 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
       if(!item)throw new Error('وب‌هوک پیدا نشد.');
       const [[processed]]=await conn.execute('SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1',[id]);
       if(processed) {
-        await conn.execute("UPDATE webhook_inbox SET status='done',processed_at=COALESCE(processed_at,UTC_TIMESTAMP()),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=?",[id]);
+        await conn.execute("UPDATE webhook_inbox SET status='done',processed_at=COALESCE(processed_at,NOW()),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=?",[id]);
         await conn.commit();
         return adminMessage({chat_id:chat,text:'این به‌روزرسانی قبلاً پردازش شده بود؛ وضعیت آن با دفتر ثبت پردازش هماهنگ شد.'});
       }
       if(item.status!=='failed')throw new Error('فقط وب‌هوک ناموفق قابل بازیابی است.');
-      await conn.execute("UPDATE webhook_inbox SET status='pending',attempts=0,received_at=UTC_TIMESTAMP(3),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='failed'",[id]);
+      await conn.execute("UPDATE webhook_inbox SET status='pending',attempts=0,received_at=NOW(3),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='failed'",[id]);
       await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(adminId),'retry_webhook','webhook_update',String(id),JSON.stringify({previous_attempts:item.attempts,original_correlation_id:item.correlation_id||null,source:'telegram'})]);
       await conn.commit();
       return adminMessage({chat_id:chat,text:'وب‌هوک #'+id+' دوباره در صف پردازش قرار گرفت. نتیجه را از همین بخش بررسی کن.',reply_markup:keyboard([[{text:'وب‌هوک‌های ناموفق',callback_data:'adm:webhooks'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
