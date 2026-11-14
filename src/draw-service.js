@@ -14,7 +14,36 @@ function shuffle(rows) {
   return out;
 }
 
-function createDrawService({ db, adminId }) {
+function seedKey(secret) {
+  if(!secret)throw new Error('کلید پایدار DRAW seed تنظیم نشده است.');
+  return crypto.createHash('sha256').update(String(secret)).digest();
+}
+function encryptSeed(seed,secret) {
+  const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',seedKey(secret),iv);
+  const ciphertext=Buffer.concat([cipher.update(seed),cipher.final()]);
+  return {iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),ciphertext:ciphertext.toString('base64')};
+}
+function decryptSeed(encrypted,secret) {
+  const decipher=crypto.createDecipheriv('aes-256-gcm',seedKey(secret),Buffer.from(encrypted.iv,'base64'));
+  decipher.setAuthTag(Buffer.from(encrypted.tag,'base64'));
+  return Buffer.concat([decipher.update(Buffer.from(encrypted.ciphertext,'base64')),decipher.final()]);
+}
+function shuffleWithSeed(rows,seed) {
+  const out=rows.slice();let counter=0;
+  const randomInt=max=>{
+    if(!Number.isSafeInteger(max)||max<1||max>0x100000000)throw new Error('اندازه انتخاب تصادفی نامعتبر است.');
+    const range=0x100000000,limit=Math.floor(range/max)*max;
+    while(true){
+      const digest=crypto.createHmac('sha256',seed).update('ustore-draw-v1:'+counter++).digest();
+      const value=digest.readUInt32BE(0);
+      if(value<limit)return value%max;
+    }
+  };
+  for(let i=out.length-1;i>0;i--){const j=randomInt(i+1);[out[i],out[j]]=[out[j],out[i]];}
+  return out;
+}
+
+function createDrawService({ db, adminId, seedSecret }) {
   async function prepareDraw(campaignId) {
     const conn = await db.getConnection();
     try {
@@ -65,13 +94,25 @@ function createDrawService({ db, adminId }) {
           [drawId,candidate.participant_id,candidate.code,candidate.reference]
         );
       }
-      await conn.execute('UPDATE campaign_draws SET snapshot_hash=? WHERE id=?', [snapshotHash,drawId]);
+      let seedCommitment=null;
+      if(['system','hybrid'].includes(campaign.draw_method)){
+        const seed=crypto.randomBytes(32);
+        seedCommitment=crypto.createHash('sha256').update(seed).digest('hex');
+        const encrypted=encryptSeed(seed,seedSecret);
+        await conn.execute('UPDATE campaign_draws SET snapshot_hash=?,seed_commitment=? WHERE id=?',[snapshotHash,seedCommitment,drawId]);
+        await conn.execute(
+          'INSERT INTO draw_evidence(draw_id,evidence_type,content_hash,description,recorded_by) VALUES(?,?,?,?,?)',
+          [drawId,'draw_seed_encrypted',seedCommitment,JSON.stringify(encrypted),String(adminId)]
+        );
+      }else{
+        await conn.execute('UPDATE campaign_draws SET snapshot_hash=? WHERE id=?',[snapshotHash,drawId]);
+      }
       await conn.execute(
         'INSERT INTO draw_evidence(draw_id,evidence_type,content_hash,description,recorded_by) VALUES(?,?,?,?,?)',
         [drawId,'candidate_snapshot',snapshotHash,JSON.stringify({count:candidates.length,basis:campaign.draw_basis}),String(adminId)]
       );
       await conn.commit();
-      return { drawId, drawNumber, candidates: candidates.length, snapshotHash, method: campaign.draw_method };
+      return { drawId, drawNumber, candidates: candidates.length, snapshotHash, seedCommitment, method: campaign.draw_method };
     } catch (error) {
       await conn.rollback();
       throw error;
@@ -104,8 +145,16 @@ function createDrawService({ db, adminId }) {
       const [[draw]] = await conn.execute('SELECT * FROM campaign_draws WHERE id=? FOR UPDATE', [drawId]);
       if (!draw || draw.status !== 'prepared' || !['system','hybrid'].includes(draw.method)) throw new Error('این قرعه‌کشی برای اجرای سیستمی آماده نیست.');
       const candidates = await loadDrawCandidates(conn,drawId);
+      const [[seedEvidence]]=await conn.execute("SELECT description FROM draw_evidence WHERE draw_id=? AND evidence_type='draw_seed_encrypted' ORDER BY id DESC LIMIT 1 FOR UPDATE",[drawId]);
+      if(!seedEvidence||!draw.seed_commitment)throw new Error('داده محرمانه و تعهد بذر قرعه‌کشی پیدا نشد؛ اجرای امن متوقف شد.');
+      let encryptedSeed;
+      try{encryptedSeed=typeof seedEvidence.description==='string'?JSON.parse(seedEvidence.description):seedEvidence.description;}catch{throw new Error('داده رمز‌شده بذر قرعه‌کشی خراب است.');}
+      const seed=decryptSeed(encryptedSeed,seedSecret);
+      const seedReveal=seed.toString('hex');
+      const seedCommitment=crypto.createHash('sha256').update(seed).digest('hex');
+      if(seedCommitment!==String(draw.seed_commitment))throw new Error('تعهد بذر با مقدار رمزگشایی‌شده مطابقت ندارد.');
       const required = Number(draw.winner_count) + Number(draw.alternate_count);
-      const shuffled = shuffle(candidates);
+      const shuffled = shuffleWithSeed(candidates,seed);
       const selected = [];
       const seen = new Set();
       for (const candidate of shuffled) {
@@ -117,10 +166,14 @@ function createDrawService({ db, adminId }) {
       }
       if (selected.length !== required) throw new Error('تعداد برندگان قابل انتخاب کافی نیست.');
       await storeWinners(conn,draw,candidates,selected);
+      await conn.execute(
+        'INSERT INTO draw_evidence(draw_id,evidence_type,content_hash,description,recorded_by) VALUES(?,?,?,?,?)',
+        [drawId,'seed_reveal',seedCommitment,JSON.stringify({seed:seedReveal,algorithm:'hmac-sha256-fisher-yates-v1',snapshot_hash:draw.snapshot_hash}),String(adminId)]
+      );
       await conn.execute("UPDATE campaign_draws SET status='pending_approval' WHERE id=?", [drawId]);
-      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),'prepare_system_draw_result','campaign_draw',String(drawId),JSON.stringify({candidate_count:candidates.length,selected:selected.map(x=>x.candidate_reference),snapshot_hash:draw.snapshot_hash})]);
+      await conn.execute('INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)', [String(adminId),'prepare_system_draw_result','campaign_draw',String(drawId),JSON.stringify({candidate_count:candidates.length,selected:selected.map(x=>x.candidate_reference),snapshot_hash:draw.snapshot_hash,seed_commitment:seedCommitment,seed_reveal:seedReveal,algorithm:'hmac-sha256-fisher-yates-v1'})]);
       await conn.commit();
-      return { drawId, status:'pending_approval', winners:selected.map((x,i)=>({rank:i+1,participantId:x.participant_id,code:x.code,type:i<Number(draw.winner_count)?'primary':'alternate'})) };
+      return { drawId, status:'pending_approval', seedCommitment, seedReveal, algorithm:'hmac-sha256-fisher-yates-v1', winners:selected.map((x,i)=>({rank:i+1,participantId:x.participant_id,code:x.code,type:i<Number(draw.winner_count)?'primary':'alternate'})) };
     } catch (error) { await conn.rollback(); throw error; }
     finally { conn.release(); }
   }
@@ -208,4 +261,4 @@ function createDrawService({ db, adminId }) {
   return { prepareDraw, runSystemDraw, submitLiveWheelResults, approveDraw };
 }
 
-module.exports = { createDrawService, hashSnapshot, shuffle };
+module.exports = { createDrawService, hashSnapshot, shuffle, shuffleWithSeed };
