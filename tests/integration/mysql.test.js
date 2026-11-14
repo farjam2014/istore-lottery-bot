@@ -57,7 +57,7 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
   let participantId;let campaignId;let orderId;let receiptId;let telegramId;
   try{
     await migrate();
-    telegramId=String(800000000000n+BigInt(Date.now()%100000000000n));
+    telegramId=String(800000000000n+(BigInt(Date.now())%100000000000n));
     const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[telegramId,'Paid Integration','+989121111111','paid_test']);participantId=p.insertId;
     const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',150000,2)",['paid-it-'+telegramId,'Paid integration']);campaignId=c.insertId;
     await updatePaymentSettings({bankName:'Test Bank',cardNumber:'1234567812345678',cardHolder:'Test Holder',instructions:'',adminId:'1'});
