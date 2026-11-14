@@ -121,7 +121,7 @@ export function registerAdminHandlers(bot){
       [Markup.button.callback('قوانین','admin:campaign:edit:'+id+':terms')],
       [Markup.button.callback('شروع','admin:campaign:edit:'+id+':starts_at'),Markup.button.callback('پایان','admin:campaign:edit:'+id+':ends_at'),Markup.button.callback('زمان قرعه‌کشی','admin:campaign:edit:'+id+':draw_at')],
       [Markup.button.callback('مبلغ شرکت','admin:campaign:edit:'+id+':entry_price'),Markup.button.callback('ظرفیت','admin:campaign:edit:'+id+':capacity')],
-      [Markup.button.callback('تعداد کد هر نفر','admin:campaign:edit:'+id+':codes_per_entry)],
+      [Markup.button.callback('تعداد کد هر نفر','admin:campaign:edit:'+id+':codes_per_entry')],
       [Markup.button.callback('بازگشت','admin:campaign:list')]
     ]));
   });
