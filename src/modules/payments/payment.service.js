@@ -1,6 +1,7 @@
 import {randomBytes,randomInt} from 'node:crypto';
 import {pool} from '../../database/pool.js';
 import {enqueueTelegramNotification} from '../notifications/outbox.service.js';
+import {getCorrelationId} from '../../shared/request-context.js';
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const makeCode=()=> 'IST-'+Array.from({length:8},()=>alphabet[randomInt(alphabet.length)]).join('');
 const makePaymentReference=()=> 'ISTPAY-'+randomBytes(8).toString('hex').toUpperCase();
@@ -13,3 +14,19 @@ export async function reviewReceipt({adminId,receiptId,decision,reason=''}){if(!
 export async function expirePendingOrders({limit=100}={}){const c=await pool.getConnection();try{await c.beginTransaction();const [rows]=await c.execute("SELECT o.id,o.campaign_entry_id,p.telegram_user_id FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE o.status IN ('awaiting_receipt','rejected') AND o.expires_at<=UTC_TIMESTAMP() ORDER BY o.expires_at LIMIT ? FOR UPDATE SKIP LOCKED",[Math.max(1,Math.min(500,Number(limit)||100))]);for(const row of rows){await c.execute("UPDATE payment_orders SET status='expired' WHERE id=? AND status IN ('awaiting_receipt','rejected')",[row.id]);await c.execute("UPDATE campaign_entries SET status='cancelled' WHERE id=? AND status='pending_payment'",[row.campaign_entry_id]);await c.execute("INSERT INTO payment_events(order_id,actor_telegram_id,event_type,details) VALUES(?,0,'order_expired',JSON_OBJECT('reason','24h timeout'))",[row.id]);await c.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status) VALUES(?,?,'pending')",[String(row.telegram_user_id),JSON.stringify({text:'مهلت ۲۴ ساعته سفارش شما به پایان رسید و ظرفیت رزروشده آزاد شد. در صورت بازبودن کمپین می‌توانید دوباره اقدام کنید.'})]);}await c.commit();return rows.length;}catch(error){await c.rollback();throw error;}finally{c.release();}}
 export async function listUserOrders(uid){const [r]=await pool.execute("SELECT o.id,o.payment_reference,o.amount,o.currency,o.status,o.created_at,o.expires_at,o.rejection_reason,c.title campaign_title FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE p.telegram_user_id=? ORDER BY o.id DESC LIMIT 20",[String(uid)]);return r;}
 export async function getUserOrder(id,uid){const [r]=await pool.execute('SELECT o.id,o.amount,o.status,o.expires_at,(o.expires_at IS NOT NULL AND o.expires_at<=UTC_TIMESTAMP()) AS is_expired,o.card_number,o.card_holder FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE o.id=? AND p.telegram_user_id=?',[id,String(uid)]);return r[0]??null;}
+
+export async function recordPaymentCardDelivery({telegramUserId,orderId}){
+  const [[order]]=await pool.execute(
+    'SELECT o.id,o.bank_name,o.card_number,o.card_holder,p.telegram_user_id FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE o.id=?',
+    [orderId]
+  );
+  if(!order||String(order.telegram_user_id)!==String(telegramUserId))throw new Error('سفارش معتبر برای ثبت تاریخچه اطلاعات کارت پیدا نشد.');
+  await pool.execute(
+    'INSERT INTO payment_events(order_id,actor_telegram_id,correlation_id,event_type,details) VALUES(?,?,?,?,?)',
+    [orderId,String(telegramUserId),getCorrelationId(),'bank_details_presented',JSON.stringify({
+      bankName:order.bank_name,
+      cardLast4:String(order.card_number||'').slice(-4),
+      cardHolder:order.card_holder
+    })]
+  );
+}
