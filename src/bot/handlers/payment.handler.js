@@ -1,4 +1,5 @@
 import {Markup} from 'telegraf';
+import {config} from '../../config/env.js';
 import {hasPermission} from '../../modules/admin/admin-role.service.js';
 import {pool} from '../../database/pool.js';
 import {createOrGetOrder,submitReceipt,listUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings} from '../../modules/payments/payment.service.js';
