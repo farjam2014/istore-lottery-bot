@@ -327,3 +327,26 @@ test('replayed customer cancellation returns the already-cancelled order without
   assert.deepEqual(result, { id: 53, status: 'cancelled', duplicate: true });
   assert.deepEqual(calls, ['SELECT id,campaign_id,entry_id,status FROM payment_orders WHERE id=? AND participant_id=? FOR UPDATE', 'COMMIT']);
 });
+
+
+test('scheduled campaign can be closed before it opens', async () => {
+  const { createCampaignService } = require('../src/campaign-service');
+  const calls = [];
+  const conn = {
+    async beginTransaction() { calls.push('BEGIN'); },
+    async execute(sql, params = []) {
+      calls.push({sql,params});
+      if (sql.includes('SELECT id,status FROM campaigns')) return [[{id:15,status:'scheduled'}], []];
+      return [{affectedRows:1}, []];
+    },
+    async commit() { calls.push('COMMIT'); },
+    async rollback() { calls.push('ROLLBACK'); },
+    release() { calls.push('RELEASE'); }
+  };
+  const service = createCampaignService({db:{async getConnection(){return conn;}},adminId:'12345'});
+  const result = await service.setCampaignStatus(15,'closed','cancel scheduled campaign');
+  assert.deepEqual(result,{id:15,status:'closed'});
+  assert.ok(calls.some(x=>typeof x==='object'&&x.sql.includes('UPDATE campaigns SET status=?')&&x.params[0]==='closed'));
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+});
