@@ -142,6 +142,19 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     );
     assert.equal(Number(rateEventsTable.total),1);
 
+    // Rebuild the bank-card index/FK after a simulated partial migration.
+    await verify.query('ALTER TABLE campaigns DROP FOREIGN KEY fk_campaign_payment_card');
+    await verify.query('ALTER TABLE campaigns DROP INDEX idx_campaign_payment_card');
+    await require('../migrations/bank-cards').up(verify);
+    const [[cardForeignKey]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns' AND COLUMN_NAME='current_payment_card_id' AND REFERENCED_TABLE_NAME='bank_cards'"
+    );
+    assert.equal(Number(cardForeignKey.total),1,'bank-card migration must repair missing foreign key');
+    const [[cardIndex]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaigns' AND COLUMN_NAME='current_payment_card_id'"
+    );
+    assert.ok(Number(cardIndex.total)>=1,'bank-card migration must repair missing index');
+
     // Exercise support-thread backfill and migration idempotency on real MySQL.
     const [ticketInsert] = await verify.execute(
       "INSERT INTO customer_support_tickets(telegram_user_id,chat_id,message,telegram_message_id) VALUES(?,?,?,?)",
