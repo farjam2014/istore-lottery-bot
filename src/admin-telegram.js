@@ -288,7 +288,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!allowed.includes(status))return adminMessage({chat_id:chat,text:'فیلتر اعلان نامعتبر است.'});
     const p=Math.max(0,Math.min(10000,Number(page)||0)),where=status==='all'?'':'WHERE status=?',params=status==='all'?[15,p*15]:[status,15,p*15];
     const [[count]]=await db.execute('SELECT COUNT(*) AS total FROM telegram_notification_outbox '+(status==='all'?'':'WHERE status=?'),status==='all'?[]:[status]);
-    const [rows]=await db.execute('SELECT id,notification_type,status,attempts,last_error,created_at,sent_at,next_attempt_at FROM telegram_notification_outbox '+where+' ORDER BY id DESC LIMIT ? OFFSET ?',params);
+    const [rows]=await db.execute('SELECT id,notification_type,status,attempts,last_error,created_at,sent_at,next_attempt_at,correlation_id FROM telegram_notification_outbox '+where+' ORDER BY id DESC LIMIT ? OFFSET ?',params);
     const labels={pending:'در انتظار',processing:'در حال ارسال',sent:'ارسال‌شده',failed:'ناموفق'};
     const buttons=rows.map(x=>[{text:'#'+x.id+' · '+(labels[x.status]||x.status)+' · '+x.notification_type,callback_data:'adm:outbox-item:'+x.id}]);
     buttons.push([{text:'در انتظار',callback_data:'adm:outbox:pending'},{text:'در حال ارسال',callback_data:'adm:outbox:processing'}]);
@@ -301,7 +301,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
   }
   async function outboxDetail(chat,id) {
     if(!/^\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
-    const [[item]]=await db.execute('SELECT id,dedupe_key,notification_type,status,attempts,last_error,created_at,sent_at,next_attempt_at,processing_started_at FROM telegram_notification_outbox WHERE id=? LIMIT 1',[id]);
+    const [[item]]=await db.execute('SELECT id,dedupe_key,notification_type,status,attempts,last_error,created_at,sent_at,next_attempt_at,processing_started_at,correlation_id,delivery_recorded_at FROM telegram_notification_outbox WHERE id=? LIMIT 1',[id]);
     if(!item)return adminMessage({chat_id:chat,text:'اعلان پیدا نشد.'});
     const labels={pending:'در انتظار',processing:'در حال ارسال',sent:'ارسال‌شده',failed:'ناموفق'};
     const buttons=[];if(item.status==='failed')buttons.push([{text:'🔁 تلاش مجدد',callback_data:'adm:outbox-retry:'+id}]);
@@ -369,7 +369,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     finally{conn.release();}
   }
   async function auditLog(chat) {
-    const [rows]=await db.query('SELECT action,entity_type,entity_id,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 15');
+    const [rows]=await db.query('SELECT action,entity_type,entity_id,created_at,correlation_id FROM admin_audit_log ORDER BY id DESC LIMIT 15');
     const body=rows.length?rows.map((x,i)=>(i+1)+') '+x.action+' · '+x.entity_type+' #'+(x.entity_id||'-')+'\n'+x.created_at).join('\n\n'):'هنوز رخدادی ثبت نشده است.';
     return adminMessage({chat_id:chat,text:'🧾 ۱۵ رخداد اخیر\n\n'+body,reply_markup:keyboard([[{text:'منوی اصلی',callback_data:'adm:home'}]])});
   }
