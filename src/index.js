@@ -633,6 +633,7 @@ const webhookQueue=createWebhookQueue({
 db,
 adminId:process.env.ADMIN_ID,
 handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallbackQuery},
+adminId:process.env.ADMIN_ID,
 logger:console
 });
 app.post("/telegram/"+secret,async(q,r)=>{
@@ -646,7 +647,7 @@ return r.sendStatus(200);
 }catch(e){
 if(e.code==="ER_DUP_ENTRY")return r.sendStatus(200);
 console.error("Webhook enqueue error ["+correlationId+"]:",e.message);
-return r.status(503).send("Unavailable");
+return r.status(503);
 }
 });
 app.use(createErrorMiddleware(console));
