@@ -46,7 +46,7 @@ async function up(db) {
     bank_name_snapshot VARCHAR(80) NULL,
     card_number_snapshot CHAR(16) NOT NULL,
     cardholder_name_snapshot VARCHAR(150) NOT NULL,
-    delivery_channel VARCHAR(32) NOT NULL DEFAULT 'telegram_business',
+    delivery_channel VARCHAR(32) NOT NULL DEFAULT 'telegram_bot',
     sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_order_card_deliveries(order_id,sent_at),
     CONSTRAINT fk_order_card_delivery_order FOREIGN KEY(order_id) REFERENCES payment_orders(id) ON DELETE RESTRICT,
