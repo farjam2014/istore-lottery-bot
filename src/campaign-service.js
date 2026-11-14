@@ -109,7 +109,7 @@ function createCampaignService({ db, adminId }) {
       if (campaign.status === 'drawn' && nextStatus !== 'archived') throw new Error('کمپین قرعه‌کشی‌شده قابل بازگشایی نیست.');
       if (campaign.status === 'archived' && nextStatus !== 'archived') throw new Error('کمپین آرشیوشده قابل فعال‌سازی نیست.');
       if (nextStatus === 'open' && !['draft','scheduled','paused'].includes(campaign.status)) throw new Error('این تغییر وضعیت مجاز نیست.');
-      if (nextStatus === 'closed' && !['open','paused'].includes(campaign.status)) throw new Error('فقط کمپین باز یا متوقف‌شده قابل بستن است.');
+      if (nextStatus === 'closed' && !['scheduled','open','paused'].includes(campaign.status)) throw new Error('فقط کمپین زمان‌بندی‌شده، باز یا متوقف‌شده قابل بستن است.');
       await conn.execute('UPDATE campaigns SET status=? WHERE id=?', [nextStatus,campaignId]);
       await conn.execute(
         'INSERT INTO campaign_status_history(campaign_id,from_status,to_status,actor,reason) VALUES(?,?,?,?,?)',
