@@ -180,9 +180,9 @@ test('MySQL integration: payment operations search filters detail and export are
   let participantId,campaignId,entryId,orderId;const uid=String(850000000000n+(BigInt(Date.now())%100000000000n));const reference='ITPAY-'+uid;
   try{
     await migrate();
-    const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?),[uid,'Payment Admin Test','+989123456789','payment_admin_test']);participantId=p.insertId;
+    const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Payment Admin Test','+989123456789','payment_admin_test']);participantId=p.insertId;
     const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',100000,1)",['pay-admin-'+uid,'Payment Admin Campaign']);campaignId=c.insertId;
-    const [e]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('full_name','Payment Admin Test'),'pending_payment')",[campaignId,participantId]);entryId=e.insertId;
+    const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Payment Admin Test','+989123456789','payment_admin_test']);participantId=p.insertId;
     const [o]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,currency,status,expires_at) VALUES(?, ?,100000,'IRR','awaiting_receipt',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,reference]);orderId=o.insertId;
     const list=await listManagedOrders({status:'awaiting_receipt',page:0,limit:10});assert.ok(list.rows.some(x=>Number(x.id)===Number(orderId)));
     const found=await searchManagedOrders(reference);assert.ok(found.some(x=>Number(x.id)===Number(orderId)));
