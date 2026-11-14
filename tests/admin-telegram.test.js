@@ -352,3 +352,19 @@ test('campaign wizard accepts optional ISO start and end dates for automatic sch
   assert.match(source,/expected==='ends_at'&&p\.values\.payment_mode==='free'/);
   assert.match(source,/wizard\.values\.payment_mode==='free'&&wizard\.step===12/);
 });
+
+
+test('support ticket detail loads the durable conversation history', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'support-thread-1',data:'adm:support-ticket:42',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:901}});
+  assert.ok(h.calls.some(x=>x.sql.includes('FROM customer_support_messages')&&x.params[0]==='42'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('گفت‌وگوی پشتیبانی #42')));
+});
+
+test('Telegram admin can requeue a failed notification with an audit record', async () => {
+  const h=harness();
+  await h.admin.handleCallback({id:'outbox-retry-1',data:'adm:outbox-retry:19',from:{id:12345},message:{chat:{id:12345,type:'private'},message_id:902}});
+  assert.ok(h.calls.some(x=>x.sql.includes("SET status='pending'")&&x.params[0]==='19'));
+  assert.ok(h.calls.some(x=>x.sql.includes("retry_notification")&&x.params[3]==='19'));
+  assert.ok(h.telegram.some(x=>String(x.payload.text||'').includes('دوباره در صف ارسال')));
+});
