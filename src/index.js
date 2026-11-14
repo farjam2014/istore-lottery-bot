@@ -439,7 +439,7 @@ if(profileChangeMatch){
 
 if(lower==="/reply"||lower.startsWith("/reply ")){
 if(uid!==String(process.env.ADMIN_ID||""))return;
-const match=t.match(/^\/reply\s+(\d+)\s+([\s\\S]{2,2000})$/i);
+const match=t.match(/^\/reply\s+(\d+)\s+([\s\S]{2,2000})$/i);
 if(!match)return reply(chat,conn,"فرمت پاسخ: /reply شماره_تیکت متن پاسخ");
 const ticketId=Number(match[1]),answer=match[2].trim(),messageId=Number(m.message_id);
 if(!Number.isSafeInteger(messageId)||messageId<=0)return reply(chat,conn,"شناسه پیام مدیر معتبر نیست؛ پاسخ را دوباره ارسال کنید.");
