@@ -133,8 +133,8 @@ export function registerAdminHandlers(bot){
     message+='\n'+(entries.length?entries.map(x=>'#'+x.campaign_id+' '+x.title+' | '+x.entry_status+' | '+x.code_count+' کد'+(x.codes?'\n'+x.codes:'')).join('\n'):'بدون سابقه');
     message+='\n\n🧾 سفارش‌ها:';
     message+='\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\n'):'بدون سفارش');
-    const action=p.status==='active'?'block':'unblock';
-    return ctx.reply(message,Markup.inlineKeyboard([[Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)],[Markup.button.callback('↩️ فهرست شرکت‌کنندگان','admin:participants')]]));
+    const buttons=[];if(await hasPermission(ctx.from.id,'participant.manage')){const action=p.status==='active'?'block':'unblock';buttons.push([Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)]);}buttons.push([Markup.button.callback('↩️ فهرست شرکت‌کنندگان','admin:participants')]);
+    return ctx.reply(message,Markup.inlineKeyboard(buttons));
   });
   bot.action(/^admin:participant:(block|unblock):(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
