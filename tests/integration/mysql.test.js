@@ -376,6 +376,8 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     await setDefaultPaymentCard(idB,'1');
     let current=await getDefaultPaymentCard();
     assert.equal(Number(current.id),idB);
+    const [[defaultCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_bank_cards WHERE is_default=1');
+    assert.equal(Number(defaultCount.total),1);
     await setPaymentCardActive(idB,false,'1');
     current=await getDefaultPaymentCard();
     assert.equal(Number(current.id),idA);
