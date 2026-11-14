@@ -43,6 +43,7 @@ export function updateGuard(){
       }
     }catch(error){
       logger.error({err:error,updateId},'Telegram update guard failed');
+      if(Number.isSafeInteger(updateId))await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[updateId]).catch(()=>{});
       throw error;
     }
   };
