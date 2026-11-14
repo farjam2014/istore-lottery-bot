@@ -12,7 +12,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   let participantId;const campaignIds=[];let telegramId;
   try{
     await migrate();
-    telegramId=String(700000000000n+BigInt(Date.now()%100000000000n));
+    telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
     assert.equal(String(profile.telegram_user_id),telegramId);
