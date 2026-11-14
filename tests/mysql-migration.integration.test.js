@@ -98,6 +98,18 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "SELECT COUNT(DISTINCT INDEX_NAME) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_tickets' AND INDEX_NAME='uq_support_telegram_message'"
     );
     assert.equal(Number(ticketMessageIndexes.total), 1);
+    const [[supportMessages]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND COLUMN_NAME='ticket_id'"
+    );
+    assert.equal(Number(supportMessages.total), 1);
+    const [[deliveryOutboxColumn]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_order_card_deliveries' AND COLUMN_NAME='outbox_id'"
+    );
+    assert.equal(Number(deliveryOutboxColumn.total), 1);
+    const [[deliveryOutboxIndex]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_order_card_deliveries' AND INDEX_NAME='uq_card_delivery_outbox'"
+    );
+    assert.equal(Number(deliveryOutboxIndex.total), 1);
     const [[profileMessageColumns]] = await verify.execute(
       "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND COLUMN_NAME='telegram_message_id'"
     );
