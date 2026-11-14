@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {pool} from '../../database/pool.js';
+import {logger} from '../../shared/logger.js';
 
 const MAX_ATTEMPTS=8;
 const LEASE_MINUTES=5;
@@ -10,12 +11,13 @@ export async function processNotificationOutbox(telegram,{limit=20}={}){
     await c.beginTransaction();
     // A stale "sending" row is ambiguous: Telegram may have accepted it before
     // the process died. Never auto-send it again; require an explicit operator retry.
-    await c.execute(
+    const [stale]=await c.execute(
       "UPDATE telegram_notification_outbox SET status='uncertain',locked_at=NULL,lease_token=NULL,last_error=COALESCE(last_error,'Delivery outcome unknown after worker lease expired') WHERE status='sending' AND locked_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL ? MINUTE)",
       [LEASE_MINUTES]
     );
+    if(stale.affectedRows)logger.warn({count:stale.affectedRows},'Expired notification leases moved to uncertain; automatic resend was prevented');
     const [rows]=await c.execute(
-      "SELECT id,chat_id,payload,attempts FROM telegram_notification_outbox WHERE status='pending' AND available_at<=UTC_TIMESTAMP() ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED",
+      "SELECT id,chat_id,payload,attempts,correlation_id FROM telegram_notification_outbox WHERE status='pending' AND available_at<=UTC_TIMESTAMP() ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED",
       [Math.max(1,Math.min(100,Number(limit)||20))]
     );
     jobs=rows.map(row=>({...row,leaseToken:randomUUID()}));
@@ -38,6 +40,7 @@ export async function processNotificationOutbox(telegram,{limit=20}={}){
         "UPDATE telegram_notification_outbox SET status='failed',locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
         [String(error.message||error).slice(0,500),job.id,job.leaseToken]
       );
+      logger.error({err:error,notificationId:job.id,correlationId:job.correlation_id},'Notification payload rejected');
       failed++;continue;
     }
 
@@ -51,6 +54,7 @@ export async function processNotificationOutbox(telegram,{limit=20}={}){
         "UPDATE telegram_notification_outbox SET status=?,available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
         [dead?'failed':'pending',delay,String(error?.message||'Telegram delivery failed').slice(0,500),job.id,job.leaseToken]
       );
+      logger.warn({err:error,notificationId:job.id,correlationId:job.correlation_id,attempts,willRetry:!dead},'Telegram notification delivery failed');
       failed++;continue;
     }
 
