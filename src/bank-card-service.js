@@ -79,7 +79,11 @@ function createBankCardService({db,adminId}) {
     if(!rows[0]||rows[0].status!=='active') throw new Error('مدیر هنوز کارت فعال برای این کمپین انتخاب نکرده است.');
     return rows[0];
   }
-  async function recordDelivery({orderId,card}) {
+  async function recordDelivery({orderId,card,outboxId=null}) {
+    if(outboxId!=null){
+      await db.execute('INSERT IGNORE INTO payment_order_card_deliveries(order_id,outbox_id,card_id,card_label_snapshot,bank_name_snapshot,card_number_snapshot,cardholder_name_snapshot) VALUES(?,?,?,?,?,?,?)',[orderId,outboxId,card.id,card.label,card.bank_name,card.card_number,card.cardholder_name]);
+      return;
+    }
     await db.execute('INSERT INTO payment_order_card_deliveries(order_id,card_id,card_label_snapshot,bank_name_snapshot,card_number_snapshot,cardholder_name_snapshot) VALUES(?,?,?,?,?,?)',[orderId,card.id,card.label,card.bank_name,card.card_number,card.cardholder_name]);
   }
   async function campaignHistory(campaignId) {
