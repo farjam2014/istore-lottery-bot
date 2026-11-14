@@ -29,4 +29,4 @@ INSERT IGNORE INTO payment_bank_cards(bank_name,card_number,card_holder,instruct
 SELECT COALESCE(NULLIF(bank_name,''),'بانک ثبت‌شده'),card_number,card_holder,instructions,1,1,updated_by,updated_by
 FROM payment_settings
 WHERE id=1 AND card_number REGEXP '^[0-9]{16}$' AND card_holder IS NOT NULL AND card_holder<>''
-AND NOT EXISTS (SELECT 1 FROM payment_bank_cards);
+;
