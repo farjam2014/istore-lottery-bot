@@ -681,6 +681,13 @@ server.keepAliveTimeout=5000;
 server.maxRequestsPerSocket=1000;
 webhookQueue.start();
 notificationOutbox.start();
+const rateLimitCleanupTimer=setInterval(async()=>{
+ try{
+  await db.execute("DELETE FROM telegram_rate_limits WHERE updated_at<DATE_SUB(NOW(),INTERVAL 30 DAY) LIMIT 1000");
+  await db.execute("DELETE FROM webhook_rate_limit_events WHERE created_at<DATE_SUB(NOW(),INTERVAL 90 DAY) LIMIT 5000");
+ }catch(error){console.error("Rate-limit cleanup error:",error.message);}
+},3600000);
+rateLimitCleanupTimer.unref?.();
 const reservationExpiryTimer=setInterval(()=>campaignService.expireReservations().catch(e=>console.error('Reservation expiry worker error:',e.message)),60000);
 reservationExpiryTimer.unref?.();
 campaignService.syncCampaignSchedule().catch(e=>console.error('Campaign schedule sync error:',e.message));
@@ -693,6 +700,7 @@ shuttingDown=true;
 console.log(signal+" received; draining webhook queue (30s limit)");
 clearInterval(reservationExpiryTimer);
 clearInterval(campaignScheduleTimer);
+clearInterval(rateLimitCleanupTimer);
 const serverClosed=new Promise(resolve=>server.close(resolve));
 const forceExit=setTimeout(()=>{
 console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
