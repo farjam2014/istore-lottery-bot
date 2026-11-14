@@ -8,7 +8,7 @@ const mysql = require('mysql2/promise');
 const enabled = Boolean(process.env.MYSQL_TEST_HOST);
 
 test('fresh database bootstrap creates only the normalized multi-campaign schema', { skip: !enabled }, async () => {
-  const database = 'ustore_fresh_schema_test';
+  const database = 'ustore_fresh_schema_test_' + process.pid + '_' + Date.now();
   assert.ok(process.env.MYSQL_TEST_USER, 'MYSQL_TEST_USER is required');
   assert.ok(process.env.MYSQL_TEST_PASSWORD, 'MYSQL_TEST_PASSWORD is required');
 
@@ -118,6 +118,29 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
       "SELECT COUNT(DISTINCT INDEX_NAME) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_requests' AND INDEX_NAME='uq_profile_change_telegram_message'"
     );
     assert.equal(Number(profileMessageIndexes.total), 1);
+    for (const [table,column] of [
+      ['webhook_inbox','correlation_id'],
+      ['telegram_notification_outbox','correlation_id'],
+      ['admin_audit_log','correlation_id'],
+      ['payment_orders','correlation_id'],
+      ['payment_order_card_deliveries','correlation_id'],
+      ['telegram_notification_outbox','delivery_recorded_at'],
+      ['telegram_notification_outbox','post_delivery_token']
+    ]) {
+      const [[found]] = await verify.execute(
+        'SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',
+        [table,column]
+      );
+      assert.equal(Number(found.total),1,'missing operational migration column '+table+'.'+column);
+    }
+    const [[rateTable]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_rate_limits'"
+    );
+    assert.equal(Number(rateTable.total),1);
+    const [[rateEventsTable]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='webhook_rate_limit_events'"
+    );
+    assert.equal(Number(rateEventsTable.total),1);
 
     // Exercise support-thread backfill and migration idempotency on real MySQL.
     const [ticketInsert] = await verify.execute(
@@ -134,6 +157,12 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
     assert.equal(threadRows.length, 1, 'support migration must backfill exactly once');
     assert.equal(threadRows[0].sender_type, 'customer');
     assert.equal(threadRows[0].message, 'Integration support message');
+    await verify.query('ALTER TABLE customer_support_messages DROP INDEX idx_support_messages_ticket');
+    await supportMigration.up(verify);
+    const [[restoredSupportIndex]] = await verify.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='customer_support_messages' AND INDEX_NAME='idx_support_messages_ticket'"
+    );
+    assert.equal(Number(restoredSupportIndex.total),1,'support migration must repair a partially applied index');
     await assert.rejects(
       verify.execute("INSERT INTO customer_support_messages(ticket_id,sender_type,sender_id,message) VALUES(999999,'admin','admin','orphan')"),
       error => error && error.code === 'ER_NO_REFERENCED_ROW_2'
@@ -241,6 +270,30 @@ test('fresh database bootstrap creates only the normalized multi-campaign schema
         [orderId,instruction.id]
       );
       assert.equal(Number(deliveryCount.total),1,'the same outbox delivery must not create duplicate card-history rows');
+
+      // Simulate a partially applied delivery migration and pre-existing duplicate links.
+      await pool.query('ALTER TABLE payment_order_card_deliveries DROP INDEX uq_card_delivery_outbox');
+      await pool.execute(
+        "INSERT INTO payment_order_card_deliveries(order_id,outbox_id,card_id,card_label_snapshot,bank_name_snapshot,card_number_snapshot,cardholder_name_snapshot) VALUES(?,?,?,?,?,?,?)",
+        [orderId,instruction.id,cardId,'Duplicate legacy link','Test Bank','6037990000000000','USTORE Test']
+      );
+      const operationalMigration=require('../migrations/operational-observability');
+      await operationalMigration.up(pool);
+      await operationalMigration.up(pool);
+      const [[deduplicated]] = await pool.execute(
+        "SELECT COUNT(*) AS linked,SUM(outbox_id IS NULL) AS unlinked FROM payment_order_card_deliveries WHERE order_id=?",
+        [orderId]
+      );
+      assert.equal(Number(deduplicated.linked),1,'migration must retain exactly one canonical outbox link');
+      assert.equal(Number(deduplicated.unlinked),1,'migration must preserve the legacy delivery row while removing duplicate linkage');
+
+      const {consumeTelegramRateLimit}=require('../src/telegram-rate-limit');
+      const first=await consumeTelegramRateLimit(pool,{userId:'930001',bucket:'integration',limit:2,windowMs:60000});
+      const second=await consumeTelegramRateLimit(pool,{userId:'930001',bucket:'integration',limit:2,windowMs:60000});
+      const third=await consumeTelegramRateLimit(pool,{userId:'930001',bucket:'integration',limit:2,windowMs:60000});
+      assert.equal(first.allowed,true);
+      assert.equal(second.allowed,true);
+      assert.equal(third.allowed,false,'persistent MySQL rate limit must reject request above quota');
     } finally {
       await pool.end();
     }
