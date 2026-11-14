@@ -339,3 +339,18 @@ test('MySQL integration: campaign scheduler transitions use database UTC time co
     if(ids.length){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (?,?)",ids);await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
   }
 });
+
+test('MySQL integration: outbox marks expired sending leases uncertain without duplicate send',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {processNotificationOutbox}=await import('../../src/modules/notifications/outbox.worker.js');
+  const chatId=String(880000000000n+(BigInt(Date.now())%100000000000n));let id;
+  try{
+    await migrate();
+    const [r]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,locked_at,lease_token) VALUES(?,JSON_OBJECT('text','must not auto resend'),'sending',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),UUID())",[chatId]);id=r.insertId;
+    let sends=0;const result=await processNotificationOutbox({sendMessage:async()=>{sends++;}});
+    assert.equal(sends,0);assert.equal(result.claimed,0);
+    const [[row]]=await pool.execute('SELECT status,lease_token,locked_at FROM telegram_notification_outbox WHERE id=?',[id]);
+    assert.equal(row.status,'uncertain');assert.equal(row.lease_token,null);assert.equal(row.locked_at,null);
+  }finally{if(id)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[id]);}
+});
