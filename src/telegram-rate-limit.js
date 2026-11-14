@@ -13,7 +13,7 @@ async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,win
   const window=Math.max(100,Math.min(3600000,Number(windowMs)||60000));
   const block=Math.max(100,Math.min(3600000,Number(blockMs)||window));
   const ownsConnection=!connection;
-  const maxRetries=ownsConnection?3:0;
+  const maxRetries=ownsConnection?12:0;
 
   for(let attempt=0;;attempt++) {
     const conn=connection||await db.getConnection();
@@ -58,7 +58,8 @@ async function consumeTelegramRateLimit(db,{userId,bucket='message',limit=25,win
     } catch(error) {
       if(ownsConnection)await conn.rollback().catch(()=>{});
       if(ownsConnection&&retryableTransactionError(error)&&attempt<maxRetries) {
-        await new Promise(resolve=>setTimeout(resolve,10*(attempt+1)));
+        const backoff=Math.min(150,10*Math.pow(2,attempt))+Math.floor(Math.random()*25);
+        await new Promise(resolve=>setTimeout(resolve,backoff));
         continue;
       }
       throw error;
