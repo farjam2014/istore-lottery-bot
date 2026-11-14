@@ -17,6 +17,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     [{ text: '💳 سفارش‌ها و رسیدها', callback_data: 'adm:orders' }],
     [{ text: '📝 درخواست‌های اصلاح پروفایل', callback_data: 'adm:profile-requests' }],
     [{ text: '💬 تیکت‌های پشتیبانی', callback_data: 'adm:support' }],
+    [{ text: '⚠️ صف اعلان‌های ناموفق', callback_data: 'adm:outbox' }],
     [{ text: '🏆 قرعه‌کشی کمپین', callback_data: 'adm:draws' }, { text: '🧾 رخدادها', callback_data: 'adm:audit' }],
     [{ text: '🔄 تازه‌سازی', callback_data: 'adm:home' }]
   ];
@@ -222,6 +223,28 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if(!rows.length)return adminMessage({chat_id:chat,text:'هنوز کمپینی برای گزارش وجود ندارد.',reply_markup:keyboard([[{text:'داشبورد',callback_data:'adm:stats'}]])});
     const body=rows.map(x=>{const n=Number(x.total_entries||0),a=Number(x.completed_entries||0);return '#'+x.id+' '+x.name+' · '+x.status+'\nعضویت فعال: '+a+'/'+n+' ('+(n?Math.round(a*100/n):0)+'٪) · معلق: '+Number(x.pending_entries||0)+'\nکد فعال: '+Number(x.active_codes||0)+' · سفارش تأییدشده: '+Number(x.approved_orders||0);}).join('\n\n');
     return adminMessage({chat_id:chat,text:'📈 گزارش کمپین‌ها\n\n'+body,reply_markup:keyboard([[{text:'↻ تازه‌سازی',callback_data:'adm:reports'}],[{text:'داشبورد',callback_data:'adm:stats'}]])});
+  }
+  async function outboxList(chat) {
+    const [rows]=await db.execute("SELECT id,notification_type,attempts,last_error,created_at FROM telegram_notification_outbox WHERE status='failed' ORDER BY id DESC LIMIT 15");
+    const buttons=rows.map(x=>[{text:'#'+x.id+' · '+x.notification_type+' · '+x.attempts+' تلاش',callback_data:'adm:outbox-retry:'+x.id}]);
+    buttons.push([{text:'↻ تازه‌سازی',callback_data:'adm:outbox'},{text:'🏠 منوی اصلی',callback_data:'adm:home'}]);
+    const body=rows.length?rows.map(x=>'#'+x.id+' · '+x.notification_type+' · تلاش: '+x.attempts+'\\nخطا: '+(x.last_error||'نامشخص')+'\\nثبت: '+x.created_at).join('\\n\\n'):'اعلان ناموفقی در صف وجود ندارد.';
+    return adminMessage({chat_id:chat,text:'⚠️ اعلان‌های ناموفق\\n\\n'+body,reply_markup:keyboard(buttons)});
+  }
+  async function retryOutbox(chat,id) {
+    if(!/^\\d+$/.test(String(id)))return adminMessage({chat_id:chat,text:'شناسه اعلان نامعتبر است.'});
+    const conn=await db.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[item]]=await conn.execute("SELECT id,status,attempts,notification_type FROM telegram_notification_outbox WHERE id=? FOR UPDATE",[id]);
+      if(!item)throw new Error('اعلان پیدا نشد.');
+      if(item.status!=='failed')throw new Error('فقط اعلان ناموفق قابل ارسال مجدد است.');
+      await conn.execute("UPDATE telegram_notification_outbox SET status='pending',attempts=0,next_attempt_at=UTC_TIMESTAMP(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE id=? AND status='failed'",[id]);
+      await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(adminId),'retry_notification','telegram_notification',String(id),JSON.stringify({previous_attempts:item.attempts,notification_type:item.notification_type,source:'telegram'})]);
+      await conn.commit();
+      return adminMessage({chat_id:chat,text:'اعلان #'+id+' دوباره در صف ارسال قرار گرفت. نتیجه را پس از اجرای worker بررسی کنید.',reply_markup:keyboard([[{text:'صف اعلان‌ها',callback_data:'adm:outbox'}],[{text:'منوی اصلی',callback_data:'adm:home'}]])});
+    }catch(e){await conn.rollback();return adminMessage({chat_id:chat,text:'ارسال مجدد ثبت نشد: '+e.message});}
+    finally{conn.release();}
   }
   async function supportList(chat,status='open',page=0) {
     if(!['open','answered','closed','all'].includes(status))return adminMessage({chat_id:chat,text:'فیلتر تیکت نامعتبر است.'});
@@ -587,7 +610,7 @@ function createAdminTelegram({ db, tg, tgDocument, adminId, registrationOpen, ca
     if (data==='adm:export:help') return adminMessage({chat_id:chat,text:'برای خروجی مستقیم می‌توانی از دستورهای زیر هم استفاده کنی:\n/export active today\n/export all 7d\n/export inactive 30d\n\nمقادیر وضعیت: all, active, inactive و بازه: all, today, 7d, 30d'});
     if (data.startsWith('adm:export-run:')) { const [, , status='all', period='all']=data.split(':'); return exportCsv(chat,status,period); }
     if (data.startsWith('adm:export:')) return exportPeriodMenu(chat,data.slice('adm:export:'.length));
-    if (data==='adm:support') return supportList(chat,'open',0);
+    if (data==='adm:outbox') return outboxList(chat);\n    if (data.startsWith('adm:outbox-retry:')) return retryOutbox(chat,data.slice('adm:outbox-retry:'.length));\n    if (data==='adm:support') return supportList(chat,'open',0);
     if (data.startsWith('adm:support-page:')) { const [, , status='open', page='0']=data.split(':'); return supportList(chat,status,page); }
     if (data.startsWith('adm:support:')) return supportList(chat,data.slice('adm:support:'.length),0);
     if (data.startsWith('adm:support-ticket:')) return supportDetail(chat,data.slice('adm:support-ticket:'.length));
