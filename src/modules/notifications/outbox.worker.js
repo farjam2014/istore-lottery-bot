@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {pool} from '../../database/pool.js';
 import {logger} from '../../shared/logger.js';
+import {deliverTelegramNotification} from './telegram-delivery.js';
 
 const MAX_ATTEMPTS=8;
 const LEASE_MINUTES=5;
@@ -33,7 +34,7 @@ export async function processNotificationOutbox(telegram,{limit=20}={}){
     let payload;
     try{
       payload=typeof job.payload==='string'?JSON.parse(job.payload):job.payload;
-      if(!payload||typeof payload.text!=='string'||!payload.text.trim())throw new Error('Invalid notification payload: text is required');
+      if(!payload||(!((typeof payload.text==='string')&&payload.text.trim())&&!(typeof payload.photo==='string'&&payload.photo.trim()&&typeof payload.caption==='string'&&payload.caption.trim())))throw new Error('Invalid notification payload: text or photo with caption is required');
     }catch(error){
       const attempts=Number(job.attempts)+1;
       await pool.execute(
@@ -45,7 +46,7 @@ export async function processNotificationOutbox(telegram,{limit=20}={}){
     }
 
     try{
-      await telegram.sendMessage(String(job.chat_id),payload.text,payload.options||{});
+      await deliverTelegramNotification(telegram,String(job.chat_id),payload);
     }catch(error){
       const attempts=Number(job.attempts)+1;
       const dead=attempts>=MAX_ATTEMPTS;
