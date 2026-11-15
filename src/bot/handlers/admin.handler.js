@@ -1,4 +1,5 @@
 import {randomBytes} from 'node:crypto';
+import {logger} from '../../shared/logger.js';
 import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
 import {Markup} from 'telegraf';
@@ -197,15 +198,21 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery();
     return showCampaignList(ctx,0);
   });
-  bot.action(/^admin:campaign:list:page:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:list:page:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery();
     return showCampaignList(ctx,Number(ctx.match[1]));
   });
-  bot.action(/^admin:campaign:detail:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:detail:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const campaignId=Number(ctx.match[1]);
     await ctx.answerCbQuery();
-    return showCampaignDetail(ctx,Number(ctx.match[1]));
+    try{
+      return await showCampaignDetail(ctx,campaignId);
+    }catch(error){
+      logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Admin campaign detail could not be opened');
+      return ctx.reply('نمایش جزئیات کمپین با خطا مواجه شد. خطا در گزارش سامانه ثبت شد؛ دوباره تلاش کنید.');
+    }
   });
   bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
