@@ -14,6 +14,7 @@ import {enqueueTelegramNotification} from '../../modules/notifications/outbox.se
 import {getCorrelationId} from '../../shared/request-context.js';
 import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,normalizeCardNumber} from '../../modules/payments/bank-card.service.js';
 import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
+import {formatTehranDateTime,parseJalaliDateTime} from '../../shared/datetime.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -166,9 +167,9 @@ async function showCampaignDetail(ctx,id){
     '\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+
     '\nظرفیت: '+(c.capacity??'نامحدود')+
     '\nکد برای هر نفر: '+c.codes_per_entry+
-    '\nشروع: '+(c.starts_at||'تعیین نشده')+
-    '\nپایان: '+(c.ends_at||'تعیین نشده')+
-    '\nقرعه‌کشی: '+(c.draw_at||'تعیین نشده');
+    '\nشروع: '+(c.starts_at?formatTehranDateTime(c.starts_at):'تعیین نشده')+
+    '\nپایان: '+(c.ends_at?formatTehranDateTime(c.ends_at):'تعیین نشده')+
+    '\nقرعه‌کشی: '+(c.draw_at?formatTehranDateTime(c.draw_at):'تعیین نشده');
   return respond(ctx,message,Markup.inlineKeyboard(actions));
 }
 export function registerAdminHandlers(bot){
@@ -306,7 +307,7 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery('در حال آماده‌سازی خروجی...');
     const [rows]=await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants ORDER BY id DESC LIMIT 10000');
     const columns=['id','telegram_user_id','telegram_username','full_name','phone','instagram_handle','status','created_at'];
-    const csv=toCsv(rows,columns);
+    const csv=toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at)})),columns);
     return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'participants-export.csv'},{caption:`خروجی شرکت‌کنندگان: ${rows.length} رکورد (حداکثر ۱۰٬۰۰۰ رکورد)`});
   });
   bot.action('admin:support',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showSupportQueue(ctx,0,'all');});
@@ -344,7 +345,7 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery('در حال ساخت خروجی...');
     const rows=await exportManagedOrders({limit:10000});
     const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
-    return ctx.replyWithDocument({source:Buffer.from(toCsv(rows,columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
+    return ctx.replyWithDocument({source:Buffer.from(toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at),expires_at:formatTehranDateTime(row.expires_at),approved_at:formatTehranDateTime(row.approved_at)})),columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
   bot.action('admin:payment-cards',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
@@ -492,8 +493,8 @@ export function registerAdminHandlers(bot){
       if(wizard.step==='poster'){if(value!=='/skip')throw new Error('برای پوستر عکس ارسال کنید یا /skip را بزنید.');await saveWizard(ctx.from.id,'prize_title',p);return respond(ctx,'نام جایزه را وارد کنید (برای نداشتن جایزه «-»).');}
       if(wizard.step==='prize_title'){p.prizeTitle=value==='-'?'':value;if(p.prizeTitle.length>180)throw new Error('نام جایزه حداکثر ۱۸۰ نویسه باشد.');await saveWizard(ctx.from.id,'prize_description',p);return respond(ctx,'توضیحات جایزه را وارد کنید یا «-» بفرستید.');}
       if(wizard.step==='prize_description'){p.prizeDescription=value==='-'?'':value;if(p.prizeDescription.length>2000)throw new Error('توضیحات جایزه حداکثر ۲۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'prize_value',p);return respond(ctx,'ارزش تقریبی جایزه را به ریال وارد کنید؛ ۰ یعنی ثبت نشده.');}
-      if(wizard.step==='prize_value'){if(!/^\d+$/.test(value)||Number(value)>100000000000000)throw new Error('ارزش جایزه باید عدد صحیح نامنفی باشد.');p.prizeValue=Number(value)||null;await saveWizard(ctx.from.id,'starts_at',p);return respond(ctx,'زمان شروع را به شکل YYYY-MM-DD HH:mm وارد کنید یا «-» بفرستید.');}
-      if(['starts_at','ends_at','draw_at'].includes(wizard.step)){const key=wizard.step;if(value==='-')p[key]=null;else{if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value)||Number.isNaN(Date.parse(value.replace(' ','T')+':00Z')))throw new Error('فرمت زمان معتبر نیست؛ نمونه: 2026-12-01 18:30');p[key]=value+':00';}const nextStep={starts_at:'ends_at',ends_at:'draw_at',draw_at:'terms'}[key];await saveWizard(ctx.from.id,nextStep,p);return respond(ctx,nextStep==='terms'?'قوانین و شرایط شرکت را وارد کنید؛ برای بدون قانون «-».':nextStep==='ends_at'?'زمان پایان را وارد کنید یا «-» بفرستید.':'زمان قرعه‌کشی را وارد کنید یا «-» بفرستید.');}
+      if(wizard.step==='prize_value'){if(!/^\d+$/.test(value)||Number(value)>100000000000000)throw new Error('ارزش جایزه باید عدد صحیح نامنفی باشد.');p.prizeValue=Number(value)||null;await saveWizard(ctx.from.id,'starts_at',p);return respond(ctx,'زمان شروع را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
+      if(['starts_at','ends_at','draw_at'].includes(wizard.step)){const key=wizard.step;if(value==='-')p[key]=null;else{if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value)||Number.isNaN(Date.parse(value.replace(' ','T')+':00Z')))throw new Error('فرمت زمان معتبر نیست؛ نمونه: 2026-12-01 18:30');p[key]=value+':00';}const nextStep={starts_at:'ends_at',ends_at:'draw_at',draw_at:'terms'}[key];await saveWizard(ctx.from.id,nextStep,p);return respond(ctx,nextStep==='terms'?'قوانین و شرایط شرکت را وارد کنید؛ برای بدون قانون «-».':nextStep==='ends_at'?'زمان پایان را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.':'زمان قرعه‌کشی را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
       if(wizard.step==='terms'){p.terms=value==='-'?'':value;if(p.terms.length>8000)throw new Error('قوانین حداکثر ۸۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'capacity',p);return respond(ctx,'ظرفیت کمپین را به عدد وارد کنید. عدد ۰ یعنی نامحدود.');}
       if(wizard.step==='capacity'){if(!/^\d+$/.test(value)||Number(value)>10000000)throw new Error('ظرفیت باید عدد صحیح باشد؛ ۰ یعنی نامحدود.');p.capacity=Number(value)||null;await saveWizard(ctx.from.id,'codes',p);return respond(ctx,'تعداد کد برای هر شرکت‌کننده را وارد کنید (۱ تا ۱۰۰).');}
       if(wizard.step==='codes'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>100)throw new Error('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');p.codes=Number(value);if(p.type==='paid'){await saveWizard(ctx.from.id,'price',p);return respond(ctx,'مبلغ شرکت در کمپین را به ریال وارد کنید (عدد صحیح مثبت).');}p.paymentMethods=[];return showConfirmation(ctx,p);}
@@ -552,7 +553,7 @@ async function showSupportQueue(ctx,page=0,status='all'){
   for(const t of rows)buttons.push([Markup.button.callback((t.priority==='urgent'?'🔴 ':t.priority==='high'?'🟠 ':'')+'#'+t.ticket_number+' | '+t.full_name+' | '+t.subject,'admin:support:view:'+t.id)]);
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:support:page:'+filter+':'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:support:page:'+filter+':'+(page+1)));if(nav.length)buttons.push(nav);
   buttons.push([Markup.button.callback('بازگشت','admin:home')]);
-  return respond(ctx,'💬 صف پشتیبانی\nفیلتر: '+filter+' | کل: '+total+' | صفحه '+(page+1)+' از '+pages+'\n\n'+(rows.length?rows.map(t=>'#'+t.ticket_number+' | '+t.full_name+' | '+t.status+' | '+t.priority+' | '+t.last_message_at).join('\n'):'تیکتی در این فیلتر وجود ندارد.'),Markup.inlineKeyboard(buttons));
+  return respond(ctx,'💬 صف پشتیبانی\nفیلتر: '+filter+' | کل: '+total+' | صفحه '+(page+1)+' از '+pages+'\n\n'+(rows.length?rows.map(t=>'#'+t.ticket_number+' | '+t.full_name+' | '+t.status+' | '+t.priority+' | '+formatTehranDateTime(t.last_message_at)).join('\n'):'تیکتی در این فیلتر وجود ندارد.'),Markup.inlineKeyboard(buttons));
 }
 
 async function showManagedOrders(ctx,status,page){
@@ -574,7 +575,7 @@ async function showManagedOrders(ctx,status,page){
 async function showManagedOrderDetail(ctx,id){
   const d=await getManagedOrderDetail(id);if(!d)return respond(ctx,'سفارش پیدا نشد.');
   const o=d.order,n=v=>Number(v||0).toLocaleString('fa-IR');
-  const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+o.created_at+'\nانقضا: '+(o.expires_at||'—')+'\nتأیید: '+(o.approved_at||'—')+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+x.created_at+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+x.created_at+(x.details?' | '+(typeof x.details==='string'?x.details:JSON.stringify(x.details)):'')).join('\n'):'بدون رویداد');
+  const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+formatTehranDateTime(o.created_at)+'\nانقضا: '+formatTehranDateTime(o.expires_at)+'\nتأیید: '+formatTehranDateTime(o.approved_at)+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+formatTehranDateTime(x.created_at)+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+formatTehranDateTime(x.created_at)+(x.details?' | '+(typeof x.details==='string'?x.details:JSON.stringify(x.details)):'')).join('\n'):'بدون رویداد');
   const buttons=[];
   for(const receipt of d.receipts.filter(x=>x.status==='submitted'))buttons.push([Markup.button.callback('تأیید رسید #'+receipt.id,'payment:approve:'+receipt.id),Markup.button.callback('رد رسید #'+receipt.id,'payment:reject:'+receipt.id)]);
   buttons.push([Markup.button.callback('بازگشت به سفارش‌ها','admin:payments')]);
@@ -585,6 +586,6 @@ async function showManagedOrderDetail(ctx,id){
 async function showConfirmation(ctx,p){
   await saveWizard(ctx.from.id,'confirm',p);
   const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nمبلغ: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
-  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at||'تعیین نشده'}\nپایان: ${p.ends_at||'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at||'تعیین نشده'}\nظرفیت: ${p.capacity??'نامحدود'}\nکد برای هر نفر: ${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
+  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت: ${p.capacity??'نامحدود'}\nکد برای هر نفر: ${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
   return respond(ctx,summary,Markup.inlineKeyboard([[Markup.button.callback('تأیید و ایجاد کمپین','admin:campaign:confirm')],[Markup.button.callback('لغو','admin:campaign:cancel')]]));
 }
