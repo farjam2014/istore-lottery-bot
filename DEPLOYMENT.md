@@ -1,37 +1,37 @@
-# UStore Telegram Bot — Deployment and Operations
+# UStore Telegram Bot — Deployment and Operations Runbook
 
-> Operational notes for the known VPS deployment. Confirm live values before every deployment; this document is not a secret store or live monitoring system.
+> Operational runbook for the known VPS. Every value below is a dated snapshot until rechecked. GitHub merge is not deployment. No production action is authorized merely by reading or updating this document.
 
-## Known deployment (operator-confirmed snapshot: 2026-11-15)
+## 1. Known production environment snapshot
 
-- OS: Ubuntu 24.04.5 LTS
 - Repository: `farjam2014/istore-lottery-bot`
-- Checkout: `/opt/ustore-telegram-bot`
 - Operational branch: `install/resumable-ubuntu-v2`
-- systemd unit: `ustore-telegram-bot.service`
+- VPS checkout: `/opt/ustore-telegram-bot`
+- OS: Ubuntu 24.04.5 LTS
+- Runtime: Node.js 22.x
+- Database: MySQL 8.0.x
+- Service: `ustore-telegram-bot.service`
 - Service user: `ustorebot`
 - Working directory: `/opt/ustore-telegram-bot`
-- ExecStart: `/usr/bin/node /opt/ustore-telegram-bot/src/index.js`
-- Runtime: Node.js 22.x
-- Database: MySQL 8.0.x; database name is configured through `MYSQL_DATABASE` in the server environment.
-- Last deployed commit recorded: `ee2a85cfd886145547310ec845fff68036fd4ea2`.
-- After restart, operator output showed service `active/running`, PID `172804`, `Database connection established`, and `Launching Telegram bot with long polling`.
+- ExecStart recorded: `/usr/bin/node /opt/ustore-telegram-bot/src/index.js`
+- Last application-code commit explicitly recorded as deployed: `ee2a85cfd886145547310ec845fff68036fd4ea2` (PR #13).
+- PR #14 commit `65cae7585fcb8bde5f4d837fa173715e6717c12f` added documentation only and did not require a VPS deployment.
+- Operator previously supplied restart output showing active/running, database connection established and Telegram long polling startup. This is historical, not current health telemetry.
+- Database name is supplied through server-side `MYSQL_DATABASE`; never print the full environment or password.
 
-Do not assume the PID, service state, installed dependencies, branch head or database state remains unchanged.
+## 2. Authority and safety boundary
 
-## Important safety boundaries
+- Assistant has no implicit SSH/VPS access. Operator runs commands and shares sanitized output.
+- Read-only diagnosis may be prepared without changing production.
+- Production code deploy, migration, service restart, webhook change or data operation requires explicit owner approval for that action.
+- GitHub branch/PR operations change GitHub only; they do not connect to the VPS.
+- Do not run the installer/reset flow as a routine update.
+- Do not run integration tests against the production database.
+- Never expose `.env`, `BOT_TOKEN`, `MYSQL_PASSWORD`, private keys, full bank-card numbers, raw Telegram file tokens or participant payment data.
 
-- The assistant does not have implicit SSH access. The server operator runs commands and shares sanitized output.
-- Never print `.env`, `BOT_TOKEN`, `MYSQL_PASSWORD`, private keys or full payment-card data.
-- Do not run `install.sh`, database reset, `DROP DATABASE`, `DROP TABLE`, production integration tests or OS release upgrades as part of routine deployment.
-- Do not run `npm run test:integration` against the production database.
-- The integration suite can mutate schema and rows. Use only a disposable MySQL database ending in `_ci` or `_test`.
-- Do not reboot the VPS merely because Ubuntu reports that a restart is required.
-- Production restart/deploy requires explicit owner approval.
+## 3. Read-only preflight
 
-## Read-only preflight commands
-
-Run from an SSH session:
+Run in an SSH session. Do not paste secrets.
 
 ```bash
 cd /opt/ustore-telegram-bot
@@ -41,47 +41,56 @@ git rev-parse HEAD
 git remote -v
 ```
 
-Inspect the service without exposing secrets:
+Inspect service metadata without environment values:
 
 ```bash
 SYSTEMD_PAGER=cat systemctl show --no-pager ustore-telegram-bot.service \
   -p User -p WorkingDirectory -p ExecStart -p EnvironmentFiles \
-  -p MainPID -p ActiveState -p SubState
+  -p MainPID -p ActiveState -p SubState -p ActiveEnterTimestamp
 ```
 
-Show only whether the DB name is configured, never the full environment:
+Check configured DB name without exposing it:
 
 ```bash
 grep -E '^MYSQL_DATABASE=' .env | sed 's/=.*/=<configured>/'
 ```
 
-Check installed dependency tree without reinstalling:
+Check runtime/dependency state:
 
 ```bash
+node --version
+npm --version
 npm ls --depth=0
 ```
 
-## Known Git fetch refspec issue
+Check service status/logs (sanitize before sharing):
 
-During the 2026-11-15 deployment, `remote.origin.fetch` was configured only for a different branch, so a normal `git fetch origin` did not update the tracking ref for `install/resumable-ubuntu-v2`.
+```bash
+systemctl is-active ustore-telegram-bot.service
+journalctl -u ustore-telegram-bot.service -n 60 --no-pager
+```
 
-The explicit fetch used successfully was:
+Stop and investigate if the working tree has tracked local changes, the branch is unexpected, the service unit differs, or untracked files may be overwritten. Never force-reset to make the checkout look clean.
+
+## 4. Known fetch refspec issue
+
+A prior VPS session found that `remote.origin.fetch` did not track `install/resumable-ubuntu-v2`; ordinary `git fetch origin` did not refresh its remote-tracking ref. The explicit fetch that worked was:
 
 ```bash
 git fetch origin +refs/heads/install/resumable-ubuntu-v2:refs/remotes/origin/install/resumable-ubuntu-v2
 ```
 
-Then the fast-forward update was:
+Then, only after verifying branch and working tree:
 
 ```bash
 git merge --ff-only origin/install/resumable-ubuntu-v2
 ```
 
-Before repeating this, inspect the current branch, working tree, remote and remote branch head. Never force-reset or overwrite local work to make deployment easier.
+Do not assume this refspec remains unchanged; inspect it first. Do not use `git reset --hard`, force push or overwrite local work.
 
-At that time, `.lesshst`, `.npm/` and an untracked `package-lock.json` were present. They were intentionally left untouched. If they are still present, do not delete or overwrite them without inspecting their purpose and ownership.
+Historical untracked items included `.lesshst`, `.npm/` and `package-lock.json`. They were intentionally left untouched. Inspect ownership and purpose before changing any such item.
 
-## Test policy
+## 5. Test and database safety
 
 Safe production-local checks previously used:
 
@@ -90,31 +99,53 @@ node --test tests/datetime.test.js
 npm test
 ```
 
-At the 2026-11-15 deployment snapshot:
-- Date/time tests: 4 passed, 0 failed.
-- `npm test`: 38 passed, 0 failed, 18 skipped.
-- The 18 skipped tests were MySQL integration tests; they were not run against production.
+These commands do not replace isolated integration tests. At the 2026-11-15 snapshot, VPS `npm test` reported 38 passed, 0 failed, 18 skipped; skipped tests were MySQL integration tests and did not run.
 
-GitHub Actions for PR #13 ran all 56 tests successfully, including the MySQL integration tests in CI. Prefer CI or a disposable test database for integration coverage.
+Integration tests can mutate schema and rows. Use only a disposable MySQL database with a name ending in `_ci` or `_test`, for example an isolated CI database created by the test setup. Never set integration-test configuration to the production database.
 
-## Approved deployment sequence
+Before migration work:
+- Inspect the migration runner, pending migration files, `schema_migrations` state and checksums.
+- MySQL DDL may not be transactional; a failed migration may have partially applied.
+- Do not blindly rerun a partially applied migration.
+- Prefer additive versioned migrations and a reviewed forward-fix.
+- Never use `CREATE TABLE IF NOT EXISTS` as a substitute for schema evolution.
+- Never drop production tables/databases or rewrite production rows without explicit approval and a verified recovery plan.
 
-Only after the owner explicitly approves deployment:
+## 6. Deployment prerequisites
 
-1. Inspect working tree and branch; stop if tracked local modifications or unexpected files could be overwritten.
-2. Confirm target commit/PR is merged into the operational branch.
-3. Fetch the exact operational branch (account for the refspec issue above).
-4. Fast-forward only; do not force-reset.
-5. Confirm dependencies are already compatible. Do not run `npm ci` blindly when an untracked lockfile is present; inspect first.
-6. Run syntax checks and safe tests.
-7. Confirm service unit configuration and working directory.
-8. Restart only the intended service.
-9. Verify service state, process start time, logs and database connectivity.
-10. Perform a Telegram smoke test and update `PROJECT_ROADMAP.md`.
+A production deployment requires all of the following:
+1. Explicit owner approval for the specific deployment.
+2. Target PR merged into `install/resumable-ubuntu-v2`.
+3. Exact target commit SHA identified.
+4. Current VPS branch, HEAD, working tree, service configuration and DB target inspected.
+5. No tracked local modifications or unknown files at risk.
+6. Relevant unit and isolated MySQL integration tests pass; skips are reported.
+7. CI is green for the exact merged commit.
+8. Migration impact and rollback/recovery strategy reviewed.
+9. Current backup/recovery state understood for any data/schema-impacting change.
+10. A bounded smoke-test plan exists.
 
-## Restart and post-deploy verification
+If any prerequisite fails, stop; do not improvise a destructive workaround.
 
-Restart command (requires explicit approval):
+## 7. Approved deployment sequence
+
+Only after explicit approval:
+
+1. Capture sanitized pre-deploy state: branch, HEAD, working tree, service status and relevant logs.
+2. Confirm target commit is merged into the operational branch.
+3. Fetch the exact operational branch, using the explicit refspec above if still needed.
+4. Confirm fast-forward relationship; use `git merge --ff-only`. Never force-reset.
+5. Inspect lockfile/dependency changes. Do not run `npm ci` blindly, especially if an untracked lockfile exists.
+6. Run syntax checks and safe focused tests. Run integration tests only against isolated `_ci`/`_test` DB.
+7. Apply only reviewed pending migrations through the documented migration process. Do not manually improvise SQL on production.
+8. Restart only the intended service if the approved release requires it.
+9. Verify service state, PID/start time, startup logs and database connectivity.
+10. Perform a Telegram smoke test with a test account and disposable/draft data.
+11. Record actual deployed SHA, migration state, test results, service evidence and Telegram outcome in `PROJECT_ROADMAP.md`; update this file if the runbook/environment changed.
+
+## 8. Restart and post-deploy verification
+
+Restart command — requires explicit approval:
 
 ```bash
 sudo systemctl restart ustore-telegram-bot.service
@@ -133,24 +164,44 @@ Expected startup signals include:
 - `Database connection established`
 - `Launching Telegram bot with long polling`
 
-Check for startup exceptions, repeated restarts, database errors and notification-delivery failures. Sanitize logs before sharing; do not share tokens, passwords or sensitive participant/payment data.
+Also check for startup exceptions, repeated restarts, DB errors, update-processing failures, rate-limit anomalies and notification-delivery failures. Sanitize logs before sharing.
 
-## Date/time smoke test after PR #13
+## 9. Post-deploy Telegram smoke tests
 
-Use only a draft/disposable campaign and test data:
+Use test accounts and draft/disposable campaign data:
+- /start and registration continuation/cancellation.
+- Native contact sharing and ownership validation.
+- Customer inline navigation and authorization gates.
+- Campaign list/detail and Jalali/Tehran date display.
+- Draft campaign date input and UTC round-trip.
+- Free entry duplicate prevention and code display (only in a safe test campaign).
+- Admin access and role isolation using separate test accounts.
+- Payment receipt flow only in isolated test environment; never create a real charge or approve a real participant order as a test.
+- Notification delivery/outbox visibility and safe retry warning.
+- Support ticket lifecycle and CSV output where in scope.
 
-1. Open campaign list/details and confirm Jalali date display.
-2. Confirm displayed time is Tehran time in 24-hour format.
-3. Enter a valid Jalali date/time and verify the saved/displayed round-trip.
-4. Try an invalid Jalali date and invalid start/end/draw ordering; verify safe rejection.
-5. Inspect timestamps in order, receipt, participant history, support and admin messages where available.
-6. Inspect CSV date columns if present.
+Do not test by mutating an active campaign, real customer profile, real payment or production participant code.
 
-Do not mutate an active campaign, submit a real payment or issue real participant codes as a test.
-
-## Rollback and recovery
+## 10. Rollback and incident handling
 
 - Prefer a reviewed forward-fix for application defects.
-- Do not use `git reset --hard`, force-push, database restore or reverse migrations without explicit approval and a verified recovery plan.
-- If the new process fails to start, capture sanitized logs and current Git/service state first. Do not repeatedly restart or modify the database blindly.
-- Database migrations may include non-transactional DDL. Inspect `schema_migrations` and migration checksums before retrying a partially applied migration.
+- Do not use `git reset --hard`, force-push, reverse migrations or database restore without explicit approval and a verified plan.
+- If the new process fails to start, capture sanitized current Git/service/log state first. Do not repeatedly restart or modify DB blindly.
+- If a migration partially applied, inspect exact schema and migration history/checksum before any retry.
+- If Telegram polling/webhook state is wrong, inspect current webhook/pending-update behavior and use the documented recovery path; do not delete pending updates casually.
+- A rollback of application code does not automatically roll back database schema. Check compatibility before reverting code.
+- For data loss or corruption, stop writes if safe, preserve evidence, identify the last verified backup and follow an approved restore plan.
+
+## 11. Documentation and audit trail
+
+Every deployment record must include:
+- date/time and operator
+- PR and commit SHA
+- pre-deploy and post-deploy VPS HEAD
+- migration IDs and outcome (no secrets/data dumps)
+- unit/integration/CI results, including skipped tests
+- service state and sanitized startup evidence
+- Telegram smoke-test scenarios and outcomes
+- unresolved issues and rollback decision
+
+Update `PROJECT_ROADMAP.md` for deployment status and `PROJECT_CONTEXT.md` if runtime/architecture decisions change. Never treat a GitHub merge or a CI pass as proof of VPS deployment or Telegram runtime health.

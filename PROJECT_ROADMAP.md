@@ -1,80 +1,112 @@
-# UStore Telegram Bot — Roadmap and Verification Ledger
+# UStore Telegram Bot — Roadmap, Audit Ledger and Work History
 
-> This is a status ledger, not a claim that every product requirement is complete. Update each item only when backed by source review, tests, CI or operator-confirmed runtime evidence. Last snapshot: 2026-11-15.
+> Evidence-based status ledger. This file deliberately distinguishes code presence, test evidence, deployment evidence and real Telegram acceptance. Last expanded: 2026-11-16. Re-check current source/CI/VPS before relying on any dated status.
 
-## Status legend
+## Status definitions
 
-- **Verified complete** — implementation and the stated verification evidence exist.
-- **Deployed; runtime verification pending** — deployed according to operator output, but user-facing behavior still needs a live test.
-- **Needs audit** — source contains related code, but completeness/acceptance has not been re-established in the current audit.
-- **Deferred by decision** — intentionally not part of the current release.
-- **Blocked** — cannot proceed without an external decision, access or dependency.
+- **Verified complete** — acceptance criteria and relevant verification evidence are documented.
+- **Implemented; acceptance pending** — code exists, but end-to-end or required test evidence is incomplete.
+- **Deployed; runtime verification pending** — operator evidence confirms deployment/startup, but user-facing behavior still needs a smoke test.
+- **Needs audit** — related code exists, but full criteria, authorization, concurrency and failure paths have not been re-audited.
+- **Blocked** — requires an external decision, credential, environment or owner action.
+- **Deferred by decision** — explicitly outside the current release; do not implement without approval.
 
-## Current release baseline
+## 1. Release baseline and recorded milestones
 
-| Item | Status | Evidence / note |
+| Milestone | Status | Evidence / qualification |
 |---|---|---|
-| Production branch PR #13 merged | Verified complete | Merge commit `ee2a85cfd886145547310ec845fff68036fd4ea2` |
-| PR #13 CI | Verified complete | Run 43754409445; 56/56 tests passed, including MySQL integration in CI |
-| PR #13 deployed to VPS | Deployed; runtime verification pending | Operator confirmed checkout SHA, restart, active service, DB connection and Telegram long polling |
-| Jalali/Tehran display in real Telegram conversations | Deployed; runtime verification pending | Still requires manual end-to-end checks listed below |
-| VPS non-integration test run | Verified complete with caveat | 38 passed, 0 failed, 18 skipped; skipped integration tests were not executed |
-| Web-panel date/time behavior | Deferred / out of scope | PR #13 scope was Telegram bot only |
+| Telegram-native Node.js/Telegraf + MySQL direction | Current product direction | README and current project context; no Telegram Business or web panel in this release |
+| Normalized multi-campaign model | Implemented; acceptance pending | Current scope and source domains; full end-to-end acceptance still required |
+| PR #11 receipt photo notification/outbox support | Historical merged milestone | Operator-reported test snapshot: 34 pass, 0 fail, 18 skipped; skipped MySQL integration tests were not executed |
+| PR #12 Persian newline fix | Verified merged | Commit `69b12dc6a2d5d40969d37d6eb109eb4e71e2f15e` |
+| PR #13 Jalali/Tehran date-time | Merged; manual acceptance pending | Merge `ee2a85cfd886145547310ec845fff68036fd4ea2`; CI run 43754409445: 56/56 passed |
+| PR #13 VPS test snapshot | Verified with caveat | Date-time 4/4; `npm test` 38 pass, 0 fail, 18 skipped (MySQL integration skipped) |
+| PR #13 service startup | Deployed; runtime verification pending | Operator supplied active/running, DB connected, long polling startup output at that time |
+| PR #14 project documentation | Verified merged | Docs-only merge `65cae7585fcb8bde5f4d837fa173715e6717c12f`; no app/DB/VPS/service change |
+| Expanded project-history documentation | In progress in this PR | This update; docs-only, no runtime action |
 
-## Immediate next actions
+## 2. Immediate operator verification
 
-1. **Live Telegram smoke test for Jalali dates** — inspect campaign list/details and ensure dates are Jalali with 24-hour Tehran time.
-2. **Jalali campaign input test** — use a disposable/draft campaign; verify accepted input, invalid dates, date ordering and saved/displayed UTC round-trip.
-3. **Related timestamp surfaces** — verify order, payment receipt, participant history, support/ticket history and admin messages where dates are rendered.
-4. **CSV date output** — inspect actual export fields and verify expected calendar/timezone behavior if timestamp columns are included.
-5. Record screenshots or redacted message samples and update this ledger with exact test evidence. Do not test by mutating a live campaign or real customer payment.
+These are real-world checks that CI cannot replace. Use draft/disposable records and test accounts only.
 
-## Product capability audit
+1. **Jalali campaign display:** campaign list/detail show Persian calendar and 24-hour Tehran time.
+2. **Jalali campaign input:** create/edit only a disposable draft; verify valid input, invalid dates, start/end/draw ordering and UTC round-trip.
+3. **Other timestamp surfaces:** inspect participant history, order, payment receipt, support ticket and admin notifications where timestamps appear.
+4. **CSV timestamps:** inspect actual exported timestamp columns and expected timezone/calendar behavior.
+5. Record date, bot version/commit, test account, exact scenario, expected/actual result and redacted evidence. Do not use a live paid order or active campaign for testing.
 
-The current source tree contains modules for the areas below. Their presence is not proof of complete acceptance. Re-audit code paths, authorization, transactions, failure handling and tests before marking complete.
+## 3. Product acceptance audit backlog
 
-| Area | Current evidence | Next audit focus |
-|---|---|---|
-| Customer registration/profile | registration, participant modules and registration middleware exist | contact ownership validation, required fields, duplicate handling, edit-request approval, blocked users |
-| Campaign management | campaign service/repository and scheduler exist | draft defaults, transitions, capacity rules, schedule boundaries, invalid date ordering, concurrency |
-| Free entries/codes | entry service exists | duplicate-entry prevention, atomic capacity, code uniqueness, snapshot immutability |
-| Paid orders | payment service and bank-card service exist | full customer/admin flow, reservation expiry/release, immutable order/card snapshot |
-| Receipt review | payment callbacks/admin services and receipt-notification delivery exist | duplicate receipt behavior, idempotent approval/rejection, retry/re-submit paths, code issuance only after approval |
-| Notifications | outbox service/worker and Telegram delivery module exist | lease recovery, bounded retries, uncertain delivery, duplicate warnings, delivery history |
-| Admin access | permission, role and session modules exist | deny-by-default callback coverage, role isolation, super-admin recovery and session expiry |
-| Support | support migration exists; verify handlers/services in current tree | full ticket lifecycle, assignment, message persistence, permissions and notifications |
-| Reports/CSV | management report service and CSV tests exist | correct aggregates, pagination/limits, formula-injection safety, PII minimization, date formatting |
-| Security/reliability | rate-limit, update guard, correlation and delivery-history migrations exist | threat review, race tests, log redaction, abuse controls, operational recovery |
+The table below is an audit plan, not a claim that all functionality is complete. For each item, inspect source, tests, authorization, transaction boundaries, race conditions, recovery and real Telegram UX.
 
-## Deferred scope — do not silently implement as if approved
+| Priority | Area | Current evidence | Required acceptance / audit |
+|---|---|---|---|
+| P0 | Customer registration/profile | Registration, participant modules and contact rules documented | Native contact request; sender/contact user ID match; E.164 normalization; duplicate prevention; cancellation/back navigation; server-side registration gate; profile view and edit-request approval |
+| P0 | Campaign lifecycle | Campaign service/repository/scheduler exist | Draft default; preview; validated state transitions; schedule boundaries; pause/close; no silent reopening; capacity and code limits; Tehran/Jalali input with UTC storage |
+| P0 | Free entry and codes | Entry service and campaign-code model exist | One entry per profile/campaign; unique ticket codes; transactional issuance; immutable profile snapshot; concurrent capacity test; retry/idempotency |
+| P0 | Paid orders and receipt review | Payment/bank-card modules and receipt notifications exist | Full customer-to-admin-to-customer flow; immutable amount/card snapshot; stable payment reference; duplicate receipt handling; approve/reject idempotency; code issuance only after approval; rejection resubmission |
+| P0 | Capacity and expiry | Reservation/expiry behavior documented and worker exists | Atomic reserve/release under concurrency; 24-hour expiry; scheduled worker recovery; cancellation/expiry notifications; no capacity leak or double release |
+| P0 | Admin authorization | Roles, permissions and sessions documented | Deny-by-default for every callback/text/photo path; test each role with separate accounts; last-super-admin protection; audit history; session expiry/recovery |
+| P0 | Telegram update reliability | Idempotency, rate limit and correlation controls described in README | Duplicate update test; stale webhook recovery without dropping pending updates; crash-window recovery; callback replay/concurrent admin action test; per-user rate-limit correctness |
+| P0 | Notification outbox | Leased worker, bounded retries and manual retry documented | Lease expiry/recovery; attempt history; dead-letter/failed visibility; uncertain-delivery warning; correlation; no false exactly-once guarantee |
+| P1 | Support | Support schema/flows exist or are described | Create/list/detail/reply/close/reopen; categories/priorities; assignment; all messages persisted; authorization; notifications and audit history |
+| P1 | Reports and CSV | Management reports/CSV modules and tests exist | Correct aggregates; pagination and bounded exports; UTF-8 BOM; formula-injection safety; PII minimization; date/time correctness |
+| P1 | Security and privacy | Rate limiting, audit, correlation and config validation documented | Threat review; ownership checks; secret/log redaction; input validation; abuse limits; data retention; admin recovery |
+| P1 | Operational recovery | Installer, migrations, systemd and diagnostics documented | Isolated clean install; safe resume; migration lock/partial DDL recovery; service restart/start failure diagnosis; recovery/rollback rehearsal |
+| P2 | Load and concurrency | Not established by the historical snapshots | Load test with isolated DB; contention tests for capacity, duplicate approval, update claims and notification leasing |
+| P2 | Backup/restore | Not established by this history | Define retention, off-host backup, restore rehearsal, RPO/RTO and operator procedure before relying on production data |
 
-- Draw execution and winner selection workflow.
-- Live payment-gateway integration; provider selection and server-side verification remain future work.
+### Completion gate for every P0/P1 item
+
+- Requirement and expected behavior written down.
+- Relevant source paths and data model inspected.
+- Authorization, ownership, transactions, concurrency and error/retry paths reviewed.
+- Focused regression tests pass.
+- Full relevant suite and isolated MySQL integration suite results recorded; skipped tests listed separately.
+- CI green on the exact PR head.
+- Diff reviewed for secrets and unrelated changes.
+- PR reviewed and merged.
+- Production deployment separately approved and confirmed.
+- Telegram/MySQL/scheduler/external-delivery smoke test completed where applicable.
+
+## 4. Deferred scope — do not silently bring into this release
+
+- Actual draw execution, winner selection and winner announcement workflow.
+- Live payment gateway provider selection/integration and server-side gateway verification.
 - Web administration panel.
-- Campaign discovery filters/catalog search where the acceptance document marks them deferred.
-- Any change to business rules such as paid/free eligibility, refund policy, prize allocation or participant win limits without owner approval.
+- Campaign discovery filters/catalog search where marked deferred in `docs/COMPLETION_SCOPE.md`.
+- Telegram Business integration.
+- Instagram API integration or automatic follower verification.
+- Any change to eligibility, payment/refund policy, prize allocation, code rules, campaign limits or win limits without explicit owner approval.
+- Independent public commit/reveal draw proof is not part of the current release acceptance unless explicitly re-scoped.
 
-See `docs/COMPLETION_SCOPE.md` for the authoritative product acceptance plan. If this roadmap and the source disagree, investigate and report the discrepancy; do not silently rewrite product decisions.
+## 5. Known historical test evidence — do not overstate
 
-## Definition of done
+- PR #13 CI run `43754409445`: 56 tests passed, 0 failed; MySQL integration tests ran in CI's isolated environment.
+- VPS after PR #13: `node --test tests/datetime.test.js` -> 4 passed.
+- VPS `npm test` -> 38 passed, 0 failed, 18 skipped. The 18 MySQL integration tests were skipped, not passed.
+- PR #11 operator snapshot: 34 passed, 0 failed, 18 skipped (52 total); integration tests skipped.
+- These are dated historical results, not evidence about the current head or live service today.
 
-A task is complete only when all applicable gates pass:
+## 6. Work-session update protocol
 
-1. Requirement and acceptance criteria are explicit.
-2. Relevant code paths and dependencies are inspected.
-3. Implementation is reviewed for authorization, data ownership, transactions, concurrency, error handling and logging.
-4. Focused tests are added/updated and pass.
-5. Full relevant test suite passes; skipped tests are reported separately.
-6. CI is green on the exact commit/PR head.
-7. Diff is reviewed; no unrelated or secret-bearing changes are included.
-8. PR is merged only after review/CI.
-9. Production deploy is separately approved and confirmed.
-10. Runtime smoke test is completed where behavior depends on Telegram, MySQL, scheduler or external delivery.
+At the end of each task:
+1. Update the relevant row above with exact status and evidence.
+2. Add a dated milestone for merged changes; include PR/commit, focused tests, full tests and CI.
+3. Distinguish source implementation, CI verification, VPS deployment and Telegram runtime verification.
+4. Record failures and skips; append the resolution rather than erasing history.
+5. Update `PROJECT_CONTEXT.md` if product decisions, architecture or invariants changed.
+6. Update `DEPLOYMENT.md` if server layout, commands, dependencies, migration or release procedure changed.
+7. If a requirement is deferred or blocked, retain it visibly with the reason.
+8. Do not label a task complete based only on code generation, source presence, a passing unit test or a successful GitHub merge.
 
-## How to maintain this file
+## 7. Next recommended sequence
 
-- Add newly discovered work to the relevant area with a priority and a concrete acceptance test.
-- Mark an item **Verified complete** only with a link/commit/test command and result.
-- Keep deferred items deferred unless the owner changes scope.
-- Do not delete failed-test history; append the resolution and evidence.
-- At the end of each work session, update this file and `PROJECT_CONTEXT.md` if architecture or product decisions changed.
+1. Complete the Jalali/Tehran live Telegram smoke tests using disposable data.
+2. Perform a source-to-acceptance audit of P0 customer registration, campaign lifecycle, free entries/codes and capacity concurrency.
+3. Audit the complete paid order/receipt approval/expiry lifecycle before any paid campaign is enabled.
+4. Verify role isolation and callback authorization using separate test admin accounts.
+5. Verify update idempotency, rate limits, outbox recovery and manual retry warnings.
+6. Complete support and reporting/CSV acceptance.
+7. Run isolated MySQL integration, concurrency and load tests.
+8. Revisit deferred product scope only with explicit owner decisions.
