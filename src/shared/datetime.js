@@ -8,7 +8,7 @@ function parts(formatter,date){return Object.fromEntries(formatter.formatToParts
 export function parseUtcDateTime(value){
   if(value instanceof Date){if(Number.isNaN(value.getTime()))throw new Error('تاریخ نامعتبر است.');return new Date(value.getTime());}
   if(typeof value!=='string')throw new TypeError('تاریخ باید رشته یا Date باشد.');
-  const match=/^(\\d{4})-(\\d{2})-(\\d{2})(?:[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?)?$/.exec(value.trim());
+  const match=/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(value.trim());
   if(!match)throw new Error('قالب تاریخ UTC نامعتبر است.');
   const [,ys,mos,ds,hs='00',mis='00',ss='00']=match;
   const nums=[ys,mos,ds,hs,mis,ss].map(Number),[y,m,d,h,mi,s]=nums;
@@ -53,7 +53,7 @@ function tehranLocalToUtc({year,month,day,hour,minute}){
 export function parseJalaliDateTime(value){
   if(typeof value!=='string')throw new TypeError('زمان باید به‌صورت متن ارسال شود.');
   const normalized=normalizeDigits(value).trim().replace(/[٫]/g,'.');
-  const match=/^(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})\\s+(\\d{1,2}):(\\d{2})$/.exec(normalized);
+  const match=/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})$/.exec(normalized);
   if(!match)throw new Error('زمان را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ وارد کنید.');
   const [,ys,mos,ds,hs,mis]=match;
   const date=tehranLocalToUtc({year:Number(ys),month:Number(mos),day:Number(ds),hour:Number(hs),minute:Number(mis)});
