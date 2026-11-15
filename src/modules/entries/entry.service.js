@@ -7,7 +7,7 @@ export async function joinFreeCampaign({telegramUserId,campaignId}){
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
-    const [[campaign]]=await c.execute("SELECT id,title,status,participation_type,starts_at,ends_at,capacity,codes_per_entry,(starts_at IS NOT NULL AND starts_at>UTC_TIMESTAMP()) AS not_started,(ends_at IS NOT NULL AND ends_at<UTC_TIMESTAMP()) AS already_ended WHERE id=? FOR UPDATE",[campaignId]);
+    const [[campaign]]=await c.execute("SELECT id,title,status,participation_type,starts_at,ends_at,capacity,codes_per_entry,(starts_at IS NOT NULL AND starts_at>UTC_TIMESTAMP()) AS not_started,(ends_at IS NOT NULL AND ends_at<UTC_TIMESTAMP()) AS already_ended FROM campaigns WHERE id=? FOR UPDATE",[campaignId]);
     if(!campaign||campaign.status!=='open')throw new Error('این کمپین برای ثبت‌نام باز نیست.');
     const [[profile]]=await c.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status FROM participants WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
     if(!profile||profile.status!=='active')throw new Error('حساب کاربری فعال پیدا نشد.');
