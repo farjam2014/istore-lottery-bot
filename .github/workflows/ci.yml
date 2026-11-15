@@ -1,9 +1,14 @@
 name: CI
 on:
   push:
-    branches: [rebuild/telegram-native-v1]
+    branches:
+      - rebuild/telegram-native-v1
+      - install/resumable-ubuntu-v2
+      - fix/admin-role-session-command-routing
   pull_request:
-    branches: [rebuild/telegram-native-v1]
+    branches:
+      - rebuild/telegram-native-v1
+      - install/resumable-ubuntu-v2
 jobs:
   test:
     runs-on: ubuntu-latest
