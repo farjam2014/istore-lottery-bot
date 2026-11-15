@@ -1,110 +1,170 @@
-# UStore Telegram Bot — Project Context
+# UStore Telegram Bot — Canonical Project Context
 
-> Canonical handoff document for future development conversations. Read this file first, then `PROJECT_ROADMAP.md`, `DEPLOYMENT.md`, and the linked source documentation. Re-verify live GitHub/VPS state before acting; this file is a snapshot, not live telemetry.
+> Canonical handoff for every future development session. Read this file, then `PROJECT_ROADMAP.md` and `DEPLOYMENT.md`, before proposing or changing anything. These documents are maintained snapshots, not live telemetry. Re-check the operational branch, PRs, CI, source, VPS and service state before acting.
 
-## Repository and runtime
+## 1. Project identity and current operating model
 
-- Repository: [farjam2014/istore-lottery-bot](https://github.com/farjam2014/istore-lottery-bot)
-- Production branch: `install/resumable-ubuntu-v2`
+- Repository: https://github.com/farjam2014/istore-lottery-bot
+- Operational branch: `install/resumable-ubuntu-v2`
 - VPS checkout: `/opt/ustore-telegram-bot`
-- Runtime: Node.js 22+, MySQL 8+, Telegraf, ES modules
-- systemd unit: `ustore-telegram-bot.service`
+- Runtime: Node.js 22.x, MySQL 8.x, Telegraf, ES modules
 - Entry point: `src/index.js`
-- Telegram interface: private-chat Telegram bot; this release does not use Telegram Business and does not include a web administration panel.
-- Configuration is validated in `src/config/env.js`; secrets belong in server-side environment configuration only, never in Git or documentation.
+- systemd unit: `ustore-telegram-bot.service`
+- Service account: `ustorebot`
+- Interface in the current release: Telegram Bot API private chats with inline keyboards.
+- This release does not use Telegram Business and has no web administration panel.
+- Assistant has no implicit SSH access. The operator executes server commands and shares sanitized output.
+- GitHub changes do not deploy to the VPS. Deployment is a separate, explicitly approved operation.
 
-## Start here when continuing work
+## 2. Product purpose and approved scope
 
-1. Read this file, `PROJECT_ROADMAP.md`, and `DEPLOYMENT.md`.
-2. Inspect the current production branch head and recent PRs/commits. Do not assume the recorded SHA is still current.
-3. Inspect relevant implementation, migrations, tests, and current CI results before making claims.
-4. For VPS work, ask the operator to run read-only commands first. The assistant has no implicit SSH access.
-5. Update the roadmap and relevant docs as work is completed. Record evidence (commit/PR, test command and result, deployment confirmation).
+The application is a campaign-based UStore customer and campaign operations bot. It is designed to manage persistent customer profiles, campaign participation, entry codes, paid orders and manual receipt review, support, admin workflows, reporting and operational reliability.
 
-## Product and architecture
+The current release scope is defined by `docs/COMPLETION_SCOPE.md`. Its key invariants are:
 
-The bot is a Telegram-native application. The intended architecture boundaries are:
-
-- `src/bot/`: Telegram transport, handlers, keyboards, registration and middleware.
-- `src/modules/`: domain use-cases and business services.
-- `src/database/`: MySQL pool, base schema, versioned SQL migrations.
-- `src/shared/`: shared infrastructure helpers, including date/time and logging.
-- `src/config/`: environment validation.
-
-Architectural rules documented in `docs/ARCHITECTURE.md`:
-- Handlers should not contain SQL.
-- Repositories should not depend on Telegram.
-- Services own business rules and transactions.
-- Participant profile is unique by Telegram user ID.
-- Registration is enforced server-side; campaign-entry profile snapshots preserve the data at entry time.
-
-Main implemented domains visible in the current source tree:
-- campaigns and campaign scheduling
-- participant profiles and entries
-- payments, receipt review, bank-card settings
-- admin access, roles and permissions
-- notification outbox and Telegram delivery
-- management reports and CSV export
-- support-related schema and flows (verify current behavior before asserting completeness)
-
-## Approved product rules and explicit deferrals
-
-The detailed acceptance plan is `docs/COMPLETION_SCOPE.md`. Preserve these known decisions unless the owner explicitly changes them:
-
+- A participant has one global profile keyed by Telegram user ID.
+- A campaign entry is separate from the profile and preserves an immutable profile snapshot.
+- One profile may enter multiple campaigns, but only once per campaign.
 - One code represents one independent ticket.
-- A participant may win at most one prize per campaign.
-- Draw execution and winner selection are deferred; do not expose or imply a live draw capability until implemented, tested and explicitly approved.
-- Manual bank-transfer receipt review is supported in the current product direction.
-- A provider-neutral online-payment abstraction may exist, but live payment-gateway integration is deferred until a provider is selected and verified.
-- Paid campaigns must not be enabled in production until the complete customer/admin payment flow is verified against the target database and bot.
-- Capacity reservation/release must be atomic and concurrency-safe.
-- Support messages and ticket history must be persisted centrally.
-- Admin permissions are shared across explicitly allowlisted accounts; see `docs/ADMIN_ROLES.md`.
-- Normal navigation/actions should use inline Telegram buttons, not require users to type commands.
-- The web panel is outside the current date/time integration scope and is not part of this release's product surface.
+- Paid entry codes are issued only after an administrator approves payment.
+- A participant may win at most one prize per campaign; actual draw execution and winner selection are deferred.
+- Capacity reservation and release must be atomic and concurrency-safe.
+- Payment evidence is reviewed manually; live gateway provider selection/integration is deferred.
+- Support ticket messages are persisted centrally.
+- Admin permissions are shared across explicitly allowlisted accounts; current role design is documented in `docs/ADMIN_ROLES.md`.
+- Normal user/admin navigation uses inline Telegram buttons. Text input is for actual free-form data only.
+- Web administration is deferred/out of current release scope.
+- Do not enable paid campaigns in production until the full customer/admin payment lifecycle has been verified on an isolated target-like environment and through Telegram end-to-end tests.
 
-## Date/time contract
+## 3. Technical architecture and boundaries
 
-The Telegram bot date/time integration merged in PR #13:
-- Shared implementation: `src/shared/datetime.js`.
-- Display timezone: `Asia/Tehran`.
-- User/admin-facing calendar: Persian/Jalali, with 24-hour Tehran time.
-- Campaign schedule input is Jalali local Tehran time and is converted to UTC before persistence.
-- Database timestamps, scheduling and expiry calculations remain UTC.
-- Historical database timestamps were not rewritten; no schema migration was added for the Jalali integration.
-- The web panel was explicitly out of scope.
+Relevant source areas (verify current tree before editing):
+- `src/bot/`: Telegram transport, handlers, keyboards, middleware and update processing.
+- `src/modules/`: domain services/use-cases and repositories.
+- `src/database/`: MySQL pool, base schema and versioned migrations.
+- `src/shared/`: shared infrastructure such as date/time and logging.
+- `src/config/`: environment parsing and validation.
 
-Do not introduce local-server-time assumptions. Parse MySQL `DATETIME` values as UTC and format for Tehran only at the presentation boundary. Add tests for date boundaries, leap days, invalid dates, timezone conversion and UTC comparisons when changing this code.
+Architecture rules in `docs/ARCHITECTURE.md`:
+- Handlers do not contain SQL.
+- Repositories do not depend on Telegram.
+- Services own business rules and transaction boundaries.
+- Enforce registration and authorization server-side; hiding a button is not authorization.
+- Validate ownership on every customer resource lookup.
+- Use unique constraints, transactions and idempotency for concurrency-sensitive operations.
+- Keep external Telegram delivery outside database transactions; use the notification outbox.
+- Keep sensitive values out of logs, Git and documentation.
 
-## Recent verified history (snapshot from 2026-11-15)
+Main domains represented in the source tree include:
+- registration and participant profiles
+- campaign configuration, lifecycle and scheduling
+- free entries, paid orders, capacity reservations and code issuance
+- bank-card configuration snapshots and receipt review
+- admin identities, roles, permissions and audit events
+- processed Telegram updates, rate limiting and correlation context
+- notification outbox, delivery history and retry/recovery
+- support tickets/messages
+- management reports and CSV export
 
-- PR #11: payment receipt photo notifications and delivery support.
-- PR #12: corrected literal newline handling in Persian Telegram messages.
-- PR #13: unified Jalali dates and Tehran time in the Telegram bot.
-- Production branch head after PR #13 merge: `ee2a85cfd886145547310ec845fff68036fd4ea2`.
-- PR #13 merge: [#13](https://github.com/farjam2014/istore-lottery-bot/pull/13).
-- GitHub Actions run recorded for PR #13: [43754409445](https://github.com/farjam2014/istore-lottery-bot/actions/runs/43754409445), 56 tests passed, 0 failed; MySQL integration tests ran in CI.
-- On the VPS after deployment, `node --test tests/datetime.test.js` passed 4/4.
-- On the VPS, ordinary `npm test` reported 38 passed, 0 failed, 18 skipped. The skipped tests were MySQL integration tests because the integration flag was not enabled. Do not describe these 18 as passed on the VPS.
-- The VPS service was restarted after updating to `ee2a85c`; the operator supplied output showing `active/running`, new PID `172804`, successful database connection and Telegram long polling startup. This was an operator-provided observation at that time, not a live status guarantee.
+The presence of a module/table is not proof that its complete product acceptance criteria pass. Use the roadmap and acceptance plan.
 
-## Safety and change-management rules
+## 4. Customer and admin interaction contract
 
-- Never expose or request bot tokens, database passwords, private keys, full payment-card data or raw receipt identifiers.
-- Never run integration tests against production. Use a disposable MySQL database with a name ending in `_ci` or `_test`, as documented in the README and test preparation script.
-- Never run destructive installer/reset flows, drop tables/databases, rewrite production data or perform irreversible migrations without explicit owner approval.
-- Inspect migration history/checksums before retrying a failed migration; MySQL DDL is not generally transactional.
-- Prefer additive, versioned migrations and forward fixes.
-- Do not deploy/restart the production service without explicit approval for that deployment.
-- Do not claim a change is complete until implementation, tests, review, merge and deployment (where applicable) are separately evidenced.
+### Customer
+- First-time users receive a welcome/registration entry point.
+- Required profile fields: full name, Telegram-shared mobile contact, Instagram handle.
+- Mobile ownership is validated using Telegram's native contact request; accept only a contact whose `user_id` matches the sender. Do not trust a typed number or forwarded/other contact as ownership proof.
+- User menu covers campaigns, codes, orders, account/profile and support.
+- Profile edits are requests; approved current-profile changes must not rewrite historical campaign-entry snapshots.
+- Free and paid participation paths are distinct; paid codes are not issued before payment approval.
 
-## Documentation map
+### Admin
+- Admin access is configured through trusted numeric Telegram IDs in `BOT_ADMIN_IDS`; additional staff are assigned roles from the Telegram inline admin interface.
+- Super-admin, campaign manager, finance manager and support agent permissions are documented in `docs/ADMIN_ROLES.md`.
+- Every callback, command, photo and text action must enforce permissions server-side.
+- Admin actions affecting money, status, participant access or staff permissions require audit history and idempotent behavior.
+- Payment operations are described in `docs/PAYMENT_OPERATIONS.md`.
 
-- `PROJECT_CONTEXT.md`: product, architecture, invariants and handoff.
-- `PROJECT_ROADMAP.md`: status ledger, outstanding verification and deferred scope.
-- `DEPLOYMENT.md`: VPS layout, safe commands and deployment verification.
-- `docs/ARCHITECTURE.md`: architecture boundaries.
-- `docs/COMPLETION_SCOPE.md`: acceptance requirements and product invariants.
-- `docs/ADMIN_ROLES.md`: admin authorization model.
-- `docs/PAYMENT_OPERATIONS.md`: payment operations notes.
-- `docs/CLEAN_REBUILD_CONTRACT.md`: installer/rebuild safety contract.
+## 5. Payment, capacity and notification invariants
+
+- Manual bank transfer and receipt photo submission/review are the current payment direction.
+- Store immutable order amount, campaign and bank-destination snapshot.
+- Approve/reject operations must be transactional and idempotent.
+- Codes issue only after successful approval.
+- A rejected order may resubmit a receipt while valid; pending receipt actions and expiry paths must be explicit.
+- Reservation expiry must release capacity and notify the customer through a scheduled worker, not only when the customer returns.
+- Capacity allocation/release must remain safe under concurrent requests.
+- Notification outbox uses bounded retries and leases. Delivery is retryable/at-least-once, not a guarantee of exactly-once Telegram delivery. An uncertain manual retry can create a duplicate and must warn the operator.
+- Record notification attempts/delivery state and correlate related events. Never expose raw Telegram file tokens or unnecessary receipt identifiers.
+
+## 6. Date and time contract
+
+PR #13 introduced the shared date/time behavior:
+- Shared utility: `src/shared/datetime.js`.
+- Database timestamps and scheduling/expiry logic remain UTC.
+- Parse MySQL `DATETIME` explicitly as UTC.
+- Present user/admin-facing dates in the Persian/Jalali calendar and 24-hour Tehran time (`Asia/Tehran`).
+- Campaign schedule input is Tehran-local Jalali date/time converted to UTC before persistence.
+- No historical database timestamp rewrite or date/time schema migration was part of PR #13.
+- Web-panel date/time behavior is outside current scope.
+- Add boundary, leap-day, invalid-date and timezone conversion tests when changing date/time logic.
+
+## 7. Project history and decisions (chronological, evidence-based)
+
+This is a handoff summary, not a claim that every experiment or abandoned branch is part of the current release.
+
+1. **Initial build and scope reset (November 2026):** the project moved away from the retired single-campaign/legacy-table approach toward a clean Telegram-native, multi-campaign model with normalized participant profiles, campaign entries, codes, orders, receipts, support and operational tables. The current release does not revive the legacy schema or old runtime paths. Do not copy legacy migrations/data assumptions into the current design without an explicit migration plan.
+2. **Architecture and product acceptance:** architecture boundaries and business invariants were consolidated in `docs/ARCHITECTURE.md` and `docs/COMPLETION_SCOPE.md`. The completion scope is the authoritative acceptance reference; this context file is the handoff summary.
+3. **PR #11:** payment receipt photo notification/delivery support and associated outbox photo/caption handling were added. Operator-reported VPS test snapshot: 52 tests, 34 passed, 0 failed, 18 skipped (MySQL integration skipped); service was reported active after deployment. Treat this as historical operator evidence, not current live status.
+4. **PR #12:** corrected Persian message line-break handling where literal backslash-n appeared instead of actual line breaks. Merged commit recorded as `69b12dc6a2d5d40969d37d6eb109eb4e71e2f15e`.
+5. **PR #13:** unified Jalali calendar and Tehran display time in Telegram flows, with UTC storage and scheduling preserved. Merge SHA recorded as `ee2a85cfd886145547310ec845fff68036fd4ea2`. CI run `43754409445` reported 56/56 tests passing, including isolated MySQL integration tests. VPS run reported 4/4 date-time tests and `npm test` 38 passed, 0 failed, 18 skipped; those 18 integration tests were not run on the VPS. Operator later supplied service output showing active/running, successful DB connection and Telegram long-polling startup. Manual Telegram/Jalali end-to-end smoke checks remained pending in the recorded roadmap.
+6. **PR #14:** documentation-only handoff files were added and merged on 2026-11-15. Merge commit recorded as `65cae7585fcb8bde5f4d837fa173715e6717c12f`. It did not change application code, database, VPS or service.
+7. **Reliability and operations work recorded in current repository documentation/README:** stale-webhook recovery at polling startup, idempotent Telegram update claims, database-backed per-user rate limiting, correlation IDs across processing/logging/payment/audit/notifications, leased outbox with bounded retries, manual retry visibility/warnings, and bank-card presentation history limited to last four digits. Re-verify implementation and CI on the exact current head before marking individual acceptance items complete.
+
+Important historical caution:
+- Earlier project conversations/branches explored Laravel/PHP, web panels, Telegram Business, Instagram integration, different database layouts and lottery/draw execution. Those are not automatically current product commitments. Current operational release is Node.js/Telegraf, Telegram Bot API private chats, MySQL, no web panel, no Telegram Business, and draw execution deferred.
+- Older PRs/branches can be drafts or superseded experiments. Do not merge, deploy or revive them just because they exist.
+
+## 8. Current baseline and verification caveats
+
+- Operational branch at the time of PR #14 was updated through docs-only merge `65cae7585fcb8bde5f4d837fa173715e6717c12f`.
+- Last explicitly recorded deployed application-code commit is `ee2a85cfd886145547310ec845fff68036fd4ea2`; PR #14 changed documentation only. Confirm the actual VPS HEAD before deployment or runtime claims.
+- The 2026-11-15 test/deploy observations are historical snapshots. Never present them as live service status.
+- Current feature-level acceptance gaps are tracked in `PROJECT_ROADMAP.md`; authoritative product criteria remain in `docs/COMPLETION_SCOPE.md`.
+
+## 9. Mandatory workflow for every future change
+
+1. Read all three root handoff documents and the relevant detailed docs.
+2. Re-check operational branch head, open/merged PRs, CI status and actual source. For VPS tasks, request read-only preflight output first.
+3. State the exact requirement, non-goals, affected flows/data, risk and acceptance tests before editing.
+4. Inspect handlers, services, repositories, schema/migrations, authorization and failure/retry paths end-to-end.
+5. Implement the smallest coherent change on a feature branch; do not work directly on the production branch for risky changes.
+6. Add focused unit/integration/regression tests. Integration tests must use a disposable MySQL database with a name ending `_ci` or `_test`, never production.
+7. Run syntax checks and relevant tests; report pass/fail/skipped separately. Inspect the complete diff for unrelated changes and secrets.
+8. Open a PR with scope, risks, test evidence and deployment status. Merge only after review/CI and applicable approval.
+9. Deployment is a separate step requiring explicit owner approval. GitHub merge is not deployment.
+10. After deployment, verify service/process/log/DB connectivity and perform a safe Telegram smoke test. Do not claim runtime success from CI alone.
+11. Update the relevant root docs in the same work item/PR: context for architecture/product decisions, roadmap for feature status and evidence, deployment for server/runbook changes.
+12. Record unresolved issues and next actions. Never erase failed-test history or mark unverified behavior complete.
+
+## 10. Safety rules — non-negotiable
+
+- Never request, print, commit or document bot tokens, DB passwords, private keys, full card numbers, raw receipt file IDs or sensitive customer data.
+- Never run destructive installer/reset flows, drop databases/tables, rewrite production data, force-reset a checkout, or perform irreversible migrations without explicit owner approval and a verified recovery plan.
+- Never run integration tests against production.
+- MySQL DDL may not be transactional. Inspect migration history/checksums and partial state before retrying a failed migration.
+- Prefer additive versioned migrations and forward fixes.
+- Do not restart/deploy the production service without explicit approval.
+- Do not claim a change is complete until code, tests, CI, merge, deployment and runtime verification are separately evidenced where applicable.
+
+## 11. Documentation map
+
+- `PROJECT_CONTEXT.md`: product, architecture, decisions, invariants and development workflow.
+- `PROJECT_ROADMAP.md`: status ledger, audit backlog, evidence and deferred scope.
+- `DEPLOYMENT.md`: VPS facts, safe preflight, test policy, deployment and recovery.
+- `docs/COMPLETION_SCOPE.md`: authoritative acceptance plan.
+- `docs/ARCHITECTURE.md`: code boundaries and architecture rules.
+- `docs/ADMIN_ROLES.md`: admin roles and authorization.
+- `docs/PAYMENT_OPERATIONS.md`: payment operations.
+- `docs/CLEAN_REBUILD_CONTRACT.md`: rebuild and installer safety contract.
+- `README.md`: setup, product summary and test commands.
