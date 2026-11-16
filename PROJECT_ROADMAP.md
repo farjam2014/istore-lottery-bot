@@ -24,8 +24,9 @@
 | PR #13 service startup | Deployed; runtime verification pending | Operator supplied active/running, DB connected, long polling startup output at that time |
 | PR #14 project documentation | Verified merged | Docs-only merge `65cae7585fcb8bde5f4d837fa173715e6717c12f`; no app/DB/VPS/service change |
 | PR #16 campaign-specific sequential codes | Verified merged; production migration pending | Merge `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; CI run `43871251991`: 64/64 pass, 0 fail, 0 skipped; syntax checks pass. Approved test participation/payment/draw cleanup is in the migration but has not been applied to VPS/production |
-| PR #17 active-admin registration bypass | Implemented; CI pending | Draft PR `fix/registration-admin-session-bypass`; unit tests added for configured/active/inactive/ordinary identities; run `43871468254` pending at last check |
+| PR #17 active-admin registration bypass | Verified merged; VPS deployment pending | Merge `b269c280c1beade14c2ef1d7d56321bc59edbb34`; latest-head CI run `43872103482`: 70/70 pass, 0 fail, 0 skipped; syntax checks pass. Covers configured admins, active/inactive staff, ordinary users, missing identity, both contact/text handlers and permission-store failure |
 | PR #7 resumable installer/reliability | Open Draft; CI green on current head | PR #7 targets `rebuild/telegram-native-v1`; operational branch head `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; not merged to base and not evidence of VPS deployment |
+| PR #17 merge | Verified merged | PR #17 merged 2026-11-16 as `b269c280c1beade14c2ef1d7d56321bc59edbb34`; CI 70/70 passed, 0 failed, 0 skipped |
 | Expanded project-history documentation | In progress in this PR | This update; documentation only, no runtime action |
 
 ## 2. Immediate operator verification
@@ -106,14 +107,13 @@ At the end of each task:
 
 ## 7. Next recommended sequence
 
-1. Finish PR #17 latest-head CI; review and merge only if green.
-2. Reconcile the actual VPS branch/HEAD/service state with the GitHub operational branch using read-only preflight output.
-3. Before any production migration, verify the exact row counts in every table covered by PR #16's approved test-data cleanup; stop if any row is not disposable test data.
-4. Complete the Jalali/Tehran live Telegram smoke tests using disposable data.
-5. Perform a source-to-acceptance audit of P0 customer registration, campaign lifecycle, free entries/codes and capacity concurrency.
-6. Audit the complete paid order/receipt approval/expiry lifecycle before any paid campaign is enabled.
-7. Verify role isolation and callback authorization using separate test admin accounts.
-8. Verify update idempotency, rate limits, outbox recovery and manual retry warnings.
-9. Complete support and reporting/CSV acceptance.
-10. Run isolated MySQL integration, concurrency and load tests.
-11. Revisit deferred product scope only with explicit owner decisions.
+1. Reconcile the actual VPS branch/HEAD/service state with the GitHub operational branch using read-only preflight output.
+2. Before any production migration, verify the exact row counts in every table covered by PR #16's approved test-data cleanup; stop if any row is not disposable test data.
+3. Complete the Jalali/Tehran live Telegram smoke tests using disposable data.
+4. Perform a source-to-acceptance audit of P0 customer registration, campaign lifecycle, free entries/codes and capacity concurrency.
+5. Audit the complete paid order/receipt approval/expiry lifecycle before any paid campaign is enabled.
+6. Verify role isolation and callback authorization using separate test admin accounts.
+7. Verify update idempotency, rate limits, outbox recovery and manual retry warnings.
+8. Complete support and reporting/CSV acceptance.
+9. Run isolated MySQL integration, concurrency and load tests.
+10. Revisit deferred product scope only with explicit owner decisions.
