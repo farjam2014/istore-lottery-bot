@@ -49,6 +49,7 @@ export async function updatePaymentCard(id,input,adminId){
     const [[before]]=await c.execute('SELECT id,bank_name,card_number FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
     if(!before)throw new Error('کارت موردنظر پیدا نشد.');
     await c.execute('UPDATE payment_bank_cards SET bank_name=?,card_number=?,card_holder=?,instructions=?,updated_by=? WHERE id=?',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,String(adminId),id]);
+    const [[updated]]=await c.execute('SELECT id,bank_name,card_number,card_holder,instructions,is_active,is_default FROM payment_bank_cards WHERE id=?',[id]);
     await auditCardChange(c,adminId,'payment_card.updated',id,{
       previousBankName:before.bank_name,
       previousCardLast4:String(before.card_number||'').slice(-4),
@@ -56,12 +57,12 @@ export async function updatePaymentCard(id,input,adminId){
       cardLast4:v.cardNumber.slice(-4)
     });
     await c.commit();
+    return updated;
   }catch(e){
     try{await c.rollback();}catch{}
     if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت برای کارت دیگری ثبت شده است.');
     throw e;
   }finally{c.release();}
-  return getPaymentCard(id);
 }
 export async function setDefaultPaymentCard(id,adminId){
   const c=await pool.getConnection();
