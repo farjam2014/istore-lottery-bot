@@ -3,6 +3,14 @@ import {completeRegistration,getSession,saveSession,clearSession,normalizeFullNa
 import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,phoneShareKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
+import {hasPermission} from '../../modules/admin/admin-role.service.js';
+import {shouldBypassRegistration} from '../middleware/registration-admin.js';
+
+const bypassRegistration=ctx=>shouldBypassRegistration({
+  telegramId:ctx.from?.id,
+  configuredAdminIds:config.adminIds,
+  hasDashboardPermission:id=>hasPermission(id,'dashboard.read')
+});
 
 export function registerRegistrationHandlers(bot){
   bot.action('registration:start',async ctx=>{
@@ -29,6 +37,7 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
+    if(await bypassRegistration(ctx))return next();
     const contact=ctx.message.contact;
     if(!contact.user_id||String(contact.user_id)!==String(ctx.from.id)){
       return ctx.reply('این شماره به‌عنوان مخاطب حساب تلگرام شما تأیید نشد. لطفاً فقط دکمه اشتراک‌گذاری شماره خودتان را بزنید.',phoneShareKeyboard());
@@ -45,6 +54,7 @@ export function registerRegistrationHandlers(bot){
   bot.on('text',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);if(!s)return next();
+    if(await bypassRegistration(ctx))return next();
     const value=ctx.message.text.trim();const data=s.payload||{};
     try{
       if(s.step==='awaiting_name'){
