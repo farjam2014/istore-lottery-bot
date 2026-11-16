@@ -413,3 +413,40 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     }
   }
 });
+
+test('MySQL integration: support admin notifications commit and roll back with support workflow transaction',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {enqueueSupportAdminNotification}=await import('../../src/modules/support/support-notifications.service.js');
+  const adminId=String(750000000000n+(BigInt(Date.now())%100000000000n));
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO admin_users(telegram_user_id,role,is_active) VALUES(?,'support_agent',1)",[adminId]);
+    const rollback=await pool.getConnection();
+    try{
+      await rollback.beginTransaction();
+      await enqueueSupportAdminNotification({text:'support rollback test',executor:rollback,adminIds:[adminId]});
+      await rollback.rollback();
+    }finally{rollback.release();}
+    const [[afterRollback]]=await pool.execute('SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?',[adminId]);
+    assert.equal(Number(afterRollback.total),0,'A rolled-back support transaction must not leave a notification behind');
+
+    const commit=await pool.getConnection();
+    try{
+      await commit.beginTransaction();
+      const recipients=await enqueueSupportAdminNotification({text:'support commit test',executor:commit,adminIds:[adminId]});
+      assert.equal(recipients,1,'Configured and database staff IDs must be deduplicated');
+      await commit.commit();
+    }finally{commit.release();}
+    const [[afterCommit]]=await pool.execute('SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?',[adminId]);
+    assert.equal(Number(afterCommit.total),1);
+    const [[notice]]=await pool.execute('SELECT payload FROM telegram_notification_outbox WHERE chat_id=?',[adminId]);
+    const payload=typeof notice.payload==='string'?JSON.parse(notice.payload):notice.payload;
+    assert.equal(payload.text,'support commit test');
+  }finally{
+    await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[adminId]);
+    await pool.execute('DELETE FROM admin_users WHERE telegram_user_id=?',[adminId]);
+  }
+});
