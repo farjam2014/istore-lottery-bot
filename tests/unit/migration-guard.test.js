@@ -11,14 +11,29 @@ test('migrations are denied by default',()=>{
 
 test('test migrations require a disposable database name',()=>{
   assert.throws(
-    ()=>assertMigrationAllowed({database:'ustore_live',nodeEnv:'test',env:{ALLOW_DATABASE_MIGRATIONS:'1'}}),
+    ()=>assertMigrationAllowed({database:'ustore_live',nodeEnv:'test',host:'127.0.0.1',env:{ALLOW_DATABASE_MIGRATIONS:'1'}}),
     /restricted to databases/
   );
 });
 
-test('CI migration is allowed only with explicit opt-in and disposable database',()=>{
+test('test migrations reject non-loopback database hosts',()=>{
+  const env={ALLOW_DATABASE_MIGRATIONS:'1'};
+  assert.throws(
+    ()=>assertMigrationAllowed({database:'istore_lottery_ci',nodeEnv:'test',host:'db.production.internal',env}),
+    /loopback database hosts/
+  );
+  assert.throws(
+    ()=>assertMigrationAllowed({database:'istore_lottery_ci',nodeEnv:'test',env}),
+    /loopback database hosts/
+  );
+});
+
+test('CI migration is allowed only with explicit opt-in, disposable database, and loopback host',()=>{
   assert.doesNotThrow(
-    ()=>assertMigrationAllowed({database:'istore_lottery_ci',nodeEnv:'test',env:{ALLOW_DATABASE_MIGRATIONS:'1'}})
+    ()=>assertMigrationAllowed({database:'istore_lottery_ci',nodeEnv:'test',host:'127.0.0.1',env:{ALLOW_DATABASE_MIGRATIONS:'1'}})
+  );
+  assert.doesNotThrow(
+    ()=>assertMigrationAllowed({database:'ustore_local_test',nodeEnv:'test',host:'localhost',env:{ALLOW_DATABASE_MIGRATIONS:'1'}})
   );
 });
 
