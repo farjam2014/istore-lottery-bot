@@ -361,10 +361,12 @@ test('MySQL integration: uncertain notification retries are snapshot-bound, batc
     const preview=await previewUncertainNotifications();
     assert.equal(preview.count,103);
     assert.equal(preview.batchCount,100);
-    const result=await retryUncertainNotifications({
-      adminId,expectedCount:preview.count,expectedMaxId:preview.maxId,expectedBatchHash:preview.batchHash
-    });
-    assert.equal(result.confirmed,true);
+    const confirmations=await Promise.all([
+      retryUncertainNotifications({adminId,expectedCount:preview.count,expectedMaxId:preview.maxId,expectedBatchHash:preview.batchHash}),
+      retryUncertainNotifications({adminId,expectedCount:preview.count,expectedMaxId:preview.maxId,expectedBatchHash:preview.batchHash})
+    ]);
+    assert.equal(confirmations.filter(item=>item.confirmed).length,1,'Concurrent confirmations must only retry the batch once');
+    const result=confirmations.find(item=>item.confirmed);
     assert.equal(result.count,100);
     assert.equal(result.remaining,3);
 
