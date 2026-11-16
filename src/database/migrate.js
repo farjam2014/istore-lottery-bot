@@ -3,6 +3,7 @@ import {readFile,readdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {releaseMigrationConnection} from './migration-connection.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const LOCK_NAME='ustore_telegram_bot_schema_migrations';
@@ -11,9 +12,11 @@ const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 export async function migrate(){
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
+  let lockAcquisitionResolved=false;
   let lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
+    lockAcquisitionResolved=true;
     lockAcquired=Number(lock?.acquired)===1;
     if(!lockAcquired)throw new Error('Could not acquire the database migration lock within 30 seconds.');
 
@@ -38,9 +41,6 @@ export async function migrate(){
       await c.execute('INSERT INTO schema_migrations(version,checksum) VALUES(?,?)',[file,checksum]);
     }
   }finally{
-    if(lockAcquired){
-      try{await c.query('SELECT RELEASE_LOCK(?)',[LOCK_NAME]);}catch{}
-    }
-    c.release();
+    await releaseMigrationConnection(c,{lockName:LOCK_NAME,lockAcquisitionResolved,lockAcquired});
   }
 }
