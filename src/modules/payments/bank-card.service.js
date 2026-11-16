@@ -117,7 +117,7 @@ export async function setPaymentCardActive(id,active,adminId){
     await auditCardChange(c,adminId,active?'payment_card.activated':'payment_card.deactivated',id,{
       previousActive:wasActive,
       active:Boolean(active),
-      replacementDefaultCardId
+      replacementDefaultCardId:replacementDefaultId
     });
     await c.commit();
     return {changed:true,replacementDefaultId};
