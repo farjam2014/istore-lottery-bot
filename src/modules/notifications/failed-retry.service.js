@@ -98,7 +98,7 @@ export async function retryFailedNotifications({adminId,expectedCount,expectedMa
         batchLimit:FAILED_RETRY_BATCH_LIMIT,
         expectedMaxId:maxId,
         batchHash:expectedHash,
-        warning:'These notifications already exhausted automatic attempts or were rejected permanently; manual retry can fail again.'
+        warning:'These notifications exhausted automatic attempts or were rejected permanently. A transport error may occur after Telegram accepted a message; manual retry can create duplicates.'
       })]
     );
     await c.commit();
