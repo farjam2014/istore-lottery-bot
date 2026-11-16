@@ -1,17 +1,16 @@
--- Preserve every previously issued code. Existing codes keep their public value;
--- a deterministic internal sequence is backfilled for future counter continuity.
-ALTER TABLE campaign_codes
-  ADD COLUMN sequence_number INT UNSIGNED NULL AFTER campaign_id;
+-- All currently issued campaign codes are disposable test data.
+-- Remove draw references first because they have foreign keys to campaign_codes.
+-- Campaign entries, participants, orders, receipts and campaigns are intentionally preserved.
+DELETE FROM draw_winners
+WHERE campaign_code_id IN (SELECT id FROM campaign_codes);
 
-UPDATE campaign_codes AS cc
-JOIN (
-  SELECT id, ROW_NUMBER() OVER (PARTITION BY campaign_id ORDER BY id) AS row_number_in_campaign
-  FROM campaign_codes
-) AS ranked ON ranked.id = cc.id
-SET cc.sequence_number = 10000 + ranked.row_number_in_campaign;
+DELETE FROM draw_candidates
+WHERE campaign_code_id IN (SELECT id FROM campaign_codes);
+
+DELETE FROM campaign_codes;
 
 ALTER TABLE campaign_codes
-  MODIFY COLUMN sequence_number INT UNSIGNED NOT NULL,
+  ADD COLUMN sequence_number INT UNSIGNED NOT NULL AFTER campaign_id,
   ADD UNIQUE KEY uq_campaign_code_sequence (campaign_id, sequence_number);
 
 CREATE TABLE campaign_code_counters (
@@ -23,8 +22,7 @@ CREATE TABLE campaign_code_counters (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Every campaign starts clean. Its first newly issued code will be sequence 10001.
 INSERT INTO campaign_code_counters (campaign_id, next_sequence_number)
-SELECT c.id, 10001 + COUNT(cc.id)
-FROM campaigns AS c
-LEFT JOIN campaign_codes AS cc ON cc.campaign_id = c.id
-GROUP BY c.id;
+SELECT id, 10001
+FROM campaigns;
