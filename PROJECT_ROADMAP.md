@@ -24,9 +24,10 @@
 | PR #13 service startup | Deployed; runtime verification pending | Operator supplied active/running, DB connected, long polling startup output at that time |
 | PR #14 project documentation | Verified merged | Docs-only merge `65cae7585fcb8bde5f4d837fa173715e6717c12f`; no app/DB/VPS/service change |
 | PR #16 campaign-specific sequential codes | Verified merged; production migration pending | Merge `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; CI run `43871251991`: 64/64 pass, 0 fail, 0 skipped; syntax checks pass. Approved test participation/payment/draw cleanup is in the migration but has not been applied to VPS/production |
-| PR #17 active-admin registration bypass | Verified merged; VPS deployment pending | Merge `b269c280c1beade14c2ef1d7d56321bc59edbb34`; latest-head CI run `43872103482`: 70/70 pass, 0 fail, 0 skipped; syntax checks pass. Covers configured admins, active/inactive staff, ordinary users, missing identity, both contact/text handlers and permission-store failure |
-| PR #7 resumable installer/reliability | Open Draft; CI green on current head | PR #7 targets `rebuild/telegram-native-v1`; operational branch head `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; not merged to base and not evidence of VPS deployment |
-| PR #17 merge | Verified merged | PR #17 merged 2026-11-16 as `b269c280c1beade14c2ef1d7d56321bc59edbb34`; CI 70/70 passed, 0 failed, 0 skipped |
+| PR #17 active-admin registration bypass | Verified merged; VPS deployment pending | Merge `b269c280c1beade14c2ef1d7d56321bc59edbb34`; CI run `43872103482`: 70/70 pass, 0 fail, 0 skipped; syntax checks pass. Covers configured admins, active/inactive staff, ordinary users, missing identity, both contact/text handlers and permission-store failure |
+| PR #18 project handoff refresh | Verified merged; documentation only | Merge `14c09717bef200aca05193a5416a98bc0107493c`; CI run `43872431924` successful; no app/DB/VPS change |
+| PR #20 uncertain notification retry confirmation | Implemented; CI pending | Draft PR `fix/outbox-uncertain-retry-confirmation-v2`; super-admin must confirm after seeing duplicate-delivery warning before uncertain rows are re-queued |
+| PR #7 resumable installer/reliability | Open Draft; CI green on current head | PR #7 targets `rebuild/telegram-native-v1`; operational branch head `14c09717bef200aca05193a5416a98bc0107493c`; not merged to base and not evidence of VPS deployment |
 | Expanded project-history documentation | In progress in this PR | This update; documentation only, no runtime action |
 
 ## 2. Immediate operator verification
