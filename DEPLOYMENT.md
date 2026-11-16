@@ -15,6 +15,7 @@
 - Working directory: `/opt/ustore-telegram-bot`
 - ExecStart recorded: `/usr/bin/node /opt/ustore-telegram-bot/src/index.js`
 - Last application-code commit explicitly recorded as deployed remains `ee2a85cfd886145547310ec845fff68036fd4ea2` (PR #13); this is historical and must be rechecked on the VPS.
+- PR #32 is merged as `4a3491f875c1be919c8a5a14c4a4209e73164130`; CI run `43877732503` passed 87/87 tests. It is code-only and is not confirmed deployed to the VPS.
 - PR #26 is merged as `9cecaea58647e68831acc8cf35f8b8fba89b7f02` with CI run `43875885637` passing 82/82 tests; this does not establish VPS deployment.
 - PR #27 is merged as `d4c7338a8d747e7d867120bf49a0e949701d4b18`; CI run `43876470137` passed 82/82 tests. It only bounds diagnostic text and adds no migration. It is not confirmed deployed to the VPS.
 - GitHub operational branch includes PR #16 (`193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`), PR #17 (`b269c280c1beade14c2ef1d7d56321bc59edbb34`), PR #18 docs refresh (`14c09717bef200aca05193a5416a98bc0107493c`), PR #20 (`8e993c24313ad8c6f3b4b9bea0f135f64e42d0c5`), PR #22 (`d5c5c394e2e486667d93051989210e14900162bb`) PR #24 (`040b5951246cdcd4a14edd74bf7c03d0e2ef7803`), PR #26 (`9cecaea58647e68831acc8cf35f8b8fba89b7f02`) and PR #27 (`d4c7338a8d747e7d867120bf49a0e949701d4b18`). PR #24 CI run `43873852629` passed 79/79 tests and merge run `43874085107` passed; PR #26 CI run `43875885637` passed 82/82 tests with zero skips.
