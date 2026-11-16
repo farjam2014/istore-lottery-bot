@@ -12,6 +12,7 @@ function hashIds(ids){
 
 export async function previewFailedNotifications(){
   const c=await pool.getConnection();
+  let reusable=true;
   try{
     await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.beginTransaction();
@@ -31,10 +32,10 @@ export async function previewFailedNotifications(){
       batchHash:hashIds(ids)
     };
   }catch(error){
-    await c.rollback();
+    try{await c.rollback();}catch{reusable=false;}
     throw error;
   }finally{
-    c.release();
+    if(reusable)c.release();else c.destroy();
   }
 }
 
@@ -105,7 +106,7 @@ export async function retryFailedNotifications({adminId,expectedCount,expectedMa
     transactionOpen=false;
     return {confirmed:true,count:ids.length,remaining:Math.max(0,currentCount-ids.length)};
   }catch(error){
-    if(transactionOpen)await c.rollback();
+    if(transactionOpen){try{await c.rollback();}catch{reusable=false;}}
     throw error;
   }finally{
     if(lockAcquired){
