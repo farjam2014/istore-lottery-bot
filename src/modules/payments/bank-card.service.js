@@ -39,6 +39,7 @@ export async function createPaymentCard(input,adminId){
     const makeDefault=existing.length===0;
     const [r]=await c.execute('INSERT INTO payment_bank_cards(bank_name,card_number,card_holder,instructions,is_active,is_default,created_by,updated_by) VALUES(?,?,?,?,1,?,?,?)',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,makeDefault?1:0,String(adminId),String(adminId)]);
     await auditCardChange(c,adminId,'payment_card.created',r.insertId,{bankName:v.bankName,cardLast4:v.cardNumber.slice(-4),isDefault:makeDefault});
+    await c.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(adminId)]);
     await c.commit();return {id:r.insertId,default:makeDefault};
   }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت قبلاً ثبت شده است.');throw e;}finally{c.release();}
 }
@@ -56,6 +57,7 @@ export async function updatePaymentCard(id,input,adminId){
       bankName:v.bankName,
       cardLast4:v.cardNumber.slice(-4)
     });
+    await c.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(adminId)]);
     await c.commit();
     return updated;
   }catch(e){
