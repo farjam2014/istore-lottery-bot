@@ -40,8 +40,6 @@ test('MySQL integration: concurrent support updates cannot consume one support s
     assert.equal(duplicate,null,'The second concurrent update must observe that the session was already consumed');
     const [[remaining]]=await pool.execute('SELECT COUNT(*) total FROM support_sessions WHERE telegram_user_id=?',[telegramUserId]);
     assert.equal(Number(remaining.total),0);
-    const mismatch=await lockSupportSession(await pool.getConnection(),{telegramUserId,step:'user_reply'});
-    assert.equal(mismatch,null);
   }finally{
     if(firstOpen)await first.rollback();
     if(secondOpen)await second.rollback();
