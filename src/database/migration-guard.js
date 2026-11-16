@@ -13,6 +13,11 @@ export function assertMigrationAllowed({database,nodeEnv,host,env=process.env}={
   }
 
   if (environment === 'test') {
+    if (env.ALLOW_TEST_DATABASE_MIGRATIONS !== '1') {
+      throw new Error(
+        'Test-environment migrations require ALLOW_TEST_DATABASE_MIGRATIONS=1.'
+      );
+    }
     if (!/_ci$|_test$/i.test(name)) {
       throw new Error(
         'Test-environment migrations are restricted to databases ending in _ci or _test.'
