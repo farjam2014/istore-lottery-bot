@@ -440,8 +440,12 @@ test('MySQL integration: uncertain notification retry requires matching queue sn
     const [[unchanged]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE id IN (?,?) AND status='uncertain'",insertedIds);
     assert.equal(Number(unchanged.total),2,'A stale confirmation must not mutate the outbox');
 
-    const confirmed=await retryUncertainNotifications({adminId,expectedCount:2,expectedMaxId:maxId});
-    assert.equal(confirmed.confirmed,true);
+    const concurrent=await Promise.all([
+      retryUncertainNotifications({adminId,expectedCount:2,expectedMaxId:maxId}),
+      retryUncertainNotifications({adminId,expectedCount:2,expectedMaxId:maxId})
+    ]);
+    assert.equal(concurrent.filter(result=>result.confirmed).length,1,'Only one concurrent confirmation may claim the uncertain batch');
+    const confirmed=concurrent.find(result=>result.confirmed);
     assert.equal(confirmed.count,2);
     assert.equal(confirmed.remaining,0);
     const [rows]=await pool.execute('SELECT status,attempts,manual_retry_count,last_error FROM telegram_notification_outbox WHERE id IN (?,?) ORDER BY id',insertedIds);
