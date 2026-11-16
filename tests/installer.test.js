@@ -12,7 +12,7 @@ test('Ubuntu installer has valid Bash syntax',()=>{
   assert.equal(result.status,0,result.stderr||result.stdout||'bash -n failed');
 });
 
-test('installer preserves existing application state',()=>{
+test('installer preserves existing application state and requires production authorization',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/git -C .*status --porcelain --untracked-files=no/);
   assert.match(script,/Existing \.env found; preserving it/);
@@ -21,7 +21,8 @@ test('installer preserves existing application state',()=>{
   assert.match(script,/ALLOW_PRODUCTION_MIGRATIONS/);
   assert.match(script,/MIGRATION_TARGET_DATABASE/);
   assert.match(script,/NODE_ENV_VALUE="\$\{NODE_ENV_VALUE:-production\}"/);
-  assert.match(script,/Supported NODE_ENV values: production, development, test/);
+  assert.match(script,/NODE_ENV_VALUE" == "production"/);
+  assert.match(script,/Production installer requires NODE_ENV=production/);
   assert.ok(script.indexOf('ALLOW_DATABASE_MIGRATIONS') < script.indexOf('CREATE DATABASE IF NOT EXISTS'),'Installer must authorize database changes before provisioning MySQL.');
   assert.doesNotMatch(script,/DROP DATABASE/i);
   assert.doesNotMatch(script,/rm -rf/);
