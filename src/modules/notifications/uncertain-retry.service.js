@@ -3,20 +3,21 @@ import {getCorrelationId} from '../../shared/request-context.js';
 
 const RETRY_BATCH_LIMIT=100;
 
-export async function retryUncertainNotifications({adminId,expectedCount}){
+export async function retryUncertainNotifications({adminId,expectedCount,expectedMaxId}){
   const actor=String(adminId??'');
   const expected=Number(expectedCount);
-  if(!/^[0-9]+$/.test(actor)||!Number.isSafeInteger(expected)||expected<1){
+  const maxId=String(expectedMaxId??'');
+  if(!/^[0-9]+$/.test(actor)||!Number.isSafeInteger(expected)||expected<1||! /^[0-9]+$/.test(maxId)){
     throw new Error('Invalid uncertain notification retry confirmation.');
   }
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
     const [[current]]=await c.execute(
-      "SELECT COUNT(*) total FROM telegram_notification_outbox WHERE status='uncertain'"
+      "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
     );
     const currentCount=Number(current.total||0);
-    if(currentCount!==expected){
+    if(currentCount!==expected||String(current.max_id)!==maxId){
       await c.commit();
       return {confirmed:false,currentCount};
     }
