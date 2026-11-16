@@ -374,8 +374,12 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     const [[retainedReceipt]]=await pool.execute('SELECT status,review_note FROM payment_receipts WHERE id=?',[oldReceipt.insertId]);
     assert.equal(retainedReceipt.status,'rejected');
     assert.equal(retainedReceipt.review_note,'previous attempt rejected');
-    const [[firstEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[firstOrder.id]);
-    assert.equal(Number(firstEvent.total),1);
+    const [[firstEvent]]=await pool.execute("SELECT details FROM payment_events WHERE order_id=? AND event_type='order_reissued' ORDER BY id DESC LIMIT 1",[firstOrder.id]);
+    assert.ok(firstEvent);
+    const firstEventDetails=typeof firstEvent.details==='string'?JSON.parse(firstEvent.details):firstEvent.details;
+    assert.equal(Number(firstEventDetails.previous.amount),250000);
+    assert.equal(Number(firstEventDetails.amount),250000);
+    assert.equal(firstEventDetails.currency,'IRR');
 
     const second=await createOrGetOrder({telegramUserId:users[1],campaignId});
     const secondOrder=second.order;
@@ -393,8 +397,12 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     assert.equal(Number(secondRetry.order.amount),300000,'Expiry-worker reissue must preserve the original order amount');
     const [[secondOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[secondEntry.id]);
     assert.equal(Number(secondOrderCount.total),1);
-    const [[secondEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[secondOrder.id]);
-    assert.equal(Number(secondEvent.total),1);
+    const [[secondEvent]]=await pool.execute("SELECT details FROM payment_events WHERE order_id=? AND event_type='order_reissued' ORDER BY id DESC LIMIT 1",[secondOrder.id]);
+    assert.ok(secondEvent);
+    const secondEventDetails=typeof secondEvent.details==='string'?JSON.parse(secondEvent.details):secondEvent.details;
+    assert.equal(Number(secondEventDetails.previous.amount),300000);
+    assert.equal(Number(secondEventDetails.amount),300000);
+    assert.equal(secondEventDetails.currency,'IRR');
   }finally{
     if(orderIds.length){
       const placeholders=orderIds.map(()=>'?').join(',');
