@@ -30,7 +30,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
       await c.commit();
       return {confirmed:false,currentCount:0};
     }
-    const ids=rows.map(row=>Number(row.id));
+    const ids=rows.map(row=>String(row.id));
     const placeholders=ids.map(()=>'?').join(',');
     const [updated]=await c.execute(
       "UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=CONCAT(COALESCE(last_error,''),' | manually retried by ',?) WHERE status='uncertain' AND id IN ("+placeholders+")",
