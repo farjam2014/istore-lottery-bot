@@ -57,3 +57,14 @@ test('contact and text registration handlers both pass active staff updates thro
   const bypassCalls=source.match(/if\(await bypassRegistration\(ctx\)\)return next\(\);/g)||[];
   assert.equal(bypassCalls.length,2);
 });
+
+test('permission lookup failures propagate instead of silently bypassing authorization',async()=>{
+  await assert.rejects(
+    shouldBypassRegistration({
+      telegramId:456,
+      configuredAdminIds:new Set(),
+      hasDashboardPermission:async()=>{throw new Error('permission store unavailable');}
+    }),
+    /permission store unavailable/
+  );
+});
