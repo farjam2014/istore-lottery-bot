@@ -54,6 +54,6 @@ test('contact and text registration handlers both pass active staff updates thro
   const path=await import('node:path');
   const handlerPath=fileURLToPath(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url));
   const source=await readFile(path.resolve(handlerPath),'utf8');
-  const bypassCalls=source.match(/if\\(await bypassRegistration\\(ctx\\)\\)return next\\(\\);/g)||[];
+  const bypassCalls=source.match(/if\(await bypassRegistration\(ctx\)\)return next\(\);/g)||[];
   assert.equal(bypassCalls.length,2);
 });
