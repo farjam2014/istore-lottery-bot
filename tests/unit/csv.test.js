@@ -9,9 +9,9 @@ test('CSV neutralizes spreadsheet formulas and control-prefixed formulas',()=>{
   for(const value of ['=1+1','+SUM(A1:A2)','-2+3','@SUM(A1)','\t=1+1','\r=1+1',' =HYPERLINK(\"https://evil.example\")','   +SUM(A1:A2)','\n-1+1','\u00a0=1+1','\uFEFF@SUM(A1)'])assert.ok(csvCell(value).startsWith('"\''));
 });
 test('CSV output includes UTF-8 BOM and CRLF rows',()=>{
-  assert.equal(toCsv([{name:'test'}],['name']),'\uFEFFname\r\n"test"');
+  assert.equal(toCsv([{name:'test'}],['name']),'\uFEFF"name"\r\n"test"');
 });
 
 test('CSV headers are quoted using the same cell escaping rules',()=>{
-  assert.equal(toCsv([{name:'value'}],['column,name']),'\uFEFF"column,name"\r\n"value"');
+  assert.equal(toCsv([{'column,name':'value'}],['column,name']),'\uFEFF"column,name"\r\n"value"');
 });
