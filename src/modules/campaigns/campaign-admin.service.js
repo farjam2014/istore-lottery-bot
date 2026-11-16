@@ -15,6 +15,14 @@ function validatePayload(payload){
   if(title.length<3||title.length>180)throw new Error('عنوان کمپین باید بین ۳ تا ۱۸۰ نویسه باشد.');
   const description=String(payload.description??'');
   if(description.length>3000)throw new Error('توضیح کمپین بیش از حد مجاز است.');
+  const prizeTitle=String(payload.prizeTitle||'').trim()||null;
+  const prizeDescription=String(payload.prizeDescription||'').trim()||null;
+  const terms=String(payload.terms||'').trim()||null;
+  const posterFileId=payload.posterFileId==null?null:String(payload.posterFileId);
+  if(prizeTitle&&prizeTitle.length>180)throw new Error('نام جایزه بیش از حد مجاز است.');
+  if(prizeDescription&&prizeDescription.length>2000)throw new Error('توضیح جایزه بیش از حد مجاز است.');
+  if(terms&&terms.length>8000)throw new Error('قوانین کمپین بیش از حد مجاز است.');
+  if(posterFileId&&posterFileId.length>255)throw new Error('شناسه پوستر معتبر نیست.');
   const capacity=payload.capacity==null?null:Number(payload.capacity);
   const codes=Number(payload.codes);
   const price=payload.type==='paid'?Number(payload.price):0;
@@ -31,15 +39,15 @@ function validatePayload(payload){
   if(prizeValue!==null&&(!Number.isSafeInteger(prizeValue)||prizeValue<0||prizeValue>100000000000000))throw new Error('ارزش جایزه معتبر نیست.');
   return {
     title,description,
-    posterFileId:payload.posterFileId||null,
-    prizeTitle:String(payload.prizeTitle||'').trim()||null,
-    prizeDescription:String(payload.prizeDescription||'').trim()||null,
+    posterFileId,
+    prizeTitle,
+    prizeDescription,
     prizeValue,
     type:payload.type,
     price,
     paymentMethods:payload.type==='paid'?['card_transfer']:[],
     startsAt,endsAt,drawAt,
-    terms:String(payload.terms||'').trim()||null,
+    terms,
     capacity,codes
   };
 }
