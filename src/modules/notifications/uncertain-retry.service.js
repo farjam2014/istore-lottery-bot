@@ -87,7 +87,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
 
     const placeholders=ids.map(()=>'?').join(',');
     const [updated]=await c.execute(
-      "UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=CONCAT(COALESCE(last_error,''),' | manually retried by ',?) WHERE status='uncertain' AND id<=? AND id IN ("+placeholders+")",
+      "UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=CONCAT(LEFT(COALESCE(last_error,''),400),' | manually retried by ',?) WHERE status='uncertain' AND id<=? AND id IN ("+placeholders+")",
       [actor,maxId,...ids]
     );
     if(Number(updated.affectedRows)!==ids.length){
