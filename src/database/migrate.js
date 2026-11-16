@@ -41,6 +41,6 @@ export async function migrate(){
       await c.execute('INSERT INTO schema_migrations(version,checksum) VALUES(?,?)',[file,checksum]);
     }
   }finally{
-    await releaseMigrationConnection(c,{lockAcquisitionResolved,lockAcquired});
+    await releaseMigrationConnection(c,{lockName:LOCK_NAME,lockAcquisitionResolved,lockAcquired});
   }
 }
