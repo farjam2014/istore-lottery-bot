@@ -12,6 +12,7 @@ export async function migrate(){
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
   let lockAcquired=false;
+  let reusable=true;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
     lockAcquired=Number(lock?.acquired)===1;
@@ -39,8 +40,11 @@ export async function migrate(){
     }
   }finally{
     if(lockAcquired){
-      try{await c.query('SELECT RELEASE_LOCK(?)',[LOCK_NAME]);}catch{}
+      try{
+        const [[released]]=await c.query('SELECT RELEASE_LOCK(?) AS released',[LOCK_NAME]);
+        if(Number(released?.released)!==1)reusable=false;
+      }catch{reusable=false;}
     }
-    c.release();
+    if(reusable)c.release();else c.destroy();
   }
 }
