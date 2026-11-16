@@ -153,7 +153,7 @@ async function showCampaignDetail(ctx,id){
   const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
-  if(c.status==='open')actions.push([Markup.button.callback('⏸ توقف کمپین','admin:campaign:pause:'+c.id)]);else if(['draft','scheduled','paused'].includes(c.status))actions.push([Markup.button.callback('▶️ فعال‌سازی کمپین','admin:campaign:activate:'+c.id)]);
+  if(['open','scheduled'].includes(c.status))actions.push([Markup.button.callback('⏸ توقف کمپین','admin:campaign:pause:'+c.id)]);else if(['draft','paused'].includes(c.status))actions.push([Markup.button.callback('▶️ فعال‌سازی کمپین','admin:campaign:activate:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
   if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
