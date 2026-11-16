@@ -316,6 +316,97 @@ test('MySQL integration: transactional outbox notifications roll back and commit
   }finally{await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
 });
 
+test('MySQL integration: expired paid orders can be reissued without violating one-order-per-entry history',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/,'Payment retry integration must use an isolated test database');
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createOrGetOrder,updatePaymentSettings,expirePendingOrders}=await import('../../src/modules/payments/payment.service.js');
+  const suffix=String(Date.now());
+  const users=[String(810000000000n+(BigInt(suffix)%100000000000n)),String(820000000000n+(BigInt(suffix)%100000000000n))];
+  const participantIds=[];
+  const entryIds=[];
+  const orderIds=[];
+  let campaignId;
+  try{
+    await migrate();
+    for(let i=0;i<users.length;i++){
+      const [participant]=await pool.execute(
+        'INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',
+        [users[i],'Expired Order Retry '+i,'+98912144444'+i,'expired_order_retry_'+i]
+      );
+      participantIds.push(participant.insertId);
+    }
+    const [campaign]=await pool.execute(
+      "INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',250000,1)",
+      ['expired-order-retry-'+suffix,'Expired order retry']
+    );
+    campaignId=campaign.insertId;
+    await updatePaymentSettings({bankName:'Retry Bank A',cardNumber:'1234567812345678',cardHolder:'Retry Holder A',instructions:'A',adminId:'1'});
+
+    const first=await createOrGetOrder({telegramUserId:users[0],campaignId});
+    const firstOrder=first.order;
+    orderIds.push(firstOrder.id);
+    const [[firstEntry]]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignId,participantIds[0]]);
+    entryIds.push(firstEntry.id);
+    await pool.execute("UPDATE payment_orders SET status='expired',expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE) WHERE id=?",[firstOrder.id]);
+    await pool.execute("UPDATE campaign_entries SET status='cancelled' WHERE id=?",[firstEntry.id]);
+
+    await updatePaymentSettings({bankName:'Retry Bank B',cardNumber:'8765432187654321',cardHolder:'Retry Holder B',instructions:'B',adminId:'1'});
+    const firstRetry=await createOrGetOrder({telegramUserId:users[0],campaignId});
+    assert.equal(Number(firstRetry.order.id),Number(firstOrder.id),'An expired order must be reused, not inserted again');
+    assert.notEqual(firstRetry.order.payment_reference,firstOrder.payment_reference,'A new payment attempt must receive a fresh reference');
+    assert.equal(firstRetry.order.bank_name,'Retry Bank B');
+    assert.equal(firstRetry.order.card_number,'8765432187654321');
+    assert.equal(firstRetry.order.card_holder,'Retry Holder B');
+    assert.equal(firstRetry.order.status,'awaiting_receipt');
+    const [[firstEntryState]]=await pool.execute('SELECT status FROM campaign_entries WHERE id=?',[firstEntry.id]);
+    assert.equal(firstEntryState.status,'pending_payment');
+    const [[firstOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[firstEntry.id]);
+    assert.equal(Number(firstOrderCount.total),1);
+    const [[firstEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[firstOrder.id]);
+    assert.equal(Number(firstEvent.total),1);
+
+    const second=await createOrGetOrder({telegramUserId:users[1],campaignId});
+    const secondOrder=second.order;
+    orderIds.push(secondOrder.id);
+    const [[secondEntry]]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignId,participantIds[1]]);
+    entryIds.push(secondEntry.id);
+    await pool.execute('UPDATE payment_orders SET expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE) WHERE id=?',[secondOrder.id]);
+    const expiredCount=await expirePendingOrders();
+    assert.ok(expiredCount>=1,'The expiry worker should expire the overdue order');
+    const secondRetry=await createOrGetOrder({telegramUserId:users[1],campaignId});
+    assert.equal(Number(secondRetry.order.id),Number(secondOrder.id),'An order expired by the worker must also be reused');
+    assert.notEqual(secondRetry.order.payment_reference,secondOrder.payment_reference);
+    assert.equal(secondRetry.order.status,'awaiting_receipt');
+    const [[secondOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[secondEntry.id]);
+    assert.equal(Number(secondOrderCount.total),1);
+    const [[secondEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[secondOrder.id]);
+    assert.equal(Number(secondEvent.total),1);
+  }finally{
+    if(orderIds.length){
+      const placeholders=orderIds.map(()=>'?').join(',');
+      await pool.execute('DELETE FROM payment_events WHERE order_id IN ('+placeholders+')',orderIds);
+      await pool.execute('DELETE FROM payment_receipts WHERE order_id IN ('+placeholders+')',orderIds);
+      await pool.execute('DELETE FROM payment_orders WHERE id IN ('+placeholders+')',orderIds);
+    }
+    if(entryIds.length){
+      const placeholders=entryIds.map(()=>'?').join(',');
+      await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id IN ('+placeholders+')',entryIds);
+      await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+placeholders+')',entryIds);
+    }
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participantIds.length){
+      const placeholders=participantIds.map(()=>'?').join(',');
+      await pool.execute('DELETE FROM participants WHERE id IN ('+placeholders+')',participantIds);
+    }
+    if(users.length){
+      const placeholders=users.map(()=>'?').join(',');
+      await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id IN ('+placeholders+')',users);
+    }
+  }
+});
+
 test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
 
 
