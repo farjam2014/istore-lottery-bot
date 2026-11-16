@@ -49,6 +49,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
   const c=await pool.getConnection();
   let lockAcquired=false;
   let transactionOpen=false;
+  let reusable=true;
   try{
     // Serialize confirmations before opening a consistent snapshot. This
     // prevents InnoDB repeatable-read gap-lock deadlocks when two admins
@@ -112,9 +113,11 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     throw error;
   }finally{
     if(lockAcquired){
-      try{await c.execute('SELECT RELEASE_LOCK(?)',['ustore:uncertain-notification-retry']);}
-      catch(releaseError){/* Closing the pooled connection also releases MySQL advisory locks. */}
+      try{
+        const [[released]]=await c.execute('SELECT RELEASE_LOCK(?) AS released',['ustore:uncertain-notification-retry']);
+        if(Number(released?.released)!==1)reusable=false;
+      }catch{reusable=false;}
     }
-    c.release();
+    if(reusable)c.release();else c.destroy();
   }
 }
