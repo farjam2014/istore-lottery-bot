@@ -29,3 +29,17 @@ test('going back to phone clears stale phone and Instagram values and returns to
   assert.match(backHandler,/cancelKeyboard\(\)/);
   assert.doesNotMatch(backHandler,/s\.payload\s*\|\|\s*\{\}/);
 });
+
+test('registration callbacks and cancel command pass active admins to later handlers',()=>{
+  for(const route of [
+    "bot.action('registration:start',async(ctx,next)=>{",
+    "bot.action('registration:back:phone',async(ctx,next)=>{",
+    "bot.action('registration:cancel',async(ctx,next)=>{",
+    "bot.command('cancel',async(ctx,next)=>{"
+  ]){
+    const start=handler.indexOf(route);
+    assert.ok(start>=0,route+' must be registered');
+    const prefix=handler.slice(start,start+180);
+    assert.match(prefix,/if\(await bypassRegistration\(ctx\)\)return next\(\);/);
+  }
+});
