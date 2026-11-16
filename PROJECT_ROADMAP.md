@@ -26,7 +26,8 @@
 | PR #16 campaign-specific sequential codes | Verified merged; production migration pending | Merge `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; CI run `43871251991`: 64/64 pass, 0 fail, 0 skipped; syntax checks pass. Approved test participation/payment/draw cleanup is in the migration but has not been applied to VPS/production |
 | PR #17 active-admin registration bypass | Verified merged; VPS deployment pending | Merge `b269c280c1beade14c2ef1d7d56321bc59edbb34`; CI run `43872103482`: 70/70 pass, 0 fail, 0 skipped; syntax checks pass. Covers configured admins, active/inactive staff, ordinary users, missing identity, both contact/text handlers and permission-store failure |
 | PR #18 project handoff refresh | Verified merged; documentation only | Merge `14c09717bef200aca05193a5416a98bc0107493c`; CI run `43872431924` successful; no app/DB/VPS change |
-| PR #20 uncertain notification retry confirmation | Implemented; CI pending | Draft PR `fix/outbox-uncertain-retry-confirmation-v2`; super-admin must confirm after seeing duplicate-delivery warning before uncertain rows are re-queued |
+| PR #20 uncertain notification retry confirmation | Verified merged | Merge `8e993c24313ad8c6f3b4b9bea0f135f64e42d0c5`; CI run `43872780296`: 72/72 pass, 0 fail, 0 skipped; warning/confirmation and audit tests pass |
+| PR #21 registration back navigation/admin callback bypass | Implemented; CI pending | Draft PR `feat/registration-back-navigation`; back navigation across name/phone/Instagram and active-admin bypass for actions, `/cancel`, contact and text handlers |
 | PR #7 resumable installer/reliability | Open Draft; CI green on current head | PR #7 targets `rebuild/telegram-native-v1`; operational branch head `14c09717bef200aca05193a5416a98bc0107493c`; not merged to base and not evidence of VPS deployment |
 | Expanded project-history documentation | In progress in this PR | This update; documentation only, no runtime action |
 
