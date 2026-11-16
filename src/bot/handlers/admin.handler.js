@@ -554,7 +554,6 @@ export function registerAdminHandlers(bot){
           }else{
             await createPaymentCard(payload,ctx.from.id);
           }
-          await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
         }catch(e){return respond(ctx,e.message||'ذخیره کارت ناموفق بود.');}
         return showPaymentCards(ctx);
       }
