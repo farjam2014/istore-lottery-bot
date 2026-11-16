@@ -5,7 +5,7 @@ import {parseUtcDateTime} from '../../shared/datetime.js';
 
 function slugify(title){
   const suffix=randomBytes(3).toString('hex');
-  const base=String(title).toLowerCase().replace(/[^a-z0-9\\u0600-\\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';
+  const base=String(title).toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';
   return `${base}-${suffix}`;
 }
 function validatePayload(payload){
@@ -46,7 +46,7 @@ function validatePayload(payload){
 
 export async function createCampaignFromWizard({adminId}){
   const actor=String(adminId??'');
-  if(!/^\\d+$/.test(actor))throw new Error('شناسه مدیر معتبر نیست.');
+  if(!/^\d+$/.test(actor))throw new Error('شناسه مدیر معتبر نیست.');
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
