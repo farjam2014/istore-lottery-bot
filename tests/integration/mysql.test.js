@@ -434,12 +434,13 @@ test('MySQL integration: uncertain notification retry requires matching confirma
       );
       insertedIds.push(row.insertId);
     }
-    const stale=await retryUncertainNotifications({adminId,expectedCount:1});
+    const maxId=String(Math.max(...insertedIds));
+    const stale=await retryUncertainNotifications({adminId,expectedCount:1,expectedMaxId:maxId});
     assert.deepEqual(stale,{confirmed:false,currentCount:2});
     const [[unchanged]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE id IN (?,?) AND status='uncertain'",insertedIds);
     assert.equal(Number(unchanged.total),2,'A stale confirmation must not mutate the outbox');
 
-    const confirmed=await retryUncertainNotifications({adminId,expectedCount:2});
+    const confirmed=await retryUncertainNotifications({adminId,expectedCount:2,expectedMaxId:maxId});
     assert.equal(confirmed.confirmed,true);
     assert.equal(confirmed.count,2);
     assert.equal(confirmed.remaining,0);
@@ -459,7 +460,8 @@ test('MySQL integration: uncertain notification retry requires matching confirma
     assert.equal(details.count,2);
     assert.equal(details.observedUncertainCount,2);
     assert.equal(details.batchLimit,100);
-    await assert.rejects(retryUncertainNotifications({adminId,expectedCount:0}),/Invalid/);
+    await assert.rejects(retryUncertainNotifications({adminId,expectedCount:0,expectedMaxId:maxId}),/Invalid/);
+    await assert.rejects(retryUncertainNotifications({adminId,expectedCount:2,expectedMaxId:'not-an-id'}),/Invalid/);
   }finally{
     if(insertedIds.length)await pool.execute(`DELETE FROM telegram_notification_outbox WHERE id IN (${insertedIds.map(()=>'?').join(',')})`,insertedIds);
     await pool.execute("DELETE FROM admin_audit_log WHERE admin_telegram_id=? AND action='system.outbox_retry_uncertain' AND entity_type='notification_outbox'",[adminId]);
