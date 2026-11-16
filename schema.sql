@@ -104,4 +104,22 @@ CREATE TABLE IF NOT EXISTS lottery_code_history (
  KEY idx_code_history_code(raffle_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','true'),('draw_completed','false');
+INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false');
+
+
+CREATE TABLE IF NOT EXISTS telegram_notification_outbox (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ dedupe_key VARCHAR(128) NOT NULL UNIQUE,
+ notification_type VARCHAR(64) NOT NULL,
+ payload JSON NOT NULL,
+ status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
+ attempts INT UNSIGNED NOT NULL DEFAULT 0,
+ next_attempt_at TIMESTAMP NULL DEFAULT NULL,
+ processing_started_at TIMESTAMP NULL DEFAULT NULL,
+ processing_token CHAR(36) NULL DEFAULT NULL,
+ last_error VARCHAR(500) NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ sent_at TIMESTAMP NULL,
+ KEY idx_notification_status_created(status,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
