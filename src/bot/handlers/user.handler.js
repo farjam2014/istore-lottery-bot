@@ -8,6 +8,7 @@ import {userMenuKeyboard} from '../keyboards/user.keyboard.js';
 import {normalizeFullName,normalizePhone,normalizeInstagram} from '../../modules/participants/participant.service.js';
 import {enqueueTelegramNotification} from '../../modules/notifications/outbox.service.js';
 import {enqueueSupportAdminNotification} from '../../modules/support/support-notifications.service.js';
+import {lockSupportSession} from '../../modules/support/support-session.service.js';
 import {formatTehranDateTime} from '../../shared/datetime.js';
 
 async function screenReply(ctx,...args){
@@ -81,12 +82,14 @@ export function registerUserHandlers(bot){
       const c=await pool.getConnection();let id;
       try{
         await c.beginTransaction();
-        const [r]=await c.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,?,?,'new')",[ticketNo,participant.id,session.category,body.slice(0,180)]);
+        const activeSession=await lockSupportSession(c,{telegramUserId:ctx.from.id,step:'new_message'});
+        if(!activeSession){await c.commit();return screenReply(ctx,'این درخواست قبلاً ثبت شده یا نشست آن تغییر کرده است.');}
+        const [r]=await c.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,?,?,'new')",[ticketNo,participant.id,activeSession.category,body.slice(0,180)]);
         id=r.insertId;
         await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[id,String(ctx.from.id),body]);
         await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
         await enqueueSupportAdminNotification({
-          text:'🎫 تیکت جدید '+ticketNo+'\nموضوع: '+session.category+'\nمشتری: '+ctx.state.profile.full_name+'\nشرح: '+body.slice(0,700),
+          text:'🎫 تیکت جدید '+ticketNo+'\nموضوع: '+activeSession.category+'\nمشتری: '+ctx.state.profile.full_name+'\nشرح: '+body.slice(0,700),
           replyMarkup:Markup.inlineKeyboard([[Markup.button.callback('بررسی تیکت','admin:support:view:'+id)]]),
           executor:c
         });
@@ -97,7 +100,9 @@ export function registerUserHandlers(bot){
       const c=await pool.getConnection();
       try{
         await c.beginTransaction();
-        const [[ticket]]=await c.execute("SELECT t.id,t.status,t.ticket_number FROM support_tickets t WHERE t.id=? AND t.participant_id=(SELECT id FROM participants WHERE telegram_user_id=?) FOR UPDATE",[session.ticket_id,String(ctx.from.id)]);
+        const activeSession=await lockSupportSession(c,{telegramUserId:ctx.from.id,step:'user_reply',ticketId:session.ticket_id});
+        if(!activeSession){await c.commit();return screenReply(ctx,'این پاسخ قبلاً ثبت شده یا نشست آن تغییر کرده است.');}
+        const [[ticket]]=await c.execute("SELECT t.id,t.status,t.ticket_number FROM support_tickets t WHERE t.id=? AND t.participant_id=(SELECT id FROM participants WHERE telegram_user_id=?) FOR UPDATE",[activeSession.ticket_id,String(ctx.from.id)]);
         if(!ticket||ticket.status==='closed')throw new Error('این تیکت بسته شده یا در دسترس نیست.');
         await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticket.id,String(ctx.from.id),body]);
         await c.execute("UPDATE support_tickets SET status='new',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticket.id]);
