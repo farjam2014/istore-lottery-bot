@@ -23,7 +23,10 @@
 | PR #13 VPS test snapshot | Verified with caveat | Date-time 4/4; `npm test` 38 pass, 0 fail, 18 skipped (MySQL integration skipped) |
 | PR #13 service startup | Deployed; runtime verification pending | Operator supplied active/running, DB connected, long polling startup output at that time |
 | PR #14 project documentation | Verified merged | Docs-only merge `65cae7585fcb8bde5f4d837fa173715e6717c12f`; no app/DB/VPS/service change |
-| Expanded project-history documentation | In progress in this PR | This update; docs-only, no runtime action |
+| PR #16 campaign-specific sequential codes | Verified merged; production migration pending | Merge `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; CI run `43871251991`: 64/64 pass, 0 fail, 0 skipped; syntax checks pass. Approved test participation/payment/draw cleanup is in the migration but has not been applied to VPS/production |
+| PR #17 active-admin registration bypass | Implemented; CI pending | Draft PR `fix/registration-admin-session-bypass`; unit tests added for configured/active/inactive/ordinary identities; run `43871468254` pending at last check |
+| PR #7 resumable installer/reliability | Open Draft; CI green on current head | PR #7 targets `rebuild/telegram-native-v1`; operational branch head `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`; not merged to base and not evidence of VPS deployment |
+| Expanded project-history documentation | In progress in this PR | This update; documentation only, no runtime action |
 
 ## 2. Immediate operator verification
 
@@ -41,12 +44,12 @@ The table below is an audit plan, not a claim that all functionality is complete
 
 | Priority | Area | Current evidence | Required acceptance / audit |
 |---|---|---|---|
-| P0 | Customer registration/profile | Registration, participant modules and contact rules documented | Native contact request; sender/contact user ID match; E.164 normalization; duplicate prevention; cancellation/back navigation; server-side registration gate; profile view and edit-request approval |
+| P0 | Customer registration/profile | Registration, participant modules and contact rules documented; PR #17 fixes active staff being intercepted by stale customer sessions (pending CI) | Native contact request; sender/contact user ID match; E.164 normalization; duplicate prevention; cancellation/back navigation; server-side registration gate; profile view and edit-request approval |
 | P0 | Campaign lifecycle | Campaign service/repository/scheduler exist | Draft default; preview; validated state transitions; schedule boundaries; pause/close; no silent reopening; capacity and code limits; Tehran/Jalali input with UTC storage |
 | P0 | Free entry and codes | Entry service and campaign-code model exist | One entry per profile/campaign; unique ticket codes; transactional issuance; immutable profile snapshot; concurrent capacity test; retry/idempotency |
 | P0 | Paid orders and receipt review | Payment/bank-card modules and receipt notifications exist | Full customer-to-admin-to-customer flow; immutable amount/card snapshot; stable payment reference; duplicate receipt handling; approve/reject idempotency; code issuance only after approval; rejection resubmission |
 | P0 | Capacity and expiry | Reservation/expiry behavior documented and worker exists | Atomic reserve/release under concurrency; 24-hour expiry; scheduled worker recovery; cancellation/expiry notifications; no capacity leak or double release |
-| P0 | Admin authorization | Roles, permissions and sessions documented | Deny-by-default for every callback/text/photo path; test each role with separate accounts; last-super-admin protection; audit history; session expiry/recovery |
+| P0 | Admin authorization | Roles, permissions and sessions documented; PR #17 adds a focused active-staff registration bypass fix (pending CI) | Deny-by-default for every callback/text/photo path; test each role with separate accounts; last-super-admin protection; audit history; session expiry/recovery |
 | P0 | Telegram update reliability | Idempotency, rate limit and correlation controls described in README | Duplicate update test; stale webhook recovery without dropping pending updates; crash-window recovery; callback replay/concurrent admin action test; per-user rate-limit correctness |
 | P0 | Notification outbox | Leased worker, bounded retries and manual retry documented | Lease expiry/recovery; attempt history; dead-letter/failed visibility; uncertain-delivery warning; correlation; no false exactly-once guarantee |
 | P1 | Support | Support schema/flows exist or are described | Create/list/detail/reply/close/reopen; categories/priorities; assignment; all messages persisted; authorization; notifications and audit history |
@@ -102,11 +105,14 @@ At the end of each task:
 
 ## 7. Next recommended sequence
 
-1. Complete the Jalali/Tehran live Telegram smoke tests using disposable data.
-2. Perform a source-to-acceptance audit of P0 customer registration, campaign lifecycle, free entries/codes and capacity concurrency.
-3. Audit the complete paid order/receipt approval/expiry lifecycle before any paid campaign is enabled.
-4. Verify role isolation and callback authorization using separate test admin accounts.
-5. Verify update idempotency, rate limits, outbox recovery and manual retry warnings.
-6. Complete support and reporting/CSV acceptance.
-7. Run isolated MySQL integration, concurrency and load tests.
-8. Revisit deferred product scope only with explicit owner decisions.
+1. Finish PR #17 latest-head CI; review and merge only if green.
+2. Reconcile the actual VPS branch/HEAD/service state with the GitHub operational branch using read-only preflight output.
+3. Before any production migration, verify the exact row counts in every table covered by PR #16's approved test-data cleanup; stop if any row is not disposable test data.
+4. Complete the Jalali/Tehran live Telegram smoke tests using disposable data.
+5. Perform a source-to-acceptance audit of P0 customer registration, campaign lifecycle, free entries/codes and capacity concurrency.
+6. Audit the complete paid order/receipt approval/expiry lifecycle before any paid campaign is enabled.
+7. Verify role isolation and callback authorization using separate test admin accounts.
+8. Verify update idempotency, rate limits, outbox recovery and manual retry warnings.
+9. Complete support and reporting/CSV acceptance.
+10. Run isolated MySQL integration, concurrency and load tests.
+11. Revisit deferred product scope only with explicit owner decisions.
