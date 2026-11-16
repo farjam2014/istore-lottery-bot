@@ -55,3 +55,26 @@ test.after(async()=>{
     await pool.end();
   }
 });
+
+
+test('MySQL integration: invalid campaign schedule rolls back and preserves the admin wizard',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/,'Campaign creation integration must use an isolated database');
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createCampaignFromWizard}=await import('../../src/modules/campaigns/campaign-admin.service.js');
+  const adminId=String(960000000000n+(BigInt(Date.now())%100000000000n));
+  const title='Invalid campaign '+Date.now();
+  const payload={title,description:'',type:'free',price:0,codes:1,capacity:null,starts_at:'2026-12-02 00:00:00',ends_at:'2026-12-01 00:00:00',draw_at:null};
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,'confirm',?)",[adminId,JSON.stringify(payload)]);
+    await assert.rejects(createCampaignFromWizard({adminId}),/زمان پایان باید بعد از شروع باشد/);
+    const [[campaigns]]=await pool.execute('SELECT COUNT(*) total FROM campaigns WHERE title=?',[title]);
+    assert.equal(Number(campaigns.total),0,'Invalid schedule must not create a campaign');
+    const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[adminId]);
+    assert.equal(wizard.step,'confirm','Invalid payload must leave the wizard available for correction');
+  }finally{
+    await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[adminId]);
+  }
+});
