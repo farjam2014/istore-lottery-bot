@@ -346,6 +346,8 @@ test('MySQL integration: expired paid orders can be reissued without violating o
 
     const first=await createOrGetOrder({telegramUserId:users[0],campaignId});
     const firstOrder=first.order;
+    assert.equal(Number(firstOrder.amount),250000);
+    await pool.execute('UPDATE campaigns SET entry_price=300000 WHERE id=?',[campaignId]);
     orderIds.push(firstOrder.id);
     const [[firstEntry]]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignId,participantIds[0]]);
     entryIds.push(firstEntry.id);
@@ -364,6 +366,7 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     assert.equal(firstRetry.order.card_number,'8765432187654321');
     assert.equal(firstRetry.order.card_holder,'Retry Holder B');
     assert.equal(firstRetry.order.status,'awaiting_receipt');
+    assert.equal(Number(firstRetry.order.amount),250000,'Reissuing an existing order must not mutate its immutable amount');
     const [[firstEntryState]]=await pool.execute('SELECT status FROM campaign_entries WHERE id=?',[firstEntry.id]);
     assert.equal(firstEntryState.status,'pending_payment');
     const [[firstOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[firstEntry.id]);
@@ -371,11 +374,16 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     const [[retainedReceipt]]=await pool.execute('SELECT status,review_note FROM payment_receipts WHERE id=?',[oldReceipt.insertId]);
     assert.equal(retainedReceipt.status,'rejected');
     assert.equal(retainedReceipt.review_note,'previous attempt rejected');
-    const [[firstEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[firstOrder.id]);
-    assert.equal(Number(firstEvent.total),1);
+    const [[firstEvent]]=await pool.execute("SELECT details FROM payment_events WHERE order_id=? AND event_type='order_reissued' ORDER BY id DESC LIMIT 1",[firstOrder.id]);
+    assert.ok(firstEvent);
+    const firstEventDetails=typeof firstEvent.details==='string'?JSON.parse(firstEvent.details):firstEvent.details;
+    assert.equal(Number(firstEventDetails.previous.amount),250000);
+    assert.equal(Number(firstEventDetails.amount),250000);
+    assert.equal(firstEventDetails.currency,'IRR');
 
     const second=await createOrGetOrder({telegramUserId:users[1],campaignId});
     const secondOrder=second.order;
+    assert.equal(Number(secondOrder.amount),300000,'A new order uses the current campaign price');
     orderIds.push(secondOrder.id);
     const [[secondEntry]]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignId,participantIds[1]]);
     entryIds.push(secondEntry.id);
@@ -386,10 +394,15 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     assert.equal(Number(secondRetry.order.id),Number(secondOrder.id),'An order expired by the worker must also be reused');
     assert.notEqual(secondRetry.order.payment_reference,secondOrder.payment_reference);
     assert.equal(secondRetry.order.status,'awaiting_receipt');
+    assert.equal(Number(secondRetry.order.amount),300000,'Expiry-worker reissue must preserve the original order amount');
     const [[secondOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[secondEntry.id]);
     assert.equal(Number(secondOrderCount.total),1);
-    const [[secondEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[secondOrder.id]);
-    assert.equal(Number(secondEvent.total),1);
+    const [[secondEvent]]=await pool.execute("SELECT details FROM payment_events WHERE order_id=? AND event_type='order_reissued' ORDER BY id DESC LIMIT 1",[secondOrder.id]);
+    assert.ok(secondEvent);
+    const secondEventDetails=typeof secondEvent.details==='string'?JSON.parse(secondEvent.details):secondEvent.details;
+    assert.equal(Number(secondEventDetails.previous.amount),300000);
+    assert.equal(Number(secondEventDetails.amount),300000);
+    assert.equal(secondEventDetails.currency,'IRR');
   }finally{
     if(orderIds.length){
       const placeholders=orderIds.map(()=>'?').join(',');

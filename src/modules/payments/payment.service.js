@@ -113,11 +113,13 @@ export async function createOrGetOrder({telegramUserId,campaignId}){
           paymentReference:order.payment_reference,
           status:order.status,
           expiresAt:order.expires_at,
-          cardLast4:String(order.card_number||'').slice(-4)
+          cardLast4:String(order.card_number||'').slice(-4),
+          amount:order.amount,
+          currency:order.currency
         };
         const [updated]=await c.execute(
-          "UPDATE payment_orders SET payment_reference=?,amount=?,currency='IRR',status='awaiting_receipt',expires_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR),bank_name=?,card_number=?,card_holder=?,payment_instructions=?,rejection_reason=NULL,approved_by=NULL,approved_at=NULL WHERE id=? AND status='expired'",
-          [reference,campaign.entry_price,card.bank_name,card.card_number,card.card_holder,card.instructions,order.id]
+          "UPDATE payment_orders SET payment_reference=?,status='awaiting_receipt',expires_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR),bank_name=?,card_number=?,card_holder=?,payment_instructions=?,rejection_reason=NULL,approved_by=NULL,approved_at=NULL WHERE id=? AND status='expired'",
+          [reference,card.bank_name,card.card_number,card.card_holder,card.instructions,order.id]
         );
         if(Number(updated.affectedRows)!==1)throw Error('سفارش منقضی‌شده هم‌زمان تغییر کرده است؛ دوباره تلاش کنید.');
         await c.execute(
@@ -125,16 +127,16 @@ export async function createOrGetOrder({telegramUserId,campaignId}){
           [order.id,String(telegramUserId),getCorrelationId(),'order_reissued',JSON.stringify({
             previous,
             newPaymentReference:reference,
-            amount:campaign.entry_price,
-            currency:'IRR',
+            amount:order.amount,
+            currency:order.currency,
             cardLast4:String(card.card_number||'').slice(-4)
           })]
         );
         order={
           id:order.id,
           payment_reference:reference,
-          amount:campaign.entry_price,
-          currency:'IRR',
+          amount:order.amount,
+          currency:order.currency,
           status:'awaiting_receipt',
           bank_name:card.bank_name,
           card_number:card.card_number,
