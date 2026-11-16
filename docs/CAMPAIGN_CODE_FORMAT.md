@@ -23,7 +23,7 @@ The ticket sequence is stored as an integer and rendered without truncation at t
 | 5 | 1 | 5 |
 | 6 | 0 | 6 |
 
-The first sequence allocated to each campaign is 10001. The maximum supported sequence is 999999.
+Every campaign starts at sequence 10001. The maximum supported sequence is 999999.
 
 ## Random-character rule
 
@@ -44,7 +44,8 @@ The restriction applies only to the last character of each random segment. Seque
 - The campaign ID is the source of the public prefix; no hard-coded campaign prefix is used.
 - Free entries and approved paid entries use the same allocation service.
 - A repeated registration/payment approval returns the existing codes; it must not issue a second set.
-- Existing issued `IST-...` codes are not rewritten by this migration. Their internal sequence values are backfilled for continuity; only newly issued codes use the new public format.
+- The one-time migration deliberately deletes every currently issued campaign code because they are disposable test records. It also removes draw candidate/winner references to those codes so foreign keys remain valid. Campaigns, participants, entries, orders and payment receipts are retained.
+- Every campaign's sequence counter is reset to 10001. The first new code issued after migration uses sequence 10001.
 - A failed Telegram notification must retry delivery of the already-issued code through the outbox, never allocate a replacement code.
 
 This format is an identifier, not an authorization secret. Every lookup must validate the full code against the database and enforce participant/campaign ownership.
