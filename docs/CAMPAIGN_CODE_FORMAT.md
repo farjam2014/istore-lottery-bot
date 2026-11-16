@@ -45,9 +45,17 @@ The restriction applies only to the last character of each random segment. Seque
 - Free entries and approved paid entries use the same allocation service.
 - A repeated registration/payment approval returns the existing codes; it must not issue a second set.
 - The one-time migration deliberately deletes all currently issued campaign codes and all draw candidates, winners, and draw records because they are disposable test data.
-- The same migration deletes all campaign entries and their related payment orders, payment receipts, and payment events. Campaign definitions and participant profile records are preserved. Participant profiles remain available as master records, but their previous campaign participation/payment/draw history is removed.
-- Payment bank-card settings, administrator records, and unrelated profile records are not part of this cleanup.
+- The same migration deletes all campaign entries and their related payment orders, payment receipts, and payment events. Campaign definitions are preserved exactly as they are, including campaigns currently marked `open`; participant profile records are also preserved. Participant profiles remain available as master records, but their previous campaign participation/payment/draw history is removed.
+- Payment bank-card settings, administrator records, audit history, notification outbox records, and unrelated profile records are not part of this cleanup.
 - Every campaign's sequence counter is initialized to 10001. The first new code issued after migration uses sequence 10001.
 - A failed Telegram notification must retry delivery of the already-issued code through the outbox, never allocate a replacement code.
+
+## Migration recovery and production gate
+
+- The cleanup statements are child-first and safe to repeat before the migration version is recorded.
+- The `sequence_number` column and its unique index are checked through `information_schema` before DDL, so a retry can continue if MySQL stopped after one schema change.
+- The counter table uses `CREATE TABLE IF NOT EXISTS`; counter initialization uses `INSERT IGNORE` so a retry never resets an existing sequence.
+- MySQL DDL still commits independently. If migration execution fails, do not deploy or start the new application version. Inspect `schema_migrations`, the column, index, and counter table, then rerun the migration runner after confirming the partial state. Never delete the migration-history row or manually reset counters.
+- Before the production migration, stop the bot service to prevent new campaign entries/payments arriving after the final data review. Re-check the campaign-entry and payment counts while the service is stopped. Keep the service stopped until the migration is recorded and post-migration checks pass.
 
 This format is an identifier, not an authorization secret. Every lookup must validate the full code against the database and enforce participant/campaign ownership.
