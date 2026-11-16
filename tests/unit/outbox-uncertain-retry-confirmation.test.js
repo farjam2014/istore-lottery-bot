@@ -38,3 +38,11 @@ test('retry service locks at most 100 previewed IDs, checks the snapshot hash an
   assert.match(service,/INSERT INTO admin_audit_log/);
   assert.match(service,/manual retry by/);
 });
+
+test('snapshot callback token stays within Telegram 64-byte callback limit for 64-bit identifiers',()=>{
+  const countToken=((2n**63n)-1n).toString(36);
+  const maxId='18446744073709551615';
+  const token='admin:sys:ur:'+countToken+':'+maxId+':'+'a'.repeat(16);
+  assert.ok(Buffer.byteLength(token,'utf8')<=64);
+  assert.match(token,/^admin:sys:ur:([0-9a-z]+):(\\d+):([a-f0-9]{16})$/);
+});
