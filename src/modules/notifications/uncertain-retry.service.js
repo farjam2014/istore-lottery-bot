@@ -47,15 +47,26 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
   }
 
   const c=await pool.getConnection();
+  let lockAcquired=false;
+  let transactionOpen=false;
   try{
+    // Serialize confirmations before opening a consistent snapshot. This
+    // prevents InnoDB repeatable-read gap-lock deadlocks when two admins
+    // confirm the same preview concurrently.
+    const [[lock]]=await c.execute('SELECT GET_LOCK(?,10) acquired',['ustore:uncertain-notification-retry']);
+    if(Number(lock.acquired)!==1)throw new Error('Could not acquire uncertain notification retry lock.');
+    lockAcquired=true;
+
     await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.beginTransaction();
+    transactionOpen=true;
     const [[current]]=await c.execute(
       "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
     );
     const currentCount=Number(current.total||0);
     if(currentCount!==expected||String(current.max_id)!==maxId){
       await c.commit();
+      transactionOpen=false;
       return {confirmed:false,currentCount};
     }
 
@@ -69,6 +80,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     const expectedBatchCount=Math.min(expected,UNCERTAIN_RETRY_BATCH_LIMIT);
     if(ids.length!==expectedBatchCount||hashIds(ids)!==expectedHash){
       await c.commit();
+      transactionOpen=false;
       return {confirmed:false,currentCount};
     }
 
@@ -93,11 +105,16 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
       })]
     );
     await c.commit();
+    transactionOpen=false;
     return {confirmed:true,count:ids.length,remaining:Math.max(0,currentCount-ids.length)};
   }catch(error){
-    await c.rollback();
+    if(transactionOpen)await c.rollback();
     throw error;
   }finally{
+    if(lockAcquired){
+      try{await c.execute('SELECT RELEASE_LOCK(?)',['ustore:uncertain-notification-retry']);}
+      catch(releaseError){/* Closing the pooled connection also releases MySQL advisory locks. */}
+    }
     c.release();
   }
 }
