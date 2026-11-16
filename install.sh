@@ -104,6 +104,8 @@ DB_HOST="$(read_env MYSQL_HOST)"
 BOT_TOKEN="$(read_env BOT_TOKEN)"
 ADMIN_ID="$(read_env BOT_ADMIN_IDS)"
 NODE_ENV_VALUE="$(read_env NODE_ENV)"
+NODE_ENV_VALUE="${NODE_ENV_VALUE:-production}"
+case "$NODE_ENV_VALUE" in production|development|test) ;; *) fail "Supported NODE_ENV values: production, development, test." ;; esac
 
 # The installer provisions MySQL and applies schema changes. Require an explicit,
 # target-bound opt-in before any database or MySQL-account operation.
