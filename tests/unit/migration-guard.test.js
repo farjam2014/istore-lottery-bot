@@ -37,12 +37,24 @@ test('production migration requires two explicit flags and an exact database tar
   );
 });
 
-test('development migrations also require explicit opt-in',()=>{
+test('development migrations cannot bypass the non-test target guard',()=>{
+  const base={database:'ustore_dev',nodeEnv:'development'};
   assert.throws(
-    ()=>assertMigrationAllowed({database:'ustore_dev',nodeEnv:'development',env:{}}),
-    /disabled by default/
+    ()=>assertMigrationAllowed({...base,env:{ALLOW_DATABASE_MIGRATIONS:'1'}}),
+    /ALLOW_PRODUCTION_MIGRATIONS/
+  );
+  assert.throws(
+    ()=>assertMigrationAllowed({...base,env:{ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_PRODUCTION_MIGRATIONS:'1',MIGRATION_TARGET_DATABASE:'another_db'}}),
+    /target mismatch/
   );
   assert.doesNotThrow(
-    ()=>assertMigrationAllowed({database:'ustore_dev',nodeEnv:'development',env:{ALLOW_DATABASE_MIGRATIONS:'1'}})
+    ()=>assertMigrationAllowed({...base,env:{ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_PRODUCTION_MIGRATIONS:'1',MIGRATION_TARGET_DATABASE:'ustore_dev'}})
+  );
+});
+
+test('unknown environments are rejected',()=>{
+  assert.throws(
+    ()=>assertMigrationAllowed({database:'any_db',nodeEnv:'staging',env:{ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_PRODUCTION_MIGRATIONS:'1',MIGRATION_TARGET_DATABASE:'any_db'}}),
+    /Unsupported NODE_ENV/
   );
 });
