@@ -38,7 +38,7 @@ test('retry service locks at most 100 previewed IDs, checks the snapshot hash an
   assert.match(service,/hashIds\(ids\)!==expectedHash/);
   assert.match(service,/INSERT INTO admin_audit_log/);
   assert.match(service,/manually retried by/);
-  assert.match(service,/LEFT\\(COALESCE\\(last_error,''\\),400\\)/);
+  assert.ok(service.includes("LEFT(COALESCE(last_error,''),400)"));
   assert.match(service,/GET_LOCK\(\?,10\)/);
   assert.match(service,/RELEASE_LOCK\(\?\)/);
   assert.match(service,/CAST\(COALESCE\(MAX\(id\),0\) AS CHAR\)/);
