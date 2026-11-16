@@ -350,7 +350,7 @@ export function registerAdminHandlers(bot){
     }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
     await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
   });
-  bot.action(/^admin:campaign:pause:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:pause:([0-9]+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]);
     try{
@@ -359,7 +359,7 @@ export function registerAdminHandlers(bot){
       return showCampaignDetail(ctx,id);
     }catch(error){return ctx.answerCbQuery(error.message||'تغییر وضعیت انجام نشد.',{show_alert:true});}
   });
-  bot.action(/^admin:campaign:activate:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:activate:([0-9]+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]);
     try{
@@ -368,7 +368,7 @@ export function registerAdminHandlers(bot){
       return showCampaignDetail(ctx,id);
     }catch(error){return ctx.answerCbQuery(error.message||'تغییر وضعیت انجام نشد.',{show_alert:true});}
   });
-  bot.action(/^admin:campaign:toggle:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:toggle:([0-9]+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     await ctx.answerCbQuery('این دکمه قدیمی است؛ جزئیات کمپین را بازخوانی کنید.',{show_alert:true});
     return showCampaignDetail(ctx,Number(ctx.match[1]));
