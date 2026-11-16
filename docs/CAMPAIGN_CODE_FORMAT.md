@@ -44,7 +44,7 @@ The restriction applies only to the last character of each random segment. Seque
 - The campaign ID is the source of the public prefix; no hard-coded campaign prefix is used.
 - Free entries and approved paid entries use the same allocation service.
 - A repeated registration/payment approval returns the existing codes; it must not issue a second set.
-- The one-time migration deliberately deletes every currently issued campaign code because they are disposable test records. It also removes draw candidate/winner references to those codes so foreign keys remain valid. Campaigns, participants, entries, orders and payment receipts are retained.
+- The one-time migration deliberately deletes every currently issued campaign code because they are disposable test records. It also clears draw candidates, winners, and draw records because all draw history is disposable test data. Campaigns, participants, entries, orders and payment receipts are retained.
 - Every campaign's sequence counter is reset to 10001. The first new code issued after migration uses sequence 10001.
 - A failed Telegram notification must retry delivery of the already-issued code through the outbox, never allocate a replacement code.
 
