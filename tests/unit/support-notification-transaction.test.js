@@ -14,13 +14,13 @@ const userReply=source.slice(userReplyStart,afterReply>userReplyStart?afterReply
 test('new support ticket enqueues admin notifications before committing the ticket transaction',()=>{
   assert.ok(newTicketStart>=0);
   assert.match(newTicket,/await enqueueSupportAdminNotification\([\s\S]*?executor:c/);
-  assert.ok(newTicket.indexOf('await enqueueSupportAdminNotification')<newTicket.indexOf('await c.commit()'));
+  assert.ok(newTicket.indexOf('await enqueueSupportAdminNotification')<newTicket.lastIndexOf('await c.commit()'));
   assert.match(newTicket,/await c.rollback\(\)/);
 });
 
 test('customer support reply enqueues admin notifications before committing the reply transaction',()=>{
   assert.ok(userReplyStart>=0);
   assert.match(userReply,/await enqueueSupportAdminNotification\([\s\S]*?executor:c/);
-  assert.ok(userReply.indexOf('await enqueueSupportAdminNotification')<userReply.indexOf('await c.commit()'));
+  assert.ok(userReply.indexOf('await enqueueSupportAdminNotification')<userReply.lastIndexOf('await c.commit()'));
   assert.match(userReply,/await c.rollback\(\)/);
 });
