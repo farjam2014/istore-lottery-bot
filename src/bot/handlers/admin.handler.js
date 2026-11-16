@@ -16,6 +16,7 @@ import {lockSupportSession} from '../../modules/support/support-session.service.
 import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,normalizeCardNumber} from '../../modules/payments/bank-card.service.js';
 import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
 import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../shared/datetime.js';
+import {createCampaignFromWizard} from '../../modules/campaigns/campaign-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -599,12 +600,13 @@ export function registerAdminHandlers(bot){
   });
   bot.action('admin:campaign:confirm',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const wizard=await getWizard(ctx.from.id);if(!wizard||wizard.step!=='confirm')return ctx.answerCbQuery('فرایند ساخت کمپین منقضی شده است.',{show_alert:true});
-    const p=wizard.payload;const slug=slugify(p.title);
-    if(p.starts_at&&p.ends_at&&parseUtcDateTime(p.starts_at).getTime()>=parseUtcDateTime(p.ends_at).getTime())return ctx.answerCbQuery('زمان پایان باید بعد از شروع باشد.',{show_alert:true});if(p.draw_at&&p.ends_at&&parseUtcDateTime(p.draw_at).getTime()<parseUtcDateTime(p.ends_at).getTime())return ctx.answerCbQuery('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.',{show_alert:true});const [result]=await pool.execute("INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",[slug,p.title,p.description,p.posterFileId||null,p.prizeTitle||null,p.prizeDescription||null,p.prizeValue||null,p.type,p.type==='paid'?p.price:0,JSON.stringify(p.paymentMethods||[]),p.starts_at,p.ends_at,p.draw_at,p.terms||null,p.capacity,p.codes]);
-    await audit(ctx.from.id,'campaign.created','campaign',result.insertId,{type:p.type,title:p.title});
-    await clearWizard(ctx.from.id);await ctx.answerCbQuery('کمپین ایجاد شد.');
-    return respond(ctx,`کمپین «${p.title}» به‌صورت پیش‌نویس ایجاد شد. برای نمایش به کاربران، آن را از فهرست کمپین‌ها فعال کنید.`,campaignMenu());
+    try{
+      const created=await createCampaignFromWizard({adminId:ctx.from.id});
+      await ctx.answerCbQuery('کمپین ایجاد شد.');
+      return respond(ctx,`کمپین «${created.title}» به‌صورت پیش‌نویس ایجاد شد. برای نمایش به کاربران، آن را از فهرست کمپین‌ها فعال کنید.`,campaignMenu());
+    }catch(error){
+      return ctx.answerCbQuery(error.message||'ایجاد کمپین ناموفق بود.',{show_alert:true});
+    }
   });
   bot.action('admin:campaign:restart',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{});await ctx.answerCbQuery();return respond(ctx,'نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
 }
