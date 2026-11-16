@@ -52,19 +52,13 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
 
       heartbeat = setInterval(async () => {
         try {
-          const [rows] = await db.execute(
-            "SELECT 1 FROM webhook_inbox WHERE update_id=? AND status='processing' AND processing_token=? LIMIT 1",
-            [item.update_id, item.processingToken]
-          );
-          if (!rows.length) {
-            leaseLost = true;
-            return;
-          }
-          await db.execute(
+          const [result] = await db.execute(
             "UPDATE webhook_inbox SET processing_started_at=NOW() WHERE update_id=? AND status='processing' AND processing_token=?",
             [item.update_id, item.processingToken]
           );
+          if (result.affectedRows !== 1) leaseLost = true;
         } catch (error) {
+          leaseLost = true;
           logger.error("Webhook lease heartbeat error:", error.message);
         }
       }, heartbeatMs);
@@ -109,8 +103,13 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
           );
         }
 
+        if (result.affectedRows !== 1) {
+          await finish.rollback();
+          throw new Error("Webhook processing token was lost before finalization");
+        }
+
         await finish.commit();
-        return result.affectedRows === 1;
+        return true;
       } catch (error) {
         await finish.rollback();
         throw error;
@@ -146,9 +145,14 @@ function createWebhookQueue({ db, handlers, logger = console, pollInterval = 500
     timer.unref?.();
   }
 
-  function stop() {
+  async function stop(timeoutMs = 30000) {
     if (timer) clearInterval(timer);
     timer = null;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (busy && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return !busy;
   }
 
   return { processOne, start, stop };

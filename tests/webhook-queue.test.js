@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createWebhookQueue } = require("../src/webhook-queue");
 
-function createHarness({ handler, finishAffectedRows = 1 } = {}) {
+function createHarness({ handler, finishAffectedRows = 1, heartbeatFailure = false, heartbeatMs = 60 * 60 * 1000 } = {}) {
   const calls = [];
   const logs = [];
   let connectionCount = 0;
@@ -60,6 +60,10 @@ function createHarness({ handler, finishAffectedRows = 1 } = {}) {
         return [[], []];
       }
 
+      if (heartbeatFailure && sql.includes("SET processing_started_at=NOW()")) {
+        throw new Error("simulated heartbeat database failure");
+      }
+
       return [{ affectedRows: 1 }, []];
     }
   };
@@ -76,7 +80,7 @@ function createHarness({ handler, finishAffectedRows = 1 } = {}) {
       business: handler || (async () => {})
     },
     logger,
-    heartbeatMs: 60 * 60 * 1000
+    heartbeatMs
   });
 
   return { queue, calls, logs };
@@ -114,10 +118,73 @@ test("handler failure does not mark update done and schedules retry", async () =
 });
 
 test("lost processing token prevents finalization", async () => {
-  const { queue, calls } = createHarness({ finishAffectedRows: 0 });
+  const { queue, calls, logs } = createHarness({ finishAffectedRows: 0 });
 
   const result = await queue.processOne();
 
   assert.equal(result, false);
-  assert.ok(!calls.includes("finish:execute:other"));
+  assert.ok(calls.includes("finish:rollback"));
+  assert.ok(logs.some(line => line.includes("token was lost")));
+});
+
+test("heartbeat database failure prevents webhook finalization", async () => {
+  const { queue, calls, logs } = createHarness({
+    heartbeatFailure: true,
+    heartbeatMs: 5,
+    handler: async () => {
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+  });
+
+  const result = await queue.processOne();
+
+  assert.equal(result, false);
+  assert.ok(logs.some(line => line.includes("heartbeat database failure")));
+  assert.ok(logs.some(line => line.includes("processing lease was lost")));
+  assert.ok(!calls.includes("finish:execute:finish"));
+});
+
+test("a second poll cannot process while the first handler is running", async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { queue } = createHarness({
+    handler: async () => { await gate; }
+  });
+
+  const first = queue.processOne();
+  const second = await queue.processOne();
+  assert.equal(second, false);
+
+  release();
+  assert.equal(await first, true);
+});
+
+test("stop waits for an in-flight webhook handler", async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { queue } = createHarness({
+    handler: async () => { await gate; }
+  });
+
+  const processing = queue.processOne();
+  let stopped = false;
+  const stopping = queue.stop().then(() => { stopped = true; });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(stopped, false);
+
+  release();
+  await Promise.all([processing, stopping]);
+  assert.equal(stopped, true);
+});
+
+
+test("stop returns false instead of waiting forever after its deadline", async () => {
+  const { queue } = createHarness({
+    handler: async () => { await new Promise(resolve => setTimeout(resolve, 80)); }
+  });
+  const processing = queue.processOne();
+  const stopped = await queue.stop(10);
+  assert.equal(stopped, false);
+  await processing;
 });

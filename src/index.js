@@ -3,6 +3,8 @@ const express=require("express"), mysql=require("mysql2/promise"), crypto=requir
 for(const k of ["BOT_TOKEN","WEBHOOK_SECRET","ADMIN_PASSWORD","SESSION_SECRET","ADMIN_ID","DB_HOST","DB_NAME","DB_USER","DB_PASSWORD"]){if(!process.env[k]){console.error("Missing env:",k);process.exit(1)}}
 const {normalizePhone,validPhone,normalizeInstagram,validInstagram,validFullName,makeRaffleCode}=require("./domain");
 const app=express();
+const {patchAsyncRoutes,createErrorMiddleware}=require("./async-route");
+patchAsyncRoutes(app);
 app.disable("x-powered-by");
 app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("Referrer-Policy","same-origin");res.setHeader("X-Frame-Options","DENY");res.setHeader("Cache-Control","no-store");next()});
 app.use(express.json({limit:"256kb"})); app.use(express.urlencoded({extended:false,limit:"16kb"}));
@@ -11,18 +13,39 @@ const db=mysql.createPool({host:process.env.DB_HOST,port:+(process.env.DB_PORT||
 const token=process.env.BOT_TOKEN, secret=process.env.WEBHOOK_SECRET, adminPass=process.env.ADMIN_PASSWORD, sessionSecret=process.env.SESSION_SECRET;
 async function registrationOpen(){
 const [rows]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' LIMIT 1");
-return (rows[0]?.setting_value ?? (process.env.REGISTRATION_OPEN||"true")).toLowerCase()==="true";
+return (rows[0]?.setting_value ?? (process.env.REGISTRATION_OPEN||"false")).toLowerCase()==="true";
 }
 const adminSearchModes = new Map();
-async function tg(method,payload){const r=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw Error(d.description||method+" failed");return d.result}
+async function telegramResponse(response,method){
+if(!response.ok)throw new Error(`Telegram HTTP ${response.status} for ${method}`);
+const data=await response.json();
+if(!data.ok)throw new Error(data.description||method+" failed");
+return data.result;
+}
+async function tg(method,payload){
+const controller=new AbortController();
+const timeout=setTimeout(()=>controller.abort(),15000);
+try{
+const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+return await telegramResponse(response,method);
+}catch(error){
+if(error.name==="AbortError")throw new Error(`Telegram ${method} timed out after 15 seconds`);
+throw error;
+}finally{clearTimeout(timeout)}
+}
 async function tgDocument(chat,filename,content,mime){
 const form=new FormData();
 form.append("chat_id",String(chat));
 form.append("document",new Blob([content],{type:mime}),filename);
-const r=await fetch(`https://api.telegram.org/bot${token}/sendDocument`,{method:"POST",body:form});
-const d=await r.json();
-if(!d.ok)throw Error(d.description||"sendDocument failed");
-return d.result;
+const controller=new AbortController();
+const timeout=setTimeout(()=>controller.abort(),30000);
+try{
+const response=await fetch(`https://api.telegram.org/bot${token}/sendDocument`,{method:"POST",body:form,signal:controller.signal});
+return await telegramResponse(response,"sendDocument");
+}catch(error){
+if(error.name==="AbortError")throw new Error("Telegram sendDocument timed out after 30 seconds");
+throw error;
+}finally{clearTimeout(timeout)}
 }
 async function reply(chat,connection,text){return tg("sendMessage",{chat_id:chat,business_connection_id:connection,text})}
 const code=makeRaffleCode;
@@ -44,6 +67,8 @@ async function saveEntry(uid,chat,name,phone,inst){
 const conn=await db.getConnection();
 try{
 await conn.beginTransaction();
+const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
+if(registrationState?.setting_value!=="true")throw Object.assign(new Error("REGISTRATION_CLOSED"),{code:"REGISTRATION_CLOSED"});
 const [existingRows]=await conn.execute("SELECT * FROM lottery_entries WHERE telegram_user_id=? FOR UPDATE",[String(uid)]);
 const existing=existingRows[0];
 if(existing&&existing.status==="active"){await conn.rollback();return existing.raffle_code;}
@@ -65,7 +90,11 @@ await conn.commit();
 return assignedCode;
 }catch(e){
 await conn.rollback();
-if(e.code==="ER_DUP_ENTRY")throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+if(e.code==="ER_DUP_ENTRY"){
+const [sameUser]=await db.execute("SELECT raffle_code,status FROM lottery_entries WHERE telegram_user_id=? LIMIT 1",[String(uid)]);
+if(sameUser[0]?.status==="active")return sameUser[0].raffle_code;
+throw Object.assign(new Error("DUPLICATE_CONTACT"),{code:"DUPLICATE_CONTACT"});
+}
 throw e;
 }finally{conn.release()}
 }
@@ -130,7 +159,7 @@ await delSession(uid);
 return sent;
 }catch(e){
 console.error("Lottery confirmation error:",e.message);
-const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
+const msg=e.code==="DUPLICATE_CONTACT"?"❌ این شماره موبایل یا آیدی اینستاگرام قبلاً با حساب دیگری ثبت شده است. برای بررسی با پشتیبانی تماس بگیرید.":e.code==="REGISTRATION_CLOSED"?"❌ مهلت ثبت‌نام به پایان رسیده است.":"❌ ثبت نهایی با خطا مواجه شد. اطلاعات شما حذف نشده است؛ لطفاً کمی بعد دوباره تلاش کنید.";
 return tg("sendMessage",{chat_id:s.chat_id,business_connection_id:s.business_connection_id,text:msg});
 }
 }
@@ -352,7 +381,11 @@ app.get("/health",async(_q,r)=>{try{await db.query("SELECT 1");r.json({ok:true,d
 app.get("/admin/login",(_q,r)=>r.sendFile(path.join(__dirname,"..","public","login.html")));
 const loginAttempts=new Map();
 app.post("/admin/login",(q,r)=>{
-const ip=String(q.ip||q.socket.remoteAddress||"unknown"),now=Date.now(),a=loginAttempts.get(ip)||{count:0,until:0};
+const ip=String(q.ip||q.socket.remoteAddress||"unknown").slice(0,128),now=Date.now(),a=loginAttempts.get(ip)||{count:0,until:0};
+if(!loginAttempts.has(ip)&&loginAttempts.size>=10000){
+const oldest=loginAttempts.keys().next().value;
+if(oldest!==undefined)loginAttempts.delete(oldest);
+}
 if(a.until>now&&a.count>=8)return r.status(429).send("تعداد تلاش زیاد است. چند دقیقه دیگر دوباره امتحان کنید.");
 if(!equal(q.body.password||"",adminPass)){a.count++;a.until=a.count>=8?now+15*60*1000:now+5*60*1000;loginAttempts.set(ip,a);return r.status(401).send("رمز نادرست است؛ دوباره تلاش کنید.")}
 loginAttempts.delete(ip);const p=Buffer.from(JSON.stringify({exp:Date.now()+4*3600000})).toString("base64url");r.setHeader("Set-Cookie",`istore_admin=${p}.${signed(p)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=14400`);r.redirect("/admin")});
@@ -385,7 +418,28 @@ r.status(500).json({error:"حذف شرکت‌کننده انجام نشد."});
 app.get("/api/admin/entries/:id/code-history",admin,async(q,r)=>{const [rows]=await db.execute("SELECT raffle_code,action,actor,created_at FROM lottery_code_history WHERE entry_id=? ORDER BY id DESC LIMIT 100",[q.params.id]);r.json({history:rows})});
 app.get("/api/admin/audit",admin,async(q,r)=>{const limit=Math.min(100,Math.max(1,Number(q.query.limit)||50));const [rows]=await db.query(`SELECT id,admin_id,action,entity_type,entity_id,details,created_at FROM admin_audit_log ORDER BY id DESC LIMIT ${limit}`);r.json({events:rows})});
 app.get("/api/admin/export.csv",admin,async(_q,r)=>{const [rows]=await db.query("SELECT full_name,phone,instagram,raffle_code,created_at FROM lottery_entries WHERE status='active' ORDER BY created_at DESC");const cell=csvCell;const csv="\uFEFF"+[["نام","موبایل","اینستاگرام","کد","زمان"].map(cell).join(","),...rows.map(x=>[x.full_name,x.phone,"@"+x.instagram,x.raffle_code,x.created_at].map(cell).join(","))].join("\r\n");r.setHeader("Content-Type","text/csv; charset=utf-8");r.setHeader("Content-Disposition",'attachment; filename="istore-lottery.csv"');r.send(csv)});
-app.post("/api/admin/registration",admin,async(q,r)=>{const v=q.body.open===true?"true":"false";const [[d]]=await db.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed'");if(v==="true"&&d?.setting_value==="true")return r.status(409).json({error:"قرعه‌کشی این دوره انجام شده؛ برای شروع دوره جدید باید فرآیند کمپین جدید تعریف شود."});await db.execute("INSERT INTO lottery_settings(setting_key,setting_value) VALUES('registration_open',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",[v]);await audit(String(process.env.ADMIN_ID),v==="true"?"open_registration":"close_registration","lottery","current");r.json({open:v==="true"})});
+app.post("/api/admin/registration",admin,async(q,r)=>{
+const v=q.body.open===true?"true":"false";
+const conn=await db.getConnection();
+try{
+await conn.beginTransaction();
+await conn.execute("INSERT IGNORE INTO lottery_settings(setting_key,setting_value) VALUES('registration_open','false'),('draw_completed','false')");
+const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
+const [[drawState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='draw_completed' FOR UPDATE");
+if(v==="true"&&drawState?.setting_value==="true"){
+await conn.rollback();
+return r.status(409).json({error:"قرعه‌کشی این دوره انجام شده؛ برای شروع دوره جدید باید فرآیند کمپین جدید تعریف شود."});
+}
+await conn.execute("UPDATE lottery_settings SET setting_value=? WHERE setting_key='registration_open'",[v]);
+await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID),v==="true"?"open_registration":"close_registration","lottery","current",JSON.stringify({previous:registrationState?.setting_value||"false",next:v})]);
+await conn.commit();
+r.json({open:v==="true"});
+}catch(e){
+await conn.rollback();
+console.error("Registration setting error:",e.message);
+r.status(500).json({error:"تغییر وضعیت ثبت‌نام انجام نشد."});
+}finally{conn.release()}
+});
 app.post("/api/admin/draw",admin,async(_q,r)=>{if(await registrationOpen())return r.status(409).json({error:"ابتدا ثبت‌نام را ببندید، سپس قرعه‌کشی کنید."});const conn=await db.getConnection();try{await conn.beginTransaction();
 const [[registrationState]]=await conn.execute("SELECT setting_value FROM lottery_settings WHERE setting_key='registration_open' FOR UPDATE");
 if(registrationState?.setting_value==='true'){await conn.rollback();return r.status(409).json({error:"ابتدا ثبت‌نام را ببندید، سپس قرعه‌کشی کنید."})}
@@ -401,60 +455,12 @@ await conn.execute("UPDATE lottery_settings SET setting_value='true' WHERE setti
 await conn.execute("INSERT INTO admin_audit_log(admin_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)",[String(process.env.ADMIN_ID||"admin"),"draw","lottery_draw",String(draw.insertId),JSON.stringify({eligible_count:rows.length,winner_entry_id:winner.id})]);
 await conn.commit();r.json({total:rows.length,winner:{name:winner.full_name,instagram:winner.instagram,code:winner.raffle_code}})
 }catch(e){await conn.rollback();console.error("Draw error:",e.message);r.status(500).json({error:"اجرای قرعه‌کشی ناموفق بود."})}finally{conn.release()}});
-let queueBusy=false;
-let leaseHeartbeat=null;
-async function processOneWebhook(){
-if(queueBusy)return;
-queueBusy=true;
-let item=null;
-try{
-const conn=await db.getConnection();
-try{
-await conn.beginTransaction();
-await conn.execute("UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,NOW()),processing_started_at=NULL,processing_token=NULL,last_error='Processing lease expired; reclaimed' WHERE status='processing' AND processing_started_at IS NOT NULL AND processing_started_at < DATE_SUB(NOW(),INTERVAL 5 MINUTE)");
-const [rows]=await conn.query("SELECT update_id,payload FROM webhook_inbox WHERE status='pending' AND received_at<=NOW() ORDER BY received_at LIMIT 1 FOR UPDATE SKIP LOCKED");
-if(!rows.length){await conn.commit();return}
-item=rows[0];
-item.processingToken=crypto.randomUUID();
-await conn.execute("UPDATE webhook_inbox SET status='processing',attempts=attempts+1,processing_started_at=NOW(),processing_token=? WHERE update_id=? AND status='pending'",[item.processingToken,item.update_id]);
-await conn.commit();
-}catch(e){await conn.rollback();throw e}
-finally{conn.release()}
-
-leaseHeartbeat=setInterval(()=>{
-db.execute("UPDATE webhook_inbox SET processing_started_at=NOW() WHERE update_id=? AND status='processing' AND processing_token=?",[item.update_id,item.processingToken]).catch(e=>console.error("Webhook lease heartbeat error:",e.message));
-},60000);
-leaseHeartbeat.unref?.();
-
-const [alreadyProcessed]=await db.execute("SELECT 1 FROM processed_updates WHERE update_id=? LIMIT 1",[item.update_id]);
-if(!alreadyProcessed.length){
-const u=typeof item.payload==='string'?JSON.parse(item.payload):item.payload;
-if(u.business_message)await handleUpdate(u);
-else if(u.message)await handlePrivateUpdate(u);
-else if(u.callback_query)await handleCallbackQuery(u.callback_query);
-}
-
-const finish=await db.getConnection();
-try{
-await finish.beginTransaction();
-const [result]=await finish.execute("UPDATE webhook_inbox SET status='done',processed_at=NOW(),processing_started_at=NULL,processing_token=NULL,last_error=NULL WHERE update_id=? AND status='processing' AND processing_token=?",[item.update_id,item.processingToken]);
-if(result.affectedRows===1){
-await finish.execute("INSERT IGNORE INTO processed_updates(update_id) VALUES(?)",[item.update_id]);
-}
-await finish.commit();
-}catch(e){await finish.rollback();throw e}
-finally{finish.release()}
-
-}catch(e){
-console.error("Webhook processing error:",e.message);
-if(item){
-await db.execute("UPDATE webhook_inbox SET status=IF(attempts>=5,'failed','pending'),received_at=IF(attempts>=5,received_at,DATE_ADD(NOW(),INTERVAL 3 SECOND)),processing_started_at=NULL,processing_token=NULL,last_error=? WHERE update_id=? AND status='processing' AND processing_token=?",[String(e.message||"Unknown error").slice(0,500),item.update_id,item.processingToken]).catch(x=>console.error("Queue update error:",x.message));
-}
-}finally{
-if(leaseHeartbeat){clearInterval(leaseHeartbeat);leaseHeartbeat=null;}
-queueBusy=false;
-}
-}
+const {createWebhookQueue}=require("./webhook-queue");
+const webhookQueue=createWebhookQueue({
+db,
+handlers:{business:handleUpdate,private:handlePrivateUpdate,callback:handleCallbackQuery},
+logger:console
+});
 app.post("/telegram/"+secret,async(q,r)=>{
 if(q.get("x-telegram-bot-api-secret-token")!==secret)return r.status(401).send("Unauthorized");
 const u=q.body||{};
@@ -468,10 +474,29 @@ console.error("Webhook enqueue error:",e.message);
 return r.sendStatus(503);
 }
 });
-app.listen(+(process.env.PORT||3000),async()=>{
+app.use(createErrorMiddleware(console));
+const server=app.listen(+(process.env.PORT||3000),async()=>{
 try{
 await db.query("SELECT 1");
 console.log("iStore lottery bot started");
-}catch(e){console.error("DB connection failed:",e.message)}
+}catch(e){
+console.error("DB connection failed:",e.message);
+server.close(()=>process.exit(1));
+}
 });
-setInterval(()=>processOneWebhook().catch(e=>console.error("Queue worker error:",e.message)),500);
+webhookQueue.start();
+let shuttingDown=false;
+async function shutdown(signal){
+if(shuttingDown)return;
+shuttingDown=true;
+console.log(signal+" received; draining webhook queue (30s limit)");
+const forceExit=setTimeout(()=>{
+console.error("Shutdown deadline exceeded; forcing process exit. Any unfinished webhook will be reclaimed by its lease.");
+process.exit(1);
+},35000);
+const drained=await webhookQueue.stop(30000);
+if(!drained)console.error("Webhook queue did not drain within 30 seconds; exiting so the unfinished lease can be reclaimed.");
+server.close(()=>{db.end().finally(()=>{clearTimeout(forceExit);process.exit(drained?0:1)})});
+}
+process.on("SIGTERM",()=>shutdown("SIGTERM"));
+process.on("SIGINT",()=>shutdown("SIGINT"));
