@@ -1,8 +1,36 @@
--- Preserve all existing campaign, payment, receipt and draw history.
--- Existing public codes remain unchanged; sequence_number is internal allocation metadata.
--- The statements are retry-safe if MySQL stops before schema_migrations records this file.
+-- One-time cleanup of disposable campaign test transactions.
+-- Preserve campaign definitions (including open campaigns) and participant profiles.
+-- The DML is intentionally safe to repeat if the migration runner stops before
+-- recording the version. MySQL DDL is not transactional, so each schema change
+-- below is guarded through information_schema and can also be resumed.
 
--- Add the sequence column as nullable first so existing rows can be backfilled.
+-- Draw data is wholly test-only at this stage. Remove children before draw records.
+DELETE FROM draw_candidates;
+DELETE FROM draw_winners;
+DELETE FROM campaign_draws;
+
+-- Clear payment artifacts belonging to campaign entries before deleting the orders.
+DELETE FROM payment_receipts
+WHERE order_id IN (
+  SELECT id FROM payment_orders
+  WHERE campaign_entry_id IN (SELECT id FROM campaign_entries)
+);
+
+DELETE FROM payment_events
+WHERE order_id IN (
+  SELECT id FROM payment_orders
+  WHERE campaign_entry_id IN (SELECT id FROM campaign_entries)
+);
+
+DELETE FROM payment_orders
+WHERE campaign_entry_id IN (SELECT id FROM campaign_entries);
+
+-- All previously issued campaign codes and campaign participation rows are disposable test data.
+DELETE FROM campaign_codes;
+DELETE FROM campaign_entries;
+
+-- MySQL 8.0 does not consistently support ADD COLUMN IF NOT EXISTS.
+-- Check metadata and execute a no-op when the column already exists.
 SET @campaign_code_has_sequence_column := (
   SELECT COUNT(*)
   FROM information_schema.COLUMNS
@@ -12,26 +40,14 @@ SET @campaign_code_has_sequence_column := (
 );
 SET @campaign_code_add_sequence_sql := IF(
   @campaign_code_has_sequence_column = 0,
-  'ALTER TABLE campaign_codes ADD COLUMN sequence_number INT UNSIGNED NULL AFTER campaign_id',
+  'ALTER TABLE campaign_codes ADD COLUMN sequence_number INT UNSIGNED NOT NULL AFTER campaign_id',
   'SELECT 1'
 );
 PREPARE campaign_code_add_sequence_stmt FROM @campaign_code_add_sequence_sql;
 EXECUTE campaign_code_add_sequence_stmt;
 DEALLOCATE PREPARE campaign_code_add_sequence_stmt;
 
--- Give legacy codes stable per-campaign sequence metadata without changing their public code.
--- ROW_NUMBER() makes the derived table non-mergeable on MySQL 8.
-UPDATE campaign_codes AS target
-JOIN (
-  SELECT id, ROW_NUMBER() OVER (PARTITION BY campaign_id ORDER BY id) AS assigned_sequence
-  FROM campaign_codes
-) AS ranked ON ranked.id = target.id
-SET target.sequence_number = ranked.assigned_sequence
-WHERE target.sequence_number IS NULL;
-
-ALTER TABLE campaign_codes MODIFY COLUMN sequence_number INT UNSIGNED NOT NULL;
-
--- Guard the unique index so a retry after partial DDL can continue.
+-- Guard the unique index as well, so a retry after partial DDL can continue.
 SET @campaign_code_has_sequence_index := (
   SELECT COUNT(*)
   FROM information_schema.STATISTICS
@@ -57,10 +73,7 @@ CREATE TABLE IF NOT EXISTS campaign_code_counters (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Start new-format codes at 10001, or after the highest preserved legacy sequence.
--- INSERT IGNORE makes retries safe and never resets a counter already in use.
+-- INSERT IGNORE makes a retry safe and never resets an existing counter.
 INSERT IGNORE INTO campaign_code_counters (campaign_id, next_sequence_number)
-SELECT c.id, GREATEST(10001, COALESCE(MAX(cc.sequence_number) + 1, 10001))
-FROM campaigns c
-LEFT JOIN campaign_codes cc ON cc.campaign_id = c.id
-GROUP BY c.id;
+SELECT id, 10001
+FROM campaigns;
