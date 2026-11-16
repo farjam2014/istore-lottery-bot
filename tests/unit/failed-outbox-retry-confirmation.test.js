@@ -41,6 +41,8 @@ test('failed retry service limits batches, binds snapshot, serializes and audits
   assert.match(service,/RELEASE_LOCK\(\?\)/);
   assert.match(service,/INSERT INTO admin_audit_log/);
   assert.ok(service.includes("LEFT(COALESCE(last_error,''),400)"));
+  assert.match(service,/if\(transactionOpen\)\{try\{await c\.rollback\(\);\}catch\{reusable=false;\}\}/);
+  assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
 });
 
 test('failed retry callback token stays within Telegram 64-byte limit for 64-bit identifiers',()=>{
