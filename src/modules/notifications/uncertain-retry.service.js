@@ -68,7 +68,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     if(currentCount!==expected||String(current.max_id)!==maxId){
       await c.commit();
       transactionOpen=false;
-      return {confirmed:false,currentCount};
+      return {confirmed:false,reason:'snapshot-changed',currentCount,currentMaxId:String(current.max_id)};
     }
 
     // Lock only the previewed oldest batch. Newer uncertain rows created after
@@ -82,7 +82,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     if(ids.length!==expectedBatchCount||hashIds(ids)!==expectedHash){
       await c.commit();
       transactionOpen=false;
-      return {confirmed:false,currentCount};
+      return {confirmed:false,reason:'batch-changed',currentCount,batchCount:ids.length,expectedBatchCount,actualBatchHash:hashIds(ids)};
     }
 
     const placeholders=ids.map(()=>'?').join(',');
