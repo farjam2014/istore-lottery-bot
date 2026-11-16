@@ -14,8 +14,9 @@
 - Service user: `ustorebot`
 - Working directory: `/opt/ustore-telegram-bot`
 - ExecStart recorded: `/usr/bin/node /opt/ustore-telegram-bot/src/index.js`
-- Last application-code commit explicitly recorded as deployed: `ee2a85cfd886145547310ec845fff68036fd4ea2` (PR #13).
-- PR #14 commit `65cae7585fcb8bde5f4d837fa173715e6717c12f` added documentation only and did not require a VPS deployment.
+- Last application-code commit explicitly recorded as deployed remains `ee2a85cfd886145547310ec845fff68036fd4ea2` (PR #13); this is historical and must be rechecked on the VPS.
+- GitHub operational branch now includes PR #16 at `193602976e1d29c4de5e9d3b1ac4b96a13eee7c3`. CI run `43871251991` passed 64/64 tests and syntax checks.
+- PR #16 adds a new code-format migration that clears approved test participation/payment/draw records. It has **not** been run on the VPS. Do not apply it until read-only table counts confirm that every affected row is disposable test data and the service is stopped under a separately approved deployment.
 - Operator previously supplied restart output showing active/running, database connection established and Telegram long polling startup. This is historical, not current health telemetry.
 - Database name is supplied through server-side `MYSQL_DATABASE`; never print the full environment or password.
 
@@ -38,7 +39,7 @@ cd /opt/ustore-telegram-bot
 git status --short --branch
 git branch --show-current
 git rev-parse HEAD
-git remote -v
+git log -1 --format='%H%n%cI%n%s'
 ```
 
 Inspect service metadata without environment values:
@@ -104,6 +105,9 @@ These commands do not replace isolated integration tests. At the 2026-11-15 snap
 Integration tests can mutate schema and rows. Use only a disposable MySQL database with a name ending in `_ci` or `_test`, for example an isolated CI database created by the test setup. Never set integration-test configuration to the production database.
 
 Before migration work:
+- PR #16 migration `20261116_001_campaign_code_format.sql` deletes all rows from `draw_candidates`, `draw_winners`, `campaign_draws`, `payment_receipts` and `payment_events` associated with campaign orders, `payment_orders`, `campaign_codes` and `campaign_entries`.
+- It preserves campaign definitions (including open campaigns), participant master profiles, bank-card settings, admin records, audit history and notification outbox rows. The per-campaign counter starts at 10001.
+- This exact cleanup scope was approved for current test allocations. Approval does not remove the need to inspect actual production counts first. If any affected row represents a real customer/payment/draw record, stop and do not apply the migration.
 - Inspect the migration runner, pending migration files, `schema_migrations` state and checksums.
 - MySQL DDL may not be transactional; a failed migration may have partially applied.
 - Do not blindly rerun a partially applied migration.
