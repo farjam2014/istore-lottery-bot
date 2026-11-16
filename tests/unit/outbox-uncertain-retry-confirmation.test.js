@@ -4,27 +4,51 @@ import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 
 const handlerPath=fileURLToPath(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url));
-const source=await readFile(handlerPath,'utf8');
-const promptStart=source.indexOf("bot.action('admin:system:outbox:retry-uncertain',");
-const confirmStart=source.indexOf("bot.action('admin:system:outbox:retry-uncertain:confirm',");
-const nextAction=source.indexOf("bot.action(",confirmStart+1);
-const prompt=source.slice(promptStart,confirmStart);
-const confirmation=source.slice(confirmStart,nextAction>confirmStart?nextAction:undefined);
+const servicePath=fileURLToPath(new URL('../../src/modules/notifications/uncertain-retry.service.js',import.meta.url));
+const [handler,service]=await Promise.all([readFile(handlerPath,'utf8'),readFile(servicePath,'utf8')]);
+const promptStart=handler.indexOf("bot.action('admin:system:outbox:retry-uncertain',");
+const confirmStart=handler.indexOf("bot.action(/^admin:sys:ur:");
+const nextAction=handler.indexOf("bot.action(",confirmStart+1);
+const prompt=handler.slice(promptStart,confirmStart);
+const confirmation=handler.slice(confirmStart,nextAction>confirmStart?nextAction:undefined);
 
-test('uncertain notification retry shows duplicate-delivery warning and confirmation before any update',()=>{
+test('uncertain retry preview warns first and binds a bounded snapshot to callback data',()=>{
   assert.ok(promptStart>=0);
   assert.ok(confirmStart>promptStart);
-  assert.match(prompt,/SELECT COUNT\(\*\)|SELECT COUNT\(\)/);
-  assert.match(prompt,/هشدار مهم/);
-  assert.match(prompt,/تأیید ارسال مجدد/);
-  assert.match(prompt,/admin:system:outbox:retry-uncertain:confirm/);
+  assert.match(prompt,/previewUncertainNotifications/);
+  assert.match(prompt,/تأیید ارسال مجدد اعلان/);
+  assert.match(prompt,/ممکن است تلگرام/);
+  assert.match(prompt,/batchCount/);
+  assert.match(prompt,/batchHash/);
+  assert.match(prompt,/admin:sys:ur:/);
   assert.doesNotMatch(prompt,/UPDATE telegram_notification_outbox/);
 });
 
-test('uncertain retry confirmation remains super-admin-only and records an audit event',()=>{
+test('confirmation remains super-admin-only and calls the transactional retry service',()=>{
   assert.match(prompt,/isConfiguredSuperAdmin\(ctx\.from\.id\)/);
   assert.match(confirmation,/isConfiguredSuperAdmin\(ctx\.from\.id\)/);
-  assert.match(confirmation,/UPDATE telegram_notification_outbox/);
-  assert.match(confirmation,/system\.outbox_retry_uncertain/);
-  assert.match(confirmation,/manual retry by/);
+  assert.match(confirmation,/retryUncertainNotifications/);
+  assert.match(confirmation,/expectedBatchHash/);
+  assert.match(confirmation,/result\.confirmed/);
+});
+
+test('retry service locks at most 100 previewed IDs, checks the snapshot hash and audits the operator',()=>{
+  assert.match(service,/UNCERTAIN_RETRY_BATCH_LIMIT=100/);
+  assert.match(service,/id<=\? ORDER BY id LIMIT \? FOR UPDATE/);
+  assert.match(service,/hashIds\(ids\)!==expectedHash/);
+  assert.match(service,/INSERT INTO admin_audit_log/);
+  assert.match(service,/manually retried by/);
+  assert.match(service,/GET_LOCK\(\?,10\)/);
+  assert.match(service,/RELEASE_LOCK\(\?\)/);
+  assert.match(service,/CAST\(COALESCE\(MAX\(id\),0\) AS CHAR\)/);
+  assert.match(service,/SELECT CAST\(id AS CHAR\) id/);
+  assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
+});
+
+test('snapshot callback token stays within Telegram 64-byte callback limit for 64-bit identifiers',()=>{
+  const countToken=((2n**63n)-1n).toString(36);
+  const maxId='18446744073709551615';
+  const token='admin:sys:ur:'+countToken+':'+maxId+':'+'a'.repeat(16);
+  assert.ok(Buffer.byteLength(token,'utf8')<=64);
+  assert.match(token,/^admin:sys:ur:([0-9a-z]+):([0-9]+):([a-f0-9]{16})$/);
 });
