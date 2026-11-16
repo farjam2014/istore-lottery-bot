@@ -4,7 +4,7 @@
 
 -- Add the sequence column as nullable first so existing rows can be backfilled.
 SET @campaign_code_has_sequence_column := (
-  SELECT COUNT()
+  SELECT COUNT(*)
   FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE()
     AND TABLE_NAME = 'campaign_codes'
@@ -33,7 +33,7 @@ ALTER TABLE campaign_codes MODIFY COLUMN sequence_number INT UNSIGNED NOT NULL;
 
 -- Guard the unique index so a retry after partial DDL can continue.
 SET @campaign_code_has_sequence_index := (
-  SELECT COUNT()
+  SELECT COUNT(*)
   FROM information_schema.STATISTICS
   WHERE TABLE_SCHEMA = DATABASE()
     AND TABLE_NAME = 'campaign_codes'
