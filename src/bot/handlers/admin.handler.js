@@ -204,7 +204,7 @@ export function registerAdminHandlers(bot){
       ])
     );
   });
-  bot.action(/^admin:sys:fr:([0-9a-z]+):(\\d+):([a-f0-9]{16})$/,async ctx=>{
+  bot.action(/^admin:sys:fr:([0-9a-z]+):([0-9]+):([a-f0-9]{16})$/,async ctx=>{
     if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
     const {retryFailedNotifications}=await import('../../modules/notifications/failed-retry.service.js');
     let result;
