@@ -6,7 +6,7 @@ const RETRY_BATCH_LIMIT=100;
 export async function retryUncertainNotifications({adminId,expectedCount}){
   const actor=String(adminId??'');
   const expected=Number(expectedCount);
-  if(!/^\\d+$/.test(actor)||!Number.isSafeInteger(expected)||expected<1){
+  if(!/^[0-9]+$/.test(actor)||!Number.isSafeInteger(expected)||expected<1){
     throw new Error('Invalid uncertain notification retry confirmation.');
   }
   const c=await pool.getConnection();
