@@ -40,6 +40,9 @@ test('retry service locks at most 100 previewed IDs, checks the snapshot hash an
   assert.match(service,/manually retried by/);
   assert.match(service,/GET_LOCK\(\?,10\)/);
   assert.match(service,/RELEASE_LOCK\(\?\)/);
+  assert.match(service,/CAST\(COALESCE\(MAX\(id\),0\) AS CHAR\)/);
+  assert.match(service,/SELECT CAST\(id AS CHAR\) id/);
+  assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
   assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
 });
 
