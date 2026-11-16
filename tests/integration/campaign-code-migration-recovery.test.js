@@ -55,7 +55,7 @@ test('MySQL migration recovery: interrupted DDL can be rerun without losing pres
     );
     assert.equal(Number(partialColumn.total),1);
     const [[partialIndex]]=await connection.execute(
-      "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_codes' AND INDEX_NAME='uq_campaign_code_sequence'"
+      "SELECT COUNT(DISTINCT INDEX_NAME) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_codes' AND INDEX_NAME='uq_campaign_code_sequence'"
     );
     assert.equal(Number(partialIndex.total),1);
     const [[partialCounter]]=await connection.execute(
