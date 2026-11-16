@@ -38,3 +38,5 @@ test('uncertain retry confirmation is snapshot-bound, transactional and idempote
     await pool.execute("DELETE FROM admin_audit_log WHERE admin_telegram_id=? AND action='system.outbox_retry_uncertain'",[adminId]);
   }
 });
+
+test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
