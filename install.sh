@@ -105,18 +105,13 @@ BOT_TOKEN="$(read_env BOT_TOKEN)"
 ADMIN_ID="$(read_env BOT_ADMIN_IDS)"
 NODE_ENV_VALUE="$(read_env NODE_ENV)"
 NODE_ENV_VALUE="${NODE_ENV_VALUE:-production}"
-case "$NODE_ENV_VALUE" in production|development|test) ;; *) fail "Supported NODE_ENV values: production, development, test." ;; esac
+[[ "$NODE_ENV_VALUE" == "production" ]] || fail "Production installer requires NODE_ENV=production; refusing non-production configuration."
 
-# The installer provisions MySQL and applies schema changes. Require an explicit,
-# target-bound opt-in before any database or MySQL-account operation.
+# The installer provisions MySQL and applies schema changes. Require explicit,
+# target-bound authorization before any database or MySQL-account operation.
 [[ "${ALLOW_DATABASE_MIGRATIONS:-}" == "1" ]] || fail "Database provisioning and migrations are disabled by default. Set ALLOW_DATABASE_MIGRATIONS=1 only after explicit approval."
-if [[ "$NODE_ENV_VALUE" == "production" ]]; then
-  [[ "${ALLOW_PRODUCTION_MIGRATIONS:-}" == "1" ]] || fail "Production database changes additionally require ALLOW_PRODUCTION_MIGRATIONS=1."
-  [[ "${MIGRATION_TARGET_DATABASE:-}" == "$DB_NAME" ]] || fail "MIGRATION_TARGET_DATABASE must exactly match MYSQL_DATABASE."
-fi
-if [[ "$NODE_ENV_VALUE" == "test" ]]; then
-  [[ "$DB_NAME" =~ (_ci|_test)$ ]] || fail "Test environment may only use a database ending in _ci or _test."
-fi
+[[ "${ALLOW_PRODUCTION_MIGRATIONS:-}" == "1" ]] || fail "Production database changes additionally require ALLOW_PRODUCTION_MIGRATIONS=1."
+[[ "${MIGRATION_TARGET_DATABASE:-}" == "$DB_NAME" ]] || fail "MIGRATION_TARGET_DATABASE must exactly match MYSQL_DATABASE."
 [[ "$DB_NAME" =~ ^ustore_bot_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_DATABASE in .env is not a generated UStore database name."
 [[ "$DB_USER" =~ ^ustore_app_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_USER in .env is not a generated UStore database user."
 [[ "$DB_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || fail "MYSQL_PASSWORD in .env must be the generated 64-character hex password."
