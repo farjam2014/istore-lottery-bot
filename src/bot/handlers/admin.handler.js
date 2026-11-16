@@ -153,7 +153,7 @@ async function showCampaignDetail(ctx,id){
   const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
-  if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id)]);
+  if(['open','scheduled'].includes(c.status))actions.push([Markup.button.callback('⏸ توقف کمپین','admin:campaign:pause:'+c.id)]);else if(['draft','paused'].includes(c.status))actions.push([Markup.button.callback('▶️ فعال‌سازی کمپین','admin:campaign:activate:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
   if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
@@ -350,16 +350,28 @@ export function registerAdminHandlers(bot){
     }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
     await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
   });
-  bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const id=Number(ctx.match[1]);const [[row]]=await pool.execute('SELECT status,starts_at,ends_at,(starts_at IS NOT NULL AND starts_at>UTC_TIMESTAMP()) AS not_started,(ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) AS already_ended FROM campaigns WHERE id=?',[id]);if(!row)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
-    if(!['draft','scheduled','paused','open'].includes(row.status))return ctx.answerCbQuery('تغییر وضعیت این کمپین مجاز نیست.',{show_alert:true});
-    if(row.status==='open'){const next='paused';await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});await ctx.answerCbQuery('کمپین متوقف شد.');return respond(ctx,'کمپین متوقف شد.',campaignMenu());}
-    if(Number(row.already_ended)===1)return ctx.answerCbQuery('زمان پایان کمپین گذشته است؛ امکان فعال‌سازی وجود ندارد.',{show_alert:true});
-    const next=Number(row.not_started)===1?'scheduled':'open';
-    await pool.execute('UPDATE campaigns SET status=? WHERE id=?',[next,id]);await audit(ctx.from.id,'campaign.status_changed','campaign',id,{from:row.status,to:next});
-    await ctx.answerCbQuery(next==='scheduled'?'برای شروع زمان‌بندی شد.':'کمپین فعال شد.');
-    return showCampaignDetail(ctx,id);
+  bot.action(/^admin:campaign:pause:([0-9]+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);
+    try{
+      const result=await setCampaignStatus({campaignId:id,actorId:ctx.from.id,target:'pause'});
+      await ctx.answerCbQuery(result.changed?(result.to==='closed'?'کمپین بسته شد.':'کمپین متوقف شد.'):'وضعیت کمپین قبلاً به‌روزرسانی شده است.');
+      return showCampaignDetail(ctx,id);
+    }catch(error){return ctx.answerCbQuery(error.message||'تغییر وضعیت انجام نشد.',{show_alert:true});}
+  });
+  bot.action(/^admin:campaign:activate:([0-9]+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);
+    try{
+      const result=await setCampaignStatus({campaignId:id,actorId:ctx.from.id,target:'activate'});
+      await ctx.answerCbQuery(result.changed?(result.to==='scheduled'?'برای شروع زمان‌بندی شد.':result.to==='closed'?'کمپین بسته شد.':'کمپین فعال شد.'):'وضعیت کمپین قبلاً به‌روزرسانی شده است.');
+      return showCampaignDetail(ctx,id);
+    }catch(error){return ctx.answerCbQuery(error.message||'تغییر وضعیت انجام نشد.',{show_alert:true});}
+  });
+  bot.action(/^admin:campaign:toggle:([0-9]+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    await ctx.answerCbQuery('این دکمه قدیمی است؛ جزئیات کمپین را بازخوانی کنید.',{show_alert:true});
+    return showCampaignDetail(ctx,Number(ctx.match[1]));
   });
 
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
