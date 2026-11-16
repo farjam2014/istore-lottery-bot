@@ -18,6 +18,7 @@ test('failed notification retry previews a bounded batch and warns before any up
   assert.match(prompt,/previewFailedNotifications/);
   assert.match(prompt,/تلاش مجدد اعلان‌های ناموفق/);
   assert.match(prompt,/علت خطا را بررسی کنید/);
+  assert.match(prompt,/پیام تکراری ایجاد کند/);
   assert.match(prompt,/batchCount/);
   assert.match(prompt,/batchHash/);
   assert.match(prompt,/admin:sys:fr:/);
