@@ -16,7 +16,7 @@ test('installer preserves existing application state',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/git -C .*status --porcelain --untracked-files=no/);
   assert.match(script,/Existing \.env found; preserving it/);
-  assert.match(script,/CREATE DATABASE IF NOT EXISTS/);
+  assert.match(script,/CREATE DATABASE IF NOT EXISTS/);\n  assert.match(script,/ALLOW_DATABASE_MIGRATIONS/);\n  assert.match(script,/ALLOW_PRODUCTION_MIGRATIONS/);\n  assert.match(script,/MIGRATION_TARGET_DATABASE/);\n  assert.ok(script.indexOf('ALLOW_DATABASE_MIGRATIONS') < script.indexOf('CREATE DATABASE IF NOT EXISTS'),'Installer must authorize database changes before provisioning MySQL.');
   assert.doesNotMatch(script,/DROP DATABASE/i);
   assert.doesNotMatch(script,/rm -rf/);
 });
