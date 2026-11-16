@@ -56,6 +56,34 @@ Check configured DB name without exposing it:
 grep -E '^MYSQL_DATABASE=' .env | sed 's/=.*/=<configured>/'
 ```
 
+Read-only database preflight for the approved campaign-code migration. This reports counts and migration metadata only; it does not modify rows:
+
+```bash
+DB_NAME="$(sed -n 's/^MYSQL_DATABASE=//p' .env | head -n1 | tr -d "\"'")"
+sudo mysql --batch --skip-column-names "$DB_NAME" -e "
+SELECT 'campaigns', COUNT(*) FROM campaigns
+UNION ALL SELECT 'participants', COUNT(*) FROM participants
+UNION ALL SELECT 'campaign_entries', COUNT(*) FROM campaign_entries
+UNION ALL SELECT 'campaign_codes', COUNT(*) FROM campaign_codes
+UNION ALL SELECT 'payment_orders', COUNT(*) FROM payment_orders
+UNION ALL SELECT 'payment_receipts', COUNT(*) FROM payment_receipts
+UNION ALL SELECT 'payment_events', COUNT(*) FROM payment_events
+UNION ALL SELECT 'campaign_draws', COUNT(*) FROM campaign_draws
+UNION ALL SELECT 'draw_candidates', COUNT(*) FROM draw_candidates
+UNION ALL SELECT 'draw_winners', COUNT(*) FROM draw_winners;
+"
+sudo mysql --batch "$DB_NAME" -e "
+SELECT version, applied_at FROM schema_migrations ORDER BY version DESC LIMIT 8;
+SELECT 'sequence_number_column', COUNT(*) FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_codes' AND COLUMN_NAME='sequence_number';
+SELECT 'campaign_code_counters_table', COUNT(*) FROM information_schema.TABLES
+ WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_code_counters';
+"
+unset DB_NAME
+```
+
+If the `sudo mysql` socket login fails, share only the error; do not print `.env` or credentials. Do not run the migration as part of this preflight.
+
 Check runtime/dependency state:
 
 ```bash
