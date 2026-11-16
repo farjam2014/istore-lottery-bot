@@ -124,3 +124,12 @@ test('callback and non-text buckets enforce their independent limits',async()=>{
   assert.equal(database.counters.get('44444:callback'),36);
   assert.equal(database.counters.get('44444:other'),21);
 });
+
+test('updates without a safe integer update id bypass database claiming',async()=>{
+  const database={async execute(){throw new Error('database must not be called');}};
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const ctx={update:{update_id:'not-an-integer'},state:{}};
+  let calls=0;
+  await guard(ctx,async()=>{calls++;});
+  assert.equal(calls,1);
+});
