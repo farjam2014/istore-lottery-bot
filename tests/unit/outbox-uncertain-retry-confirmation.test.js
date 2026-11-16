@@ -16,7 +16,7 @@ test('uncertain notification retry previews duplicate risk and queue snapshot be
   assert.ok(confirmStart>promptStart);
   assert.match(prompt,/COUNT\(\*\)/);
   assert.match(prompt,/MAX\(id\)/);
-  assert.match(prompt,/هشدار/);
+  assert.match(prompt,/ممکن است تلگرام/);
   assert.match(prompt,/تأیید ارسال مجدد/);
   assert.match(prompt,/admin:sys:ur:/);
   assert.doesNotMatch(prompt,/UPDATE telegram_notification_outbox/);
