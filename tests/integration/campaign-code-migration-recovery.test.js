@@ -9,12 +9,13 @@ const enabled=process.env.RUN_MYSQL_TESTS==='1';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(statement=>statement.trim()).filter(Boolean);
 
-test('MySQL migration recovery: interrupted DDL can be rerun without losing preserved data or resetting counters',{skip:!enabled},async()=>{
+test('MySQL migration recovery: approved test-data cleanup is retry-safe and preserves master data',{skip:!enabled},async()=>{
+  assert.match(process.env.MYSQL_DATABASE||'',/(?:_ci|_test)$/,'Integration tests must run only with an isolated _ci or _test database configured.');
   const host=process.env.MYSQL_HOST||'127.0.0.1';
   const port=Number(process.env.MYSQL_PORT||3306);
   const user=process.env.MYSQL_USER||'root';
   const password=process.env.MYSQL_PASSWORD||'';
-  const database='istore_migration_recovery_'+process.pid+'_'+Date.now();
+  const database='istore_migration_recovery_'+process.pid+'_'+Date.now()+'_test';
   const connection=await createConnection({host,port,user,password,multipleStatements:false});
   try{
     await connection.query('CREATE DATABASE `'+database+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
@@ -35,9 +36,33 @@ test('MySQL migration recovery: interrupted DDL can be rerun without losing pres
       "INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('full_name','Preserved Profile'),'eligible')",
       [campaign.insertId,participant.insertId]
     );
-    await connection.execute(
+    const [code]=await connection.execute(
       'INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code) VALUES(?,?,?)',
       [entry.insertId,campaign.insertId,'OLD-TEST-CODE']
+    );
+    const [order]=await connection.execute(
+      "INSERT INTO payment_orders(campaign_entry_id,amount,status) VALUES(?,100000,'awaiting_receipt')",
+      [entry.insertId]
+    );
+    const [receipt]=await connection.execute(
+      'INSERT INTO payment_receipts(order_id,telegram_file_id,telegram_file_unique_id) VALUES(?,?,?)',
+      [order.insertId,'migration-test-file','migration-test-receipt-'+suffix]
+    );
+    await connection.execute(
+      "INSERT INTO payment_events(order_id,actor_telegram_id,event_type,details) VALUES(?,?,?,JSON_OBJECT('test',true))",
+      [order.insertId,'1','receipt_submitted']
+    );
+    const [draw]=await connection.execute(
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','test',?,1,1)",
+      [campaign.insertId,'0'.repeat(64)]
+    );
+    await connection.execute(
+      'INSERT INTO draw_candidates(draw_id,campaign_code_id,candidate_hash) VALUES(?,?,?)',
+      [draw.insertId,code.insertId,'1'.repeat(64)]
+    );
+    await connection.execute(
+      'INSERT INTO draw_winners(draw_id,campaign_code_id,rank_position) VALUES(?,?,1)',
+      [draw.insertId,code.insertId]
     );
 
     const migration=await readFile(path.join(here,'../../src/database/migrations/20261116_001_campaign_code_format.sql'),'utf8');
@@ -75,6 +100,17 @@ test('MySQL migration recovery: interrupted DDL can be rerun without losing pres
     assert.equal(Number(entriesAfterCleanup.total),0);
     const [[codesAfterCleanup]]=await connection.execute('SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaign.insertId]);
     assert.equal(Number(codesAfterCleanup.total),0);
+    for(const [table,column,value] of [
+      ['payment_orders','campaign_entry_id',entry.insertId],
+      ['payment_receipts','order_id',order.insertId],
+      ['payment_events','order_id',order.insertId],
+      ['campaign_draws','id',draw.insertId],
+      ['draw_candidates','draw_id',draw.insertId],
+      ['draw_winners','draw_id',draw.insertId]
+    ]){
+      const [[row]]=await connection.execute(`SELECT COUNT(*) total FROM ${table} WHERE ${column}=?`,[value]);
+      assert.equal(Number(row.total),0,`Expected approved test cleanup to clear ${table}`);
+    }
     const [[seededCounter]]=await connection.execute('SELECT next_sequence_number FROM campaign_code_counters WHERE campaign_id=?',[campaign.insertId]);
     assert.equal(Number(seededCounter.next_sequence_number),10001);
 
