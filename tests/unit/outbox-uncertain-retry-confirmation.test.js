@@ -43,7 +43,6 @@ test('retry service locks at most 100 previewed IDs, checks the snapshot hash an
   assert.match(service,/CAST\(COALESCE\(MAX\(id\),0\) AS CHAR\)/);
   assert.match(service,/SELECT CAST\(id AS CHAR\) id/);
   assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
-  assert.match(service,/if\(reusable\)c\.release\(\);else c\.destroy\(\)/);
 });
 
 test('snapshot callback token stays within Telegram 64-byte callback limit for 64-bit identifiers',()=>{
