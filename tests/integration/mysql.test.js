@@ -413,3 +413,55 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     }
   }
 });
+
+test('MySQL integration: uncertain notification retry requires matching confirmation and audits a bounded batch',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {retryUncertainNotifications}=await import('../../src/modules/notifications/uncertain-retry.service.js');
+  const adminId='900000001';
+  const chatIds=[String(730000000000n+(BigInt(Date.now())%100000000000n)),String(740000000000n+(BigInt(Date.now())%100000000000n))];
+  const insertedIds=[];
+  try{
+    await migrate();
+    const [[before]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE status='uncertain'");
+    assert.equal(Number(before.total),0,'The isolated CI database must not contain unrelated uncertain notifications');
+    for(const chatId of chatIds){
+      const [row]=await pool.execute(
+        "INSERT INTO telegram_notification_outbox(chat_id,payload,status,last_error) VALUES(?,JSON_OBJECT('text','uncertain retry integration'),'uncertain','delivery outcome unknown')",
+        [chatId]
+      );
+      insertedIds.push(row.insertId);
+    }
+    const stale=await retryUncertainNotifications({adminId,expectedCount:1});
+    assert.deepEqual(stale,{confirmed:false,currentCount:2});
+    const [[unchanged]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE id IN (?,?) AND status='uncertain'",insertedIds);
+    assert.equal(Number(unchanged.total),2,'A stale confirmation must not mutate the outbox');
+
+    const confirmed=await retryUncertainNotifications({adminId,expectedCount:2});
+    assert.equal(confirmed.confirmed,true);
+    assert.equal(confirmed.count,2);
+    assert.equal(confirmed.remaining,0);
+    const [rows]=await pool.execute('SELECT status,attempts,manual_retry_count,last_error FROM telegram_notification_outbox WHERE id IN (?,?) ORDER BY id',insertedIds);
+    assert.equal(rows.length,2);
+    for(const row of rows){
+      assert.equal(row.status,'pending');
+      assert.equal(Number(row.attempts),0);
+      assert.equal(Number(row.manual_retry_count),1);
+      assert.match(row.last_error,/manually retried by 900000001/);
+    }
+    const [[audit]]=await pool.execute(
+      "SELECT details FROM admin_audit_log WHERE admin_telegram_id=? AND action='system.outbox_retry_uncertain' AND entity_type='notification_outbox' ORDER BY id DESC LIMIT 1",
+      [adminId]
+    );
+    const details=typeof audit.details==='string'?JSON.parse(audit.details):audit.details;
+    assert.equal(details.count,2);
+    assert.equal(details.observedUncertainCount,2);
+    assert.equal(details.batchLimit,100);
+    await assert.rejects(retryUncertainNotifications({adminId,expectedCount:0}),/Invalid/);
+  }finally{
+    if(insertedIds.length)await pool.execute(`DELETE FROM telegram_notification_outbox WHERE id IN (${insertedIds.map(()=>'?').join(',')})`,insertedIds);
+    await pool.execute("DELETE FROM admin_audit_log WHERE admin_telegram_id=? AND action='system.outbox_retry_uncertain' AND entity_type='notification_outbox'",[adminId]);
+  }
+});
