@@ -11,6 +11,7 @@ const [admin,scheduler,service]=await Promise.all([readFile(adminPath,'utf8'),re
 test('campaign detail exposes explicit pause and activate actions rather than a replayable toggle',()=>{
   assert.match(admin,/admin:campaign:pause:/);
   assert.match(admin,/admin:campaign:activate:/);
+  assert.ok(admin.includes("if(['open','scheduled'].includes(c.status))actions.push"));
   assert.match(admin,/این دکمه قدیمی است/);
   const legacyStart=admin.indexOf("bot.action(/^admin:campaign:toggle:");
   const legacyEnd=admin.indexOf("bot.action(",legacyStart+10);
