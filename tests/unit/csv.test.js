@@ -6,7 +6,7 @@ test('CSV quotes delimiters and embedded quotes',()=>{
   assert.equal(csvCell('Ali, "A"'),'"Ali, ""A"""');
 });
 test('CSV neutralizes spreadsheet formulas and control-prefixed formulas',()=>{
-  for(const value of ['=1+1','+SUM(A1:A2)','-2+3','@SUM(A1)','\t=1+1','\r=1+1'])assert.ok(csvCell(value).startsWith('"\''));
+  for(const value of ['=1+1','+SUM(A1:A2)','-2+3','@SUM(A1)','\t=1+1','\r=1+1',' =HYPERLINK(\"https://evil.example\")','   +SUM(A1:A2)','\n-1+1','\u00a0=1+1','\uFEFF@SUM(A1)'])assert.ok(csvCell(value).startsWith('"\''));
 });
 test('CSV output includes UTF-8 BOM and CRLF rows',()=>{
   assert.equal(toCsv([{name:'test'}],['name']),'\uFEFFname\r\n"test"');
