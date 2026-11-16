@@ -29,3 +29,8 @@ test('six-digit sequence has no random prefix',()=>{
   const code=buildCampaignCode({campaignId:13,sequenceNumber:123456});
   assert.match(code,/^P13-123456-[A-Z0-9][A-Z0]$/);
 });
+
+test('non-final random positions may use digits 1 through 9',()=>{
+  const code=buildCampaignCode({campaignId:13,sequenceNumber:99,randomIntImpl:max=>max-1});
+  assert.equal(code,'P13-999099-90');
+});
