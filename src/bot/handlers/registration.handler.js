@@ -13,7 +13,8 @@ const bypassRegistration=ctx=>shouldBypassRegistration({
 });
 
 export function registerRegistrationHandlers(bot){
-  bot.action('registration:start',async ctx=>{
+  bot.action('registration:start',async(ctx,next)=>{
+    if(await bypassRegistration(ctx))return next();
     await ctx.answerCbQuery();
     const s=await getSession(ctx.from.id);
     if(!s)await saveSession(ctx.from.id,'awaiting_name',{});
@@ -25,7 +26,8 @@ export function registerRegistrationHandlers(bot){
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),instagramStepKeyboard());
     await ctx.reply(promptFor(step),cancelKeyboard());
   });
-  bot.action('registration:back:phone',async ctx=>{
+  bot.action('registration:back:phone',async(ctx,next)=>{
+    if(await bypassRegistration(ctx))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_instagram')return ctx.answerCbQuery('مرحله فعالی برای بازگشت وجود ندارد.');
     await saveSession(ctx.from.id,'awaiting_phone',{fullName:s.payload?.fullName});
@@ -33,12 +35,14 @@ export function registerRegistrationHandlers(bot){
     await ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر دوباره به اشتراک بگذارید.',phoneShareKeyboard());
     return ctx.reply('در صورت انصراف:',cancelKeyboard());
   });
-  bot.action('registration:cancel',async ctx=>{
+  bot.action('registration:cancel',async(ctx,next)=>{
+    if(await bypassRegistration(ctx))return next();
     await clearSession(ctx.from.id);
     await ctx.answerCbQuery('ثبت‌نام متوقف شد.');
     await ctx.reply('هر زمان خواستید می‌توانید ثبت‌نام را شروع کنید.',registrationKeyboard());
   });
-  bot.command('cancel',async ctx=>{
+  bot.command('cancel',async(ctx,next)=>{
+    if(await bypassRegistration(ctx))return next();
     await clearSession(ctx.from.id);
     await ctx.reply('فرآیند ثبت‌نام لغو شد.',registrationKeyboard());
   });
