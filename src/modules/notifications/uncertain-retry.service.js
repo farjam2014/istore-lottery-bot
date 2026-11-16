@@ -12,6 +12,7 @@ function hashIds(ids){
 export async function previewUncertainNotifications(){
   const c=await pool.getConnection();
   try{
+    await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.beginTransaction();
     const [[snapshot]]=await c.execute(
       "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
@@ -47,6 +48,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
 
   const c=await pool.getConnection();
   try{
+    await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.beginTransaction();
     const [[current]]=await c.execute(
       "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
