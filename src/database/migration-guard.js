@@ -1,4 +1,4 @@
-export function assertMigrationAllowed({database,nodeEnv,env=process.env}={}) {
+export function assertMigrationAllowed({database,nodeEnv,host,env=process.env}={}) {
   const name=String(database ?? '');
   const environment=String(nodeEnv ?? 'production');
 
@@ -16,6 +16,12 @@ export function assertMigrationAllowed({database,nodeEnv,env=process.env}={}) {
     if (!/_ci$|_test$/i.test(name)) {
       throw new Error(
         'Test-environment migrations are restricted to databases ending in _ci or _test.'
+      );
+    }
+    const normalizedHost=String(host ?? '').trim().toLowerCase();
+    if (!['127.0.0.1','localhost','::1'].includes(normalizedHost)) {
+      throw new Error(
+        'Test-environment migrations are restricted to loopback database hosts.'
       );
     }
     return;
