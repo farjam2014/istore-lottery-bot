@@ -127,7 +127,7 @@ This is a handoff summary, not a claim that every experiment or abandoned branch
 12. **PR #22 — registration back navigation and complete admin bypass:** merged as `d5c5c394e2e486667d93051989210e14900162bb`. Latest-head CI run `43873551353` passed 76/76 tests, 0 failures, 0 skips. Adds back navigation across registration steps, clears stale phone/Instagram values on re-verification, and applies active-admin bypass to callbacks and `/cancel` as well as contact/text. No schema change.
 13. **PR #24 — transactional support notifications:** merged as `040b5951246cdcd4a14edd74bf7c03d0e2ef7803`. PR-head CI run `43873852629` passed 79/79 tests; merge-commit CI run `43874085107` passed. New-ticket and customer-reply admin alerts are enqueued in the same transaction as ticket/message changes. No schema change.
 14. **PR #26 — snapshot-bound uncertain notification retry:** merged as `9cecaea58647e68831acc8cf35f8b8fba89b7f02`. Latest-head CI run `43875885637` passed 82/82 tests, 0 failures, 0 skips. Confirmation is bound to queue count, max ID and a hash of the oldest batch; at most 100 previewed rows are retried under row locks and a MySQL advisory lock, with status transition and audit in one transaction. No schema change.
-15. **PR #27 — active-admin bypass in user/payment handlers:** open Draft. Extends the bypass already applied to registration to customer profile/support text and contact handlers, payment start/resume/cancel/orders actions, and receipt-photo handling, so staff messages and media are not consumed by stale customer sessions. CI pending.
+15. **PR #28 — active-admin bypass in user/payment handlers:** open Draft. Extends the bypass already applied to registration to customer profile/support text and contact handlers, payment start/resume/cancel/orders actions, and receipt-photo handling, so staff messages and media are not consumed by stale customer sessions. CI pending.
 
 Important historical caution:
 - Earlier project conversations/branches explored Laravel/PHP, web panels, Telegram Business, Instagram integration, different database layouts and lottery/draw execution. Those are not automatically current product commitments. Current operational release is Node.js/Telegraf, Telegram Bot API private chats, MySQL, no web panel, no Telegram Business, and draw execution deferred.
@@ -142,7 +142,7 @@ Important historical caution:
 - PR #22 is merged; CI run `43873551353` passed 76/76.
 - PR #24 is merged; PR-head CI run `43873852629` passed 79/79 and merge CI run `43874085107` passed.
 - PR #26 is merged; latest-head CI run `43875885637` passed 82/82 with zero failures/skips.
-- PR #27 is an open Draft extending active-admin bypass across user/support and payment customer handlers; CI pending at this snapshot.
+- PR #28 is an open Draft extending active-admin bypass across user/support and payment customer handlers; CI pending at this snapshot.
 - Last explicitly recorded deployed application-code commit remains `ee2a85cfd886145547310ec845fff68036fd4ea2` from the earlier operator snapshot. There is no evidence that PR #16 has been deployed or its migration applied. Confirm the actual VPS HEAD and service before runtime claims.
 - The 2026-11-15 test/deploy observations are historical snapshots. Never present them as live service status.
 - Current feature-level acceptance gaps are tracked in `PROJECT_ROADMAP.md`; authoritative product criteria remain in `docs/COMPLETION_SCOPE.md`.
