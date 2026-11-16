@@ -5,7 +5,7 @@ import {pool} from '../src/database/pool.js';
 import {logger} from '../src/shared/logger.js';
 
 try {
-  assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV});
+  assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   await migrate();
   logger.info('Schema applied');
 } catch (error) {
