@@ -1,4 +1,6 @@
 import {pool} from './pool.js';
+import {config} from '../config/env.js';
+import {assertMigrationAllowed} from './migration-guard.js';
 import {readFile,readdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -9,6 +11,7 @@ const LOCK_NAME='ustore_telegram_bot_schema_migrations';
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
 export async function migrate(){
+  assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
   let lockAcquired=false;

@@ -356,22 +356,22 @@ test('MySQL integration: outbox marks expired sending leases uncertain without d
 });
 
 
-test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async()=>{
+test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
-  const {listPaymentCards,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,getDefaultPaymentCard}=await import('../../src/modules/payments/bank-card.service.js');
+  const {createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,getDefaultPaymentCard}=await import('../../src/modules/payments/bank-card.service.js');
   const suffix=String(Date.now()).slice(-12).padStart(12,'0');
   const cardA='4111'+suffix,cardB='5555'+suffix;
-  let idA,idB,previousCards=[];
+  let idA,idB;
   try{
     await migrate();
-    const [existingRows]=await pool.execute('SELECT id,is_active,is_default FROM payment_bank_cards ORDER BY id');
-    previousCards=existingRows;
-    // Isolate this scenario from legacy cards already present in the CI database.
-    await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
-    await pool.execute('UPDATE payment_bank_cards SET is_active=0');
+    const [[existing]]=await pool.execute('SELECT COUNT(*) AS total FROM payment_bank_cards');
+    if(Number(existing.total)!==0){
+      t.skip('Requires an empty disposable CI card table; refusing to modify pre-existing card records.');
+      return;
+    }
     const a=await createPaymentCard({bankName:'Integration Bank A',cardNumber:cardA,cardHolder:'Integration Holder A',instructions:'A'},'1');idA=a.id;
     const b=await createPaymentCard({bankName:'Integration Bank B',cardNumber:cardB,cardHolder:'Integration Holder B',instructions:'B'},'1');idB=b.id;
     await assert.rejects(createPaymentCard({bankName:'Duplicate Bank',cardNumber:cardA,cardHolder:'Duplicate Holder'},'1'),/قبلاً ثبت شده/);
@@ -400,16 +400,5 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
   }finally{
     if(idA)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idA]);
     if(idB)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idB]);
-    await pool.execute('UPDATE payment_bank_cards SET is_default=0 WHERE is_default=1');
-    for(const row of previousCards){
-      if(Number(row.is_active)===1){
-        await pool.execute('UPDATE payment_bank_cards SET is_active=1 WHERE id=?',[row.id]);
-      }
-    }
-    for(const row of previousCards){
-      if(Number(row.is_default)===1){
-        await pool.execute('UPDATE payment_bank_cards SET is_default=1 WHERE id=?',[row.id]);
-      }
-    }
   }
 });
