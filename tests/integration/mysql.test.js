@@ -349,6 +349,10 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     orderIds.push(firstOrder.id);
     const [[firstEntry]]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignId,participantIds[0]]);
     entryIds.push(firstEntry.id);
+    const [oldReceipt]=await pool.execute(
+      "INSERT INTO payment_receipts(order_id,telegram_file_id,telegram_file_unique_id,status,review_note) VALUES(?,?,?,'rejected','previous attempt rejected')",
+      [firstOrder.id,'expired-retry-old-file-'+suffix,'expired-retry-old-unique-'+suffix]
+    );
     await pool.execute("UPDATE payment_orders SET status='expired',expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE) WHERE id=?",[firstOrder.id]);
     await pool.execute("UPDATE campaign_entries SET status='cancelled' WHERE id=?",[firstEntry.id]);
 
@@ -364,6 +368,9 @@ test('MySQL integration: expired paid orders can be reissued without violating o
     assert.equal(firstEntryState.status,'pending_payment');
     const [[firstOrderCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders WHERE campaign_entry_id=?',[firstEntry.id]);
     assert.equal(Number(firstOrderCount.total),1);
+    const [[retainedReceipt]]=await pool.execute('SELECT status,review_note FROM payment_receipts WHERE id=?',[oldReceipt.insertId]);
+    assert.equal(retainedReceipt.status,'rejected');
+    assert.equal(retainedReceipt.review_note,'previous attempt rejected');
     const [[firstEvent]]=await pool.execute("SELECT COUNT(*) total FROM payment_events WHERE order_id=? AND event_type='order_reissued'",[firstOrder.id]);
     assert.equal(Number(firstEvent.total),1);
 
