@@ -129,7 +129,7 @@ This is a handoff summary, not a claim that every experiment or abandoned branch
 14. **PR #26 — snapshot-bound uncertain notification retry:** merged into `install/resumable-ubuntu-v2` as `9cecaea58647e68831acc8cf35f8b8fba89b7f02`. CI run `43875885637` passed 82/82 tests, 0 failures, 0 skips; JavaScript syntax checks passed. Confirmation is bound to queue count, max ID and a hash of the oldest batch; retry is limited to 100 rows, serialized with a MySQL advisory lock, uses row locks and commits the status update with the audit event. No schema change.
 15. **PR #27 — bound manual retry diagnostic length:** merged into `install/resumable-ubuntu-v2` as `d4c7338a8d747e7d867120bf49a0e949701d4b18`. PR-head CI run `43876470137` passed 82/82 tests, 0 failures, 0 skips; syntax checks passed. The service caps the retained `last_error` prefix at 400 characters before appending the actor marker. No schema change.
 16. **PR #29 — project handoff refresh after PR #27:** documentation-only merge `dc6568cf27a43d3594530ded6100c326687e577b`; CI run `43877136059` was in progress at the last check. No application code, schema or VPS change.
-17. **PR #28 — active-admin bypass across customer handlers:** open Draft based on the latest operational branch. Extends the configured-super-admin/active-staff bypass to profile/support text and contact handlers, payment start/resume/cancel/orders actions and receipt-photo handling, while preserving admin payment commands and receipt-review permissions. CI pending.
+17. **PR #31 — active-admin bypass across customer handlers:** open Draft based on the latest operational branch. Extends the configured-super-admin/active-staff bypass to profile/support text and contact handlers, payment start/resume/cancel/orders actions and receipt-photo handling, while preserving admin payment commands and receipt-review permissions. CI pending.
 
 Important historical caution:
 - Earlier project conversations/branches explored Laravel/PHP, web panels, Telegram Business, Instagram integration, different database layouts and lottery/draw execution. Those are not automatically current product commitments. Current operational release is Node.js/Telegraf, Telegram Bot API private chats, MySQL, no web panel, no Telegram Business, and draw execution deferred.
@@ -146,7 +146,7 @@ Important historical caution:
 - PR #26 is merged at `9cecaea58647e68831acc8cf35f8b8fba89b7f02`; CI run `43875885637` passed 82/82 with zero failures/skips.
 - PR #27 is merged at `d4c7338a8d747e7d867120bf49a0e949701d4b18`; CI run `43876470137` passed 82/82 with zero failures/skips.
 - PR #29 is a documentation-only merge at `dc6568cf27a43d3594530ded6100c326687e577b`; its CI run `43877136059` was pending at the last check.
-- PR #28 is an open Draft for customer/support and payment active-admin bypass; CI pending at this snapshot.
+- PR #31 is an open Draft for customer/support and payment active-admin bypass; CI pending at this snapshot.
 - Last explicitly recorded deployed application-code commit remains `ee2a85cfd886145547310ec845fff68036fd4ea2` from the earlier operator snapshot. There is no evidence that PR #16 has been deployed or its migration applied. Confirm the actual VPS HEAD and service before runtime claims.
 - The 2026-11-15 test/deploy observations are historical snapshots. Never present them as live service status.
 - Current feature-level acceptance gaps are tracked in `PROJECT_ROADMAP.md`; authoritative product criteria remain in `docs/COMPLETION_SCOPE.md`.
