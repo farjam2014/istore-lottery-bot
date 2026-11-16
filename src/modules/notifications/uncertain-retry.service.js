@@ -15,10 +15,10 @@ export async function previewUncertainNotifications(){
     await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.beginTransaction();
     const [[snapshot]]=await c.execute(
-      "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
+      "SELECT COUNT(*) total,CAST(COALESCE(MAX(id),0) AS CHAR) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
     );
     const [rows]=await c.execute(
-      "SELECT id FROM telegram_notification_outbox WHERE status='uncertain' ORDER BY id LIMIT ?",
+      "SELECT CAST(id AS CHAR) id FROM telegram_notification_outbox WHERE status='uncertain' ORDER BY id LIMIT ?",
       [UNCERTAIN_RETRY_BATCH_LIMIT]
     );
     const ids=rows.map(row=>String(row.id));
