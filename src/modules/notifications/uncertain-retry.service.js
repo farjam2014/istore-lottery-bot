@@ -62,7 +62,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     await c.beginTransaction();
     transactionOpen=true;
     const [[current]]=await c.execute(
-      "SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
+      "SELECT COUNT(*) total,CAST(COALESCE(MAX(id),0) AS CHAR) max_id FROM telegram_notification_outbox WHERE status='uncertain'"
     );
     const currentCount=Number(current.total||0);
     if(currentCount!==expected||String(current.max_id)!==maxId){
@@ -74,7 +74,7 @@ export async function retryUncertainNotifications({adminId,expectedCount,expecte
     // Lock only the previewed oldest batch. Newer uncertain rows created after
     // the preview have IDs greater than maxId and cannot enter this batch.
     const [rows]=await c.execute(
-      "SELECT id FROM telegram_notification_outbox WHERE status='uncertain' AND id<=? ORDER BY id LIMIT ? FOR UPDATE",
+      "SELECT CAST(id AS CHAR) id FROM telegram_notification_outbox WHERE status='uncertain' AND id<=? ORDER BY id LIMIT ? FOR UPDATE",
       [maxId,UNCERTAIN_RETRY_BATCH_LIMIT]
     );
     const ids=rows.map(row=>String(row.id));
