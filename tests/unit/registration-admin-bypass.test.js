@@ -48,14 +48,14 @@ test('missing Telegram identity never bypasses registration',async()=>{
   assert.equal(lookups,0);
 });
 
-test('contact and text registration handlers both pass active staff updates through',async()=>{
+test('all registration actions, cancel command, contact and text handlers pass active staff updates through',async()=>{
   const {readFile}=await import('node:fs/promises');
   const {fileURLToPath}=await import('node:url');
   const path=await import('node:path');
   const handlerPath=fileURLToPath(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url));
   const source=await readFile(path.resolve(handlerPath),'utf8');
   const bypassCalls=source.match(/if\(await bypassRegistration\(ctx\)\)return next\(\);/g)||[];
-  assert.equal(bypassCalls.length,2);
+  assert.equal(bypassCalls.length,6);
 });
 
 test('permission lookup failures propagate instead of silently bypassing authorization',async()=>{
