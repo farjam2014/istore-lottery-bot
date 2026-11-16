@@ -16,7 +16,8 @@ test('uncertain retry preview warns first and binds a bounded snapshot to callba
   assert.ok(promptStart>=0);
   assert.ok(confirmStart>promptStart);
   assert.match(prompt,/previewUncertainNotifications/);
-  assert.match(prompt,/هشدار/);
+  assert.match(prompt,/تأیید ارسال مجدد اعلان/);
+  assert.match(prompt,/ممکن است تلگرام/);
   assert.match(prompt,/batchCount/);
   assert.match(prompt,/batchHash/);
   assert.match(prompt,/admin:sys:ur:/);
@@ -36,7 +37,9 @@ test('retry service locks at most 100 previewed IDs, checks the snapshot hash an
   assert.match(service,/id<=\? ORDER BY id LIMIT \? FOR UPDATE/);
   assert.match(service,/hashIds\(ids\)!==expectedHash/);
   assert.match(service,/INSERT INTO admin_audit_log/);
-  assert.match(service,/manual retry by/);
+  assert.match(service,/manually retried by/);
+  assert.match(service,/GET_LOCK\(\?,10\)/);
+  assert.match(service,/RELEASE_LOCK\(\?\)/);
 });
 
 test('snapshot callback token stays within Telegram 64-byte callback limit for 64-bit identifiers',()=>{
