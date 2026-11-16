@@ -184,7 +184,48 @@ export function registerAdminHandlers(bot){
   bot.action(/^admin:roles:change:(\d+):(campaign_manager|finance_manager|support_agent)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);try{await changeAdminRole({targetId:ctx.match[1],actorId:ctx.from.id,role:ctx.match[2]});}catch(e){return ctx.answerCbQuery(e.message||'تغییر نقش ناموفق بود.',{show_alert:true});}await ctx.answerCbQuery('نقش تغییر کرد.');return respond(ctx,'نقش مدیر به‌روزرسانی شد.',Markup.inlineKeyboard([[Markup.button.callback('بازگشت به مدیران','admin:roles')]]));});
   bot.action(/^admin:roles:toggle:(\d+)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);try{await toggleAdminActive({targetId:ctx.match[1],actorId:ctx.from.id});}catch(e){return ctx.answerCbQuery(e.message||'تغییر وضعیت ناموفق بود.',{show_alert:true});}await ctx.answerCbQuery('وضعیت تغییر کرد.');return respond(ctx,'وضعیت دسترسی مدیر تغییر کرد.',Markup.inlineKeyboard([[Markup.button.callback('بازگشت به مدیران','admin:roles')]]));});
   bot.action('admin:system',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await ctx.answerCbQuery();const [[outbox]]=await pool.execute("SELECT SUM(status='pending') pending,SUM(status='sending') sending,SUM(status='sent') sent,SUM(status='failed') failed,SUM(status='uncertain') uncertain FROM telegram_notification_outbox");const [[updates]]=await pool.execute("SELECT COUNT(*) total FROM processed_updates WHERE processed_at>=UTC_TIMESTAMP()-INTERVAL 24 HOUR");const [[limits]]=await pool.execute("SELECT COUNT(*) total FROM telegram_rate_limits WHERE window_started_at>=UTC_TIMESTAMP()-INTERVAL 1 HOUR AND request_count>10");const [failed]=await pool.execute("SELECT id,chat_id,attempts,manual_retry_count,last_error,created_at FROM telegram_notification_outbox WHERE status='failed' ORDER BY id DESC LIMIT 8");const msg='🩺 سلامت سامانه\n\n📨 صف اعلان‌ها\nدر انتظار: '+Number(outbox.pending||0)+'\nدر حال ارسال: '+Number(outbox.sending||0)+'\nارسال‌شده: '+Number(outbox.sent||0)+'\nناموفق نهایی: '+Number(outbox.failed||0)+'\nنتیجه نامشخص (نیازمند بررسی): '+Number(outbox.uncertain||0)+'\n\n🔐 پردازش و محدودسازی\nUpdateهای ۲۴ ساعت: '+Number(updates.total||0)+'\nکاربران با محدودیت فعال در ساعت اخیر: '+Number(limits.total||0)+'\n\nخطاهای اخیر:\n'+(failed.length?failed.map(x=>'#'+x.id+' | تلاش خودکار: '+x.attempts+' | تلاش دستی: '+x.manual_retry_count+' | '+String(x.last_error||'بدون جزئیات').slice(0,120)).join('\n'):'خطای نهایی ثبت نشده است.');return respond(ctx,msg,Markup.inlineKeyboard([[Markup.button.callback('♻️ تلاش مجدد اعلان‌های ناموفق','admin:system:outbox:retry')],[Markup.button.callback('⚠️ ارسال مجدد موارد نامشخص','admin:system:outbox:retry-uncertain')],[Markup.button.callback('بازخوانی وضعیت','admin:system')],[Markup.button.callback('بازگشت','admin:home')]]));});
-  bot.action('admin:system:outbox:retry',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);const [r]=await pool.execute("UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=NULL WHERE status='failed'");await audit(ctx.from.id,'system.outbox_retry_failed','notification_outbox',null,{count:r.affectedRows});await ctx.answerCbQuery('اعلان‌های ناموفق به صف بازگشتند.');return respond(ctx,'تعداد اعلان‌های ناموفق بازگردانده‌شده: '+r.affectedRows,Markup.inlineKeyboard([[Markup.button.callback('بازخوانی سلامت سامانه','admin:system')]]));});
+  bot.action('admin:system:outbox:retry',async ctx=>{
+    if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
+    const {previewFailedNotifications}=await import('../../modules/notifications/failed-retry.service.js');
+    let preview;
+    try{preview=await previewFailedNotifications();}
+    catch(error){logger.error({err:error,adminId:ctx.from.id},'Failed notification preview failed');return ctx.answerCbQuery('وضعیت صف قابل خواندن نیست؛ دوباره تلاش کنید.',{show_alert:true});}
+    await ctx.answerCbQuery();
+    if(!preview.count||!preview.batchCount)return respond(ctx,'هیچ اعلان ناموفقی برای تلاش مجدد وجود ندارد.',Markup.inlineKeyboard([[Markup.button.callback('بازخوانی وضعیت','admin:system')]]));
+    const countToken=preview.count.toString(36);
+    const confirmationData='admin:sys:fr:'+countToken+':'+preview.maxId+':'+preview.batchHash;
+    if(Buffer.byteLength(confirmationData,'utf8')>64)return respond(ctx,'اندازه صف از محدودیت امن تأیید بیشتر است؛ تلاش مجدد خودکار انجام نشد. با پشتیبانی فنی تماس بگیرید.',Markup.inlineKeyboard([[Markup.button.callback('بازگشت','admin:system')]]));
+    return respond(
+      ctx,
+      '⚠️ تأیید تلاش مجدد اعلان‌های ناموفق\n\nتعداد کل اعلان‌های ناموفق: '+preview.count+'\nتعداد این مرحله: '+preview.batchCount+' (حداکثر ۱۰۰ مورد قدیمی‌تر)\n\nاین اعلان‌ها پس از تلاش‌های خودکار ناموفق شده‌اند یا خطای دائمی داشته‌اند. بعضی خطاهای ارتباطی ممکن است پس از پذیرش پیام توسط تلگرام رخ دهند؛ تلاش مجدد می‌تواند پیام تکراری ایجاد کند. قبل از تأیید، علت خطا را بررسی کنید. اگر صف تا زمان تأیید تغییر کند، این تأیید باطل می‌شود و هیچ اعلانی بازگردانده نخواهد شد.',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('تأیید تلاش مجدد '+preview.batchCount+' اعلان',confirmationData)],
+        [Markup.button.callback('انصراف','admin:system')]
+      ])
+    );
+  });
+  bot.action(/^admin:sys:fr:([0-9a-z]+):([0-9]+):([a-f0-9]{16})$/,async ctx=>{
+    if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
+    const {retryFailedNotifications}=await import('../../modules/notifications/failed-retry.service.js');
+    let result;
+    try{
+      result=await retryFailedNotifications({
+        adminId:ctx.from.id,
+        expectedCount:parseInt(ctx.match[1],36),
+        expectedMaxId:ctx.match[2],
+        expectedBatchHash:ctx.match[3]
+      });
+    }catch(error){
+      logger.error({err:error,adminId:ctx.from.id},'Manual failed notification retry failed');
+      return ctx.answerCbQuery('تلاش مجدد انجام نشد؛ وضعیت صف را دوباره بررسی کنید.',{show_alert:true});
+    }
+    if(!result.confirmed){
+      await ctx.answerCbQuery('وضعیت صف تغییر کرده است؛ تأیید قبلی معتبر نیست.',{show_alert:true});
+      return respond(ctx,'صف اعلان‌های ناموفق پس از پیش‌نمایش تغییر کرده است. برای جلوگیری از ارسال ناخواسته، هیچ اعلانی بازگردانده نشد. ابتدا وضعیت صف را دوباره بررسی کنید.',Markup.inlineKeyboard([[Markup.button.callback('بازخوانی سلامت سامانه','admin:system')]]));
+    }
+    await ctx.answerCbQuery('تلاش مجدد تأیید شد.');
+    return respond(ctx,'تعداد اعلان‌های بازگردانده‌شده به صف: '+result.count+'\nباقی‌مانده از همان پیش‌نمایش: '+result.remaining,Markup.inlineKeyboard([[Markup.button.callback('بازخوانی سلامت سامانه','admin:system')]]));
+  });
   bot.action('admin:system:outbox:retry-uncertain',async ctx=>{
       if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
       const {previewUncertainNotifications}=await import('../../modules/notifications/uncertain-retry.service.js');
