@@ -7,6 +7,7 @@ import {joinFreeCampaign} from '../../modules/entries/entry.service.js';
 import {userMenuKeyboard} from '../keyboards/user.keyboard.js';
 import {normalizeFullName,normalizePhone,normalizeInstagram} from '../../modules/participants/participant.service.js';
 import {enqueueTelegramNotification} from '../../modules/notifications/outbox.service.js';
+import {enqueueSupportAdminNotification} from '../../modules/support/support-notifications.service.js';
 import {formatTehranDateTime} from '../../shared/datetime.js';
 
 async function screenReply(ctx,...args){
@@ -22,12 +23,6 @@ async function screenReply(ctx,...args){
   }
   return ctx.reply(...args);
 }
-async function notifySupportAdmins(telegram,message,markup){
-  const [rows]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','support_agent')");
-  const recipients=new Set([...config.adminIds,...rows.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:message,options:markup?.reply_markup?{reply_markup:markup.reply_markup}:{}});
-}
-
 export function registerUserHandlers(bot){
   bot.action('user:home',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'منوی اصلی حساب کاربری:',userMenuKeyboard());});
   bot.action('user:campaigns',async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,0);});
@@ -80,7 +75,42 @@ export function registerUserHandlers(bot){
   bot.action('support:user:list',async ctx=>{await ctx.answerCbQuery();const [rows]=await pool.execute('SELECT t.id,t.ticket_number,t.subject,t.status,t.priority,t.last_message_at FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE p.telegram_user_id=? ORDER BY t.last_message_at DESC LIMIT 20',[String(ctx.from.id)]);if(!rows.length)return screenReply(ctx,'هنوز تیکتی ثبت نکرده‌اید.');for(const t of rows)await screenReply(ctx,'#'+t.ticket_number+' | '+t.subject+'\nوضعیت: '+({new:'جدید',in_progress:'در حال بررسی',answered:'پاسخ داده‌شده',closed:'بسته'}[t.status]||t.status)+' | اولویت: '+t.priority+' | آخرین پیام: '+formatTehranDateTime(t.last_message_at),Markup.inlineKeyboard([[Markup.button.callback('مشاهده و پاسخ','support:user:view:'+t.id)]]));});
   bot.action(/^support:user:view:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const id=Number(ctx.match[1]);const [[ticket]]=await pool.execute('SELECT t.id,t.ticket_number,t.subject,t.category,t.status,t.priority FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? AND p.telegram_user_id=?',[id,String(ctx.from.id)]);if(!ticket)return screenReply(ctx,'تیکت پیدا نشد.');const [messages]=await pool.execute('SELECT sender_type,body,created_at FROM support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 10',[id]);const body=messages.reverse().map(m=>(m.sender_type==='admin'?'پشتیبانی':'شما')+': '+formatTehranDateTime(m.created_at)+'\n'+m.body).join('\n\n').slice(0,3200);const buttons=[];if(ticket.status!=='closed')buttons.push([Markup.button.callback('✍️ ارسال پاسخ','support:user:reply:'+id)]);return screenReply(ctx,'تیکت #'+ticket.ticket_number+'\nموضوع: '+ticket.subject+'\nوضعیت: '+ticket.status+'\n\n'+(body||'بدون پیام'),Markup.inlineKeyboard([...buttons,[Markup.button.callback('فهرست تیکت‌ها','support:user:list')]]));});
   bot.action(/^support:user:reply:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const id=Number(ctx.match[1]);const [r]=await pool.execute("SELECT t.id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? AND p.telegram_user_id=? AND t.status<>'closed'",[id,String(ctx.from.id)]);if(!r.length)return screenReply(ctx,'این تیکت برای پاسخ‌گویی در دسترس نیست.');await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,ticket_id) VALUES(?,'user_reply',?) ON DUPLICATE KEY UPDATE step='user_reply',ticket_id=VALUES(ticket_id),category=NULL",[String(ctx.from.id),id]);return screenReply(ctx,'پاسخ خود را در یک پیام ارسال کنید.');});
-  bot.on('text',async(ctx,next)=>{if(!ctx.state.profile)return next();const [[profileSession]]=await pool.execute('SELECT step FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(profileSession&&['full_name','instagram_handle'].includes(profileSession.step)){let value;try{value=profileSession.step==='full_name'?normalizeFullName(ctx.message.text):normalizeInstagram(ctx.message.text);}catch(e){return screenReply(ctx,e.message);}return createProfileChangeRequest(ctx,profileSession.step,value);}const [sessions]=await pool.execute('SELECT step,ticket_id,category FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const session=sessions[0];if(!session)return next();const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return screenReply(ctx,'لطفاً متن پیام را ارسال کنید.');if(body.length>4000)return screenReply(ctx,'پیام حداکثر ۴۰۰۰ نویسه باشد.');if(session.step==='new_message'){const [[participant]]=await pool.execute('SELECT id FROM participants WHERE telegram_user_id=?',[String(ctx.from.id)]);const ticketNo='SUP-'+randomBytes(4).toString('hex').toUpperCase();const c=await pool.getConnection();let id;try{await c.beginTransaction();const [r]=await c.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,?,?,'new')",[ticketNo,participant.id,session.category,body.slice(0,180)]);id=r.insertId;await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[id,String(ctx.from.id),body]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}await notifySupportAdmins(ctx.telegram,'🎫 تیکت جدید '+ticketNo+'\nموضوع: '+session.category+'\nمشتری: '+ctx.state.profile.full_name+'\nشرح: '+body.slice(0,700),Markup.inlineKeyboard([[Markup.button.callback('بررسی تیکت','admin:support:view:'+id)]]));return screenReply(ctx,'درخواست شما ثبت شد.\nشماره پیگیری: '+ticketNo+'\nپاسخ از همین بخش برای شما ارسال می‌شود.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','support:user:view:'+id)],[Markup.button.callback('بازگشت','user:support')]]));}if(session.step==='user_reply'){const c=await pool.getConnection();try{await c.beginTransaction();const [[ticket]]=await c.execute("SELECT id,status FROM support_tickets WHERE id=? AND participant_id=(SELECT id FROM participants WHERE telegram_user_id=?) FOR UPDATE",[session.ticket_id,String(ctx.from.id)]);if(!ticket||ticket.status==='closed')throw new Error('این تیکت بسته شده یا در دسترس نیست.');await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticket.id,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='new',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticket.id]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}const [[ticketMeta]]=await pool.execute('SELECT ticket_number FROM support_tickets WHERE id=?',[session.ticket_id]);await notifySupportAdmins(ctx.telegram,'💬 پاسخ جدید مشتری در تیکت '+(ticketMeta?.ticket_number||session.ticket_id)+'\nمشتری: '+ctx.state.profile.full_name,Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+session.ticket_id)]]));return screenReply(ctx,'پاسخ شما به تیکت اضافه شد.');}return next();});
+  bot.on('text',async(ctx,next)=>{if(!ctx.state.profile)return next();const [[profileSession]]=await pool.execute('SELECT step FROM profile_change_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(profileSession&&['full_name','instagram_handle'].includes(profileSession.step)){let value;try{value=profileSession.step==='full_name'?normalizeFullName(ctx.message.text):normalizeInstagram(ctx.message.text);}catch(e){return screenReply(ctx,e.message);}return createProfileChangeRequest(ctx,profileSession.step,value);}const [sessions]=await pool.execute('SELECT step,ticket_id,category FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const session=sessions[0];if(!session)return next();const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return screenReply(ctx,'لطفاً متن پیام را ارسال کنید.');if(body.length>4000)return screenReply(ctx,'پیام حداکثر ۴۰۰۰ نویسه باشد.');if(session.step==='new_message'){
+      const [[participant]]=await pool.execute('SELECT id FROM participants WHERE telegram_user_id=?',[String(ctx.from.id)]);
+      const ticketNo='SUP-'+randomBytes(4).toString('hex').toUpperCase();
+      const c=await pool.getConnection();let id;
+      try{
+        await c.beginTransaction();
+        const [r]=await c.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,?,?,'new')",[ticketNo,participant.id,session.category,body.slice(0,180)]);
+        id=r.insertId;
+        await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[id,String(ctx.from.id),body]);
+        await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+        await enqueueSupportAdminNotification({
+          text:'🎫 تیکت جدید '+ticketNo+'\nموضوع: '+session.category+'\nمشتری: '+ctx.state.profile.full_name+'\nشرح: '+body.slice(0,700),
+          replyMarkup:Markup.inlineKeyboard([[Markup.button.callback('بررسی تیکت','admin:support:view:'+id)]]),
+          executor:c
+        });
+        await c.commit();
+      }catch(e){await c.rollback();throw e;}finally{c.release();}
+      return screenReply(ctx,'درخواست شما ثبت شد.\nشماره پیگیری: '+ticketNo+'\nپاسخ از همین بخش برای شما ارسال می‌شود.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','support:user:view:'+id)],[Markup.button.callback('بازگشت','user:support')]]));
+    }if(session.step==='user_reply'){
+      const c=await pool.getConnection();
+      try{
+        await c.beginTransaction();
+        const [[ticket]]=await c.execute("SELECT t.id,t.status,t.ticket_number FROM support_tickets t WHERE t.id=? AND t.participant_id=(SELECT id FROM participants WHERE telegram_user_id=?) FOR UPDATE",[session.ticket_id,String(ctx.from.id)]);
+        if(!ticket||ticket.status==='closed')throw new Error('این تیکت بسته شده یا در دسترس نیست.');
+        await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticket.id,String(ctx.from.id),body]);
+        await c.execute("UPDATE support_tickets SET status='new',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticket.id]);
+        await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+        await enqueueSupportAdminNotification({
+          text:'💬 پاسخ جدید مشتری در تیکت '+ticket.ticket_number+'\nمشتری: '+ctx.state.profile.full_name,
+          replyMarkup:Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticket.id)]]),
+          executor:c
+        });
+        await c.commit();
+      }catch(e){await c.rollback();throw e;}finally{c.release();}
+      return screenReply(ctx,'پاسخ شما به تیکت اضافه شد.');
+    }return next();});
 }
 async function showUserHistory(ctx,page=0){
   const limit=8,offset=Math.max(0,Number(page)||0)*limit;
