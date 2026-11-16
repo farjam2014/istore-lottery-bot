@@ -11,19 +11,25 @@ function ratePolicy(ctx){
   return {bucket:'other',max:20};
 }
 
-export function updateGuard(){
+export function createUpdateGuard({
+  database=pool,
+  log=logger,
+  correlate=withCorrelation,
+  uuid=randomUUID
+}={}){
   return async(ctx,next)=>{
     const updateId=ctx.update?.update_id;
     if(!Number.isSafeInteger(updateId))return next();
 
     const userId=ctx.from?.id;
-    const correlationId=`tg-${updateId}-${randomUUID().slice(0,8)}`;
+    const correlationId=`tg-${updateId}-${uuid().slice(0,8)}`;
+    ctx.state??={};
     ctx.state.correlationId=correlationId;
 
-    return withCorrelation(correlationId,async()=>{
+    return correlate(correlationId,async()=>{
       let claimed=false;
       try{
-        const [insert]=await pool.execute(
+        const [insert]=await database.execute(
           'INSERT IGNORE INTO processed_updates(update_id,correlation_id) VALUES(?,?)',
           [updateId,correlationId]
         );
@@ -35,11 +41,11 @@ export function updateGuard(){
 
         if(userId){
           const policy=ratePolicy(ctx);
-          await pool.execute(
+          await database.execute(
             "INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,?,UTC_TIMESTAMP(),1) ON DUPLICATE KEY UPDATE request_count=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,1,request_count+1),window_started_at=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,UTC_TIMESTAMP(),window_started_at)",
             [String(userId),policy.bucket]
           );
-          const [[counter]]=await pool.execute(
+          const [[counter]]=await database.execute(
             'SELECT request_count FROM telegram_rate_limits WHERE telegram_user_id=? AND bucket=?',
             [String(userId),policy.bucket]
           );
@@ -55,22 +61,26 @@ export function updateGuard(){
         if(count%500===0){
           try{
             await Promise.all([
-              pool.execute('DELETE FROM processed_updates WHERE processed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY'),
-              pool.execute('DELETE FROM telegram_rate_limits WHERE window_started_at<UTC_TIMESTAMP()-INTERVAL 1 DAY')
+              database.execute('DELETE FROM processed_updates WHERE processed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY'),
+              database.execute('DELETE FROM telegram_rate_limits WHERE window_started_at<UTC_TIMESTAMP()-INTERVAL 1 DAY')
             ]);
           }catch(error){
-            logger.warn({err:error,updateId},'Telegram update cleanup failed; request processing continues');
+            log.warn({err:error,updateId},'Telegram update cleanup failed; request processing continues');
           }
         }
         return await next();
       }catch(error){
-        logger.error({err:error,updateId,userId},'Telegram update processing failed');
+        log.error({err:error,updateId,userId},'Telegram update processing failed');
         if(claimed){
-          await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[updateId])
-            .catch(cleanupError=>logger.error({err:cleanupError,updateId},'Failed to release Telegram update claim'));
+          await database.execute('DELETE FROM processed_updates WHERE update_id=?',[updateId])
+            .catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update claim'));
         }
         throw error;
       }
     });
   };
+}
+
+export function updateGuard(){
+  return createUpdateGuard();
 }
