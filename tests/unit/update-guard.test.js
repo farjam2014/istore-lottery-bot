@@ -109,3 +109,18 @@ test('database failure after claiming an update releases the idempotency claim',
   );
   assert.equal(database.processed.has(300),false);
 });
+
+test('callback and non-text buckets enforce their independent limits',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  let calls=0;
+  for(let id=400;id<436;id++){
+    await guard(context({id,userId:'44444',callback:true}),async()=>{calls++;});
+  }
+  for(let id=500;id<521;id++){
+    await guard(context({id,userId:'44444',text:null}),async()=>{calls++;});
+  }
+  assert.equal(calls,35+20);
+  assert.equal(database.counters.get('44444:callback'),36);
+  assert.equal(database.counters.get('44444:other'),21);
+});
