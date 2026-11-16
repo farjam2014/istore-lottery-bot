@@ -35,6 +35,7 @@ test('MySQL integration: campaign status actions are idempotent and expired paus
     const openEnded=await create('open',past,past,'open-ended');
     const pausedEnded=await create('paused',past,past,'paused-ended');
     const scheduledActive=await create('scheduled',past,future,'scheduled-active');
+    const scheduledFuture=await create('scheduled',future,futureFar,'scheduled-future');
     const scheduledEnded=await create('scheduled',past,past,'scheduled-ended');
     const draftFuture=await create('draft',future,futureFar,'draft-future');
     const draftEnded=await create('draft',past,past,'draft-ended');
@@ -49,6 +50,8 @@ test('MySQL integration: campaign status actions are idempotent and expired paus
 
     const closedByAdmin=await setCampaignStatus({campaignId:openEnded,actorId:adminId,target:'pause'});
     assert.equal(closedByAdmin.to,'closed','An already-ended open campaign must close, not become paused');
+    const pausedSchedule=await setCampaignStatus({campaignId:scheduledFuture,actorId:adminId,target:'pause'});
+    assert.equal(pausedSchedule.to,'paused','A future scheduled campaign must be pausable');
 
     const activations=await Promise.all([
       setCampaignStatus({campaignId:draftFuture,actorId:adminId,target:'activate'}),
@@ -75,12 +78,13 @@ test('MySQL integration: campaign status actions are idempotent and expired paus
     assert.equal(stateById.get(openEnded),'closed');
     assert.equal(stateById.get(draftFuture),'scheduled');
     assert.equal(stateById.get(draftEnded),'closed');
+    assert.equal(stateById.get(scheduledFuture),'paused');
 
     const [[audit]]=await pool.execute(
       "SELECT COUNT(*) total FROM admin_audit_log WHERE admin_telegram_id=? AND action='campaign.status_changed' AND entity_type='campaign' AND entity_id IN ("+ids.map(()=>'?').join(',')+")",
       [adminId,...ids]
     );
-    assert.equal(Number(audit.total),4,'Only actual admin state transitions should be audited');
+    assert.equal(Number(audit.total),5,'Only actual admin state transitions should be audited');
   }finally{
     if(ids.length){
       const placeholders=ids.map(()=>'?').join(',');
