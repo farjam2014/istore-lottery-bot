@@ -19,7 +19,7 @@ export async function setCampaignStatus({campaignId,actorId,target}){
         await c.commit();
         return {changed:false,from:row.status,to:row.status};
       }
-      if(row.status!=='open')throw new Error('فقط کمپین فعال قابل توقف است.');
+      if(!['open','scheduled'].includes(row.status))throw new Error('فقط کمپین فعال یا زمان‌بندی‌شده قابل توقف است.');
       next=Number(row.already_ended)===1?'closed':'paused';
     }else{
       if(!['draft','scheduled','paused','open'].includes(row.status))throw new Error('کمپین بسته یا بایگانی‌شده قابل فعال‌سازی نیست.');
