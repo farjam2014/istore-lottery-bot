@@ -186,25 +186,25 @@ export function registerAdminHandlers(bot){
   bot.action('admin:system:outbox:retry',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);const [r]=await pool.execute("UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=NULL WHERE status='failed'");await audit(ctx.from.id,'system.outbox_retry_failed','notification_outbox',null,{count:r.affectedRows});await ctx.answerCbQuery('اعلان‌های ناموفق به صف بازگشتند.');return respond(ctx,'تعداد اعلان‌های ناموفق بازگردانده‌شده: '+r.affectedRows,Markup.inlineKeyboard([[Markup.button.callback('بازخوانی سلامت سامانه','admin:system')]]));});
   bot.action('admin:system:outbox:retry-uncertain',async ctx=>{
     if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
-    const [[row]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE status='uncertain'");
-    const count=Number(row.total||0);
+    const [[row]]=await pool.execute("SELECT COUNT(*) total,COALESCE(MAX(id),0) max_id FROM telegram_notification_outbox WHERE status='uncertain'");
+    const count=Number(row.total||0),maxId=String(row.max_id||0);
     await ctx.answerCbQuery();
     if(!count)return respond(ctx,'هیچ اعلان با نتیجه نامشخصی برای ارسال مجدد وجود ندارد.',Markup.inlineKeyboard([[Markup.button.callback('بازخوانی وضعیت','admin:system')]]));
     return respond(
       ctx,
       '⚠️ تأیید ارسال مجدد اعلان‌های با نتیجه نامشخص\n\nتعداد اعلان‌های نامشخص: '+count+'\nدر این مرحله حداکثر ۱۰۰ اعلان قدیمی‌تر به صف بازمی‌گردد.\n\nممکن است تلگرام بعضی از این پیام‌ها را قبلاً دریافت کرده باشد. ارسال مجدد می‌تواند پیام تکراری برای مشتری ایجاد کند. فقط در صورت بررسی و پذیرش این ریسک ادامه دهید.',
       Markup.inlineKeyboard([
-        [Markup.button.callback('تأیید ارسال مجدد '+count+' اعلان','admin:system:outbox:retry-uncertain:confirm:'+count)],
+        [Markup.button.callback('تأیید ارسال مجدد '+count+' اعلان','admin:sys:ur:'+count+':'+maxId)],
         [Markup.button.callback('انصراف','admin:system')]
       ])
     );
   });
-  bot.action(/^admin:system:outbox:retry-uncertain:confirm:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:sys:ur:(\\d+):(\\d+)$/,async ctx=>{
     if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);
     const {retryUncertainNotifications}=await import('../../modules/notifications/uncertain-retry.service.js');
     let result;
     try{
-      result=await retryUncertainNotifications({adminId:ctx.from.id,expectedCount:Number(ctx.match[1])});
+      result=await retryUncertainNotifications({adminId:ctx.from.id,expectedCount:Number(ctx.match[1]),expectedMaxId:ctx.match[2]});
     }catch(error){
       logger.error({err:error,adminId:ctx.from.id},'Manual uncertain notification retry failed');
       return ctx.answerCbQuery('ارسال مجدد انجام نشد؛ وضعیت صف را دوباره بررسی کنید.',{show_alert:true});
