@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 const here=path.dirname(fileURLToPath(import.meta.url));
-const splitSql=sql=>sql.split(/;\\s*(?:\\n|$)/).map(statement=>statement.trim()).filter(Boolean);
+const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(statement=>statement.trim()).filter(Boolean);
 
 test('MySQL migration recovery: interrupted DDL preserves existing campaign, payment and draw history',{skip:!enabled},async()=>{
   const host=process.env.MYSQL_HOST||'127.0.0.1';
