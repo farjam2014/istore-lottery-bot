@@ -8,7 +8,7 @@ import {createHash} from 'node:crypto';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const LOCK_NAME='ustore_telegram_bot_schema_migrations';
-const splitSql=sql=>sql.split(/;\\s*(?:\\n|$)/).map(s=>s.trim()).filter(Boolean);
+const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
 export async function migrate(){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV});
