@@ -13,5 +13,5 @@ test('CSV output includes UTF-8 BOM and CRLF rows',()=>{
 });
 
 test('CSV headers are quoted using the same cell escaping rules',()=>{
-  assert.equal(toCsv([{name:'value'}],['column,name']),'\\uFEFF"column,name"\\r\\n"value"');
+  assert.equal(toCsv([{name:'value'}],['column,name']),'\uFEFF"column,name"\r\n"value"');
 });
