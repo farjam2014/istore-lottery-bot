@@ -476,7 +476,7 @@ export function registerAdminHandlers(bot){
   });
   bot.action(/^admin:payment-card:default:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
-    try{await setDefaultPaymentCard(Number(ctx.match[1]),ctx.from.id);await audit(ctx.from.id,'payment_card.default_changed','payment_bank_card',Number(ctx.match[1]));}
+    try{await setDefaultPaymentCard(Number(ctx.match[1]),ctx.from.id);}
     catch(e){return ctx.answerCbQuery(e.message||'تغییر کارت پیش‌فرض ناموفق بود.',{show_alert:true});}
     await ctx.answerCbQuery('کارت پیش‌فرض تغییر کرد.');
     return showPaymentCards(ctx);
@@ -484,7 +484,7 @@ export function registerAdminHandlers(bot){
   bot.action(/^admin:payment-card:(activate|deactivate):(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
     const active=ctx.match[1]==='activate',id=Number(ctx.match[2]);
-    try{await setPaymentCardActive(id,active,ctx.from.id);await audit(ctx.from.id,active?'payment_card.activated':'payment_card.deactivated','payment_bank_card',id);}
+    try{await setPaymentCardActive(id,active,ctx.from.id);}
     catch(e){return ctx.answerCbQuery(e.message||'تغییر وضعیت کارت ناموفق بود.',{show_alert:true});}
     await ctx.answerCbQuery(active?'کارت فعال شد.':'کارت غیرفعال شد.');
     return showPaymentCards(ctx);
@@ -551,10 +551,8 @@ export function registerAdminHandlers(bot){
         try{
           if(cardSession.card_id){
             await updatePaymentCard(Number(cardSession.card_id),payload,ctx.from.id);
-            await audit(ctx.from.id,'payment_card.updated','payment_bank_card',Number(cardSession.card_id));
           }else{
-            const result=await createPaymentCard(payload,ctx.from.id);
-            await audit(ctx.from.id,'payment_card.created','payment_bank_card',result.id,{default:result.default});
+            await createPaymentCard(payload,ctx.from.id);
           }
           await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
         }catch(e){return respond(ctx,e.message||'ذخیره کارت ناموفق بود.');}
