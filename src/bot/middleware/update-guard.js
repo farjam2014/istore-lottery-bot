@@ -54,7 +54,7 @@ export function updateGuard(){
 
     return withCorrelation(correlationId,async()=>{
       try{
-        if(claim.isNew&&userId){
+        if(userId){
           const policy=ratePolicy(ctx);
           await pool.execute(
             "INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,?,UTC_TIMESTAMP(),1) ON DUPLICATE KEY UPDATE request_count=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,1,request_count+1),window_started_at=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,UTC_TIMESTAMP(),window_started_at)",
@@ -78,7 +78,7 @@ export function updateGuard(){
         if(count%500===0){
           try{
             await Promise.all([
-              pool.execute("DELETE FROM processed_updates WHERE (status='completed' AND processed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY) OR (status='processing' AND lease_expires_at<UTC_TIMESTAMP()-INTERVAL 1 DAY)"),
+              pool.execute("DELETE FROM processed_updates WHERE (status='completed' AND processed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY) OR (status='processing' AND lease_expires_at<UTC_TIMESTAMP()-INTERVAL 30 DAY)"),
               pool.execute('DELETE FROM telegram_rate_limits WHERE window_started_at<UTC_TIMESTAMP()-INTERVAL 1 DAY')
             ]);
           }catch(error){
