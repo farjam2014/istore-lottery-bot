@@ -50,5 +50,5 @@ test('snapshot callback token stays within Telegram 64-byte callback limit for 6
   const maxId='18446744073709551615';
   const token='admin:sys:ur:'+countToken+':'+maxId+':'+'a'.repeat(16);
   assert.ok(Buffer.byteLength(token,'utf8')<=64);
-  assert.match(token,/^admin:sys:ur:([0-9a-z]+):(\\d+):([a-f0-9]{16})$/);
+  assert.match(token,/^admin:sys:ur:([0-9a-z]+):([0-9]+):([a-f0-9]{16})$/);
 });
