@@ -1,0 +1,6 @@
+-- RETIRED MIGRATION — DO NOT EXECUTE.
+-- The former 20261116_001 migration contained unbounded DELETE statements
+-- against campaign entries, codes, payment records and draw records.
+-- It has been removed from the migration runner and replaced by
+-- 20261116_002_campaign_code_format_preserve_data.sql.
+-- The original SQL remains in Git history for audit purposes.
