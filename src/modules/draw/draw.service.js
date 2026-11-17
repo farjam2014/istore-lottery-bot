@@ -107,11 +107,15 @@ export async function completeCampaignDraw({drawId,completedBy}){
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
-    const [[draw]]=await connection.execute('SELECT * FROM campaign_draws WHERE id=? FOR UPDATE',[drawId]);
+    // Keep the global lock order consistent with prepareCampaignDraw:
+    // campaign first, then draw. This avoids a campaign/draw lock inversion.
+    const [[drawReference]]=await connection.execute('SELECT campaign_id FROM campaign_draws WHERE id=?',[drawId]);
+    if(!drawReference) throw new Error('قرعه‌کشی پیدا نشد.');
+    const [[campaign]]=await connection.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE',[drawReference.campaign_id]);
+    if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
+    const [[draw]]=await connection.execute('SELECT * FROM campaign_draws WHERE id=? AND campaign_id=? FOR UPDATE',[drawId,drawReference.campaign_id]);
     if(!draw) throw new Error('قرعه‌کشی پیدا نشد.');
     if(draw.status!=='prepared') throw new Error('فقط قرعه‌کشی آماده قابل اجرا است.');
-    const [[campaign]]=await connection.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE',[draw.campaign_id]);
-    if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
     const [candidates]=await connection.execute(
       'SELECT dc.id,dc.draw_id,dc.campaign_id,dc.campaign_code_id,dc.participant_id,dc.code_snapshot,dc.candidate_hash,cc.code AS current_code,cc.status AS code_status,e.status AS entry_status,p.status AS participant_status FROM draw_candidates dc LEFT JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id LEFT JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=dc.campaign_id AND e.participant_id=dc.participant_id LEFT JOIN participants p ON p.id=e.participant_id WHERE dc.draw_id=? ORDER BY dc.id FOR UPDATE',
       [drawId]
