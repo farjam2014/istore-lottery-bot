@@ -38,7 +38,7 @@ async function isAdmin(ctx){
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
     const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
-    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');
+    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
@@ -155,6 +155,7 @@ async function showCampaignDetail(ctx,id){
   if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
+  actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
   if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
   actions.push([Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]);
   const message='🎯 کمپین #'+c.id+' — '+c.title+
@@ -279,6 +280,26 @@ export function registerAdminHandlers(bot){
     return showCampaignDetail(ctx,id);
   });
 
+  bot.action(/^admin:campaign:codes:search:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const campaignId=Number(ctx.match[1]);
+    const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
+    if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'campaign_code',?) ON DUPLICATE KEY UPDATE step=VALUES(step),campaign_id=VALUES(campaign_id)",[String(ctx.from.id),campaignId]);
+    await ctx.answerCbQuery();
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:detail:'+campaignId)]]));
+  });
+  bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const campaignId=Number(ctx.match[1]);
+    const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
+    if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    await ctx.answerCbQuery('در حال آماده‌سازی خروجی...');
+    const [rows]=await pool.execute("SELECT cc.id code_id,cc.code,cc.sequence_number,cc.random_prefix,cc.random_suffix,cc.format_version,cc.status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle,cc.created_at FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 50000",[campaignId]);
+    const columns=['code_id','code','sequence_number','random_prefix','random_suffix','format_version','status','entry_id','entry_status','telegram_user_id','full_name','phone','instagram_handle','created_at'];
+    const csv=toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at)})),columns);
+    return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-'+campaignId+'-codes.csv'},{caption:'خروجی کدهای کمپین «'+campaign.title+'»: '+rows.length+' کد (حداکثر ۵۰٬۰۰۰ رکورد).'});
+  });
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
   bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]));});
   bot.action(/^admin:participant:view:(\d+)$/,async ctx=>{
@@ -425,6 +446,17 @@ export function registerAdminHandlers(bot){
     if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');const c=await pool.getConnection();try{await c.beginTransaction();const [[old]]=await c.execute('SELECT role FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[target]);await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE role=VALUES(role),is_active=1,added_by=VALUES(added_by)',[target,pending[0].role,String(ctx.from.id)]);await c.execute("INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?, ?,?)",[target,String(ctx.from.id),old?'role_changed':'assigned',old?.role||null,pending[0].role]);await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'دسترسی مدیر ثبت شد: '+target+' | '+pending[0].role,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
     const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant'",[String(ctx.from.id)]);
     if(participantSearch){const query=ctx.message.text.trim();await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);return showParticipants(ctx,0,query);}
+    const [[codeSearch]]=await pool.execute("SELECT step,campaign_id FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code'",[String(ctx.from.id)]);
+    if(codeSearch){
+      const query=ctx.message.text.trim().slice(0,100);
+      await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+      if(!query||query.startsWith('/'))return respond(ctx,'عبارت جست‌وجو معتبر نیست.');
+      const like='%'+query.split('!').join('!!').split('%').join('!%').split('_').join('!_')+'%';
+      const [rows]=await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND (cc.code LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!') ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like,query,like]);
+      if(!rows.length)return respond(ctx,'کدی با این مشخصات در این کمپین پیدا نشد.');
+      const message=rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\n');
+      return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
+    }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
     if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const [[cardSession]]=await pool.execute('SELECT step,card_id,payload FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
