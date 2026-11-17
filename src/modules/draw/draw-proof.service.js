@@ -9,6 +9,7 @@ export async function getCampaignDrawProof(drawId){
   );
   if(!draw) throw new Error('قرعه‌کشی پیدا نشد.');
   if(draw.status!=='completed'||!draw.revealed_seed||!draw.completed_at) throw new Error('پرونده اثبات فقط پس از تکمیل قرعه‌کشی قابل دریافت است.');
+  if(!draw.commitment_publication_reference||!/^https:\/\//i.test(String(draw.commitment_publication_reference))||!draw.commitment_published_at||!draw.commitment_published_by) throw new Error('اطلاعات ثبت انتشار Commitment برای ساخت پرونده اثبات ناقص است.');
   const [candidates]=await pool.execute(
     'SELECT id,draw_id,campaign_id,campaign_code_id,participant_id,code_snapshot,candidate_hash FROM draw_candidates WHERE draw_id=? ORDER BY id',
     [id]
