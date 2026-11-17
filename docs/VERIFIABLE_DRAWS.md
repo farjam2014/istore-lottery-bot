@@ -48,7 +48,7 @@ The service refuses completion if a candidate's stored snapshot integrity fails 
 
 ## Operational boundary
 
-The campaign-code migration assigns legacy codes stable per-campaign sequence numbers in original code-ID order, keeps them at format version 1, and seeds each counter to the highest migrated sequence. Campaigns with more than 999999 legacy codes are rejected before migration. The draw-publication migration adds the publication reference and audit fields. These migrations are versioned and must be reviewed and backed up before production application. A green CI run does not apply migrations or deploy code. Never run integration tests against a production database.
+The campaign-code migration assigns legacy codes stable per-campaign sequence numbers in original code-ID order, keeps them at format version 1, and seeds each counter to the highest migrated sequence. Campaigns with more than 999999 legacy codes are rejected before migration. The draw-publication migration adds the publication reference and audit fields. Migration 006 adds database-enforced candidate/entry/participant/code ownership and exact winner-to-candidate identity. It refuses to run when legacy draw candidate or winner rows exist; those records must be explicitly reconciled rather than assigned inferred snapshots. These migrations are versioned and must be reviewed and backed up before production application. A green CI run does not apply migrations or deploy code. Never run integration tests against a production database.
 
 
 ## Offline proof artifact (version 1)
