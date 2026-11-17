@@ -12,12 +12,15 @@ const oldKey='31'.repeat(32);
 const newKey='42'.repeat(32);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
-async function migrateWithDeadlockRetry(maxAttempts=3){
+async function migrateWithDeadlockRetry(maxAttempts=6){
   for(let attempt=1;attempt<=maxAttempts;attempt++){
     try{return await migrate();}
     catch(error){
       if(error?.code!=='ER_LOCK_DEADLOCK'||attempt===maxAttempts)throw error;
-      await new Promise(resolve=>setTimeout(resolve,150*attempt));
+      // MySQL may report a transient DDL/metadata-lock deadlock while other
+      // integration workers are using the disposable schema. Back off before
+      // reacquiring the migration advisory lock and replaying idempotent guards.
+      await new Promise(resolve=>setTimeout(resolve,250*(2**(attempt-1))));
     }
   }
 }
