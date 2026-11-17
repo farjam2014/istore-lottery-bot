@@ -573,8 +573,8 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.match(prepared.seedHash,/^[a-f0-9]{64}$/);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/پیش از اجرای قرعه‌کشی/);
     await pool.execute('UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=?',['https://example.com/public-draw/'+drawId,telegramIds[0],drawId]);
-    const [[before]]=await pool.execute('SELECT status,revealed_seed,seed_ciphertext,candidate_snapshot_hash FROM campaign_draws WHERE id=?',[drawId]);
-    assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
+    const [[before]]=await pool.execute('SELECT status,revealed_seed,seed_ciphertext,seed_key_id,candidate_snapshot_hash FROM campaign_draws WHERE id=?',[drawId]);
+    assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.seed_key_id,'legacy-env');assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
     await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
     const [[tamperTarget]]=await pool.execute('SELECT id,campaign_code_id,code_snapshot FROM draw_candidates WHERE draw_id=? ORDER BY id LIMIT 1',[drawId]);
     await pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]);
