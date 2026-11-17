@@ -17,6 +17,10 @@ The current schema does not store a key identifier and the service expects one a
 
 If a prepared draw exists, retain the old key until that draw is completed or implement and test a key-versioned re-encryption migration. Do not overwrite the only copy of the old key.
 
+## Ranking algorithm
+
+The current algorithm is `HMAC-SHA256 candidate-commitment-rank-v2`. Each candidate is ranked using its committed `candidate_hash`, not the mutable database row ID. The verifier requires the declared algorithm version, validates unique candidate and code identifiers, checks contiguous winner ranks, and recomputes the winner selection. Prepared draws created with a different algorithm version are rejected by the completion service and must not be silently executed under a new version.
+
 ## Draw procedure
 
 1. Close the campaign and verify its eligible entries and active codes.
