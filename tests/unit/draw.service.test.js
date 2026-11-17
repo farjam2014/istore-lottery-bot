@@ -13,8 +13,8 @@ test('draw ranking is deterministic, independent of input ordering, and verifiab
   const seed='a'.repeat(64);
   const first=rankDrawCandidates(seed,candidates);
   const second=rankDrawCandidates(seed,[...candidates].reverse());
-  assert.equal(DRAW_ALGORITHM,'HMAC-SHA256 deterministic-rank-v1');
-  assert.deepEqual(first.map(x=>x.id),second.map(x=>x.id));
+  assert.equal(DRAW_ALGORITHM,'HMAC-SHA256 candidate-commitment-rank-v2');
+  assert.deepEqual(first.map(x=>x.candidate_hash),second.map(x=>x.candidate_hash));
   assert.ok(first.every(x=>/^[a-f0-9]{64}$/.test(x.ranking_hash)));
   assert.deepEqual(candidates.map(x=>x.id),[3,1,2],'Input snapshot must not be mutated.');
 });
