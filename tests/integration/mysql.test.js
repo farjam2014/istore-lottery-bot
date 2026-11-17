@@ -1,8 +1,13 @@
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+
+after(async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  await pool.end();
+});
 test('MySQL integration: clean schema, unique profile, multiple campaigns, frozen snapshot and idempotent codes',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/,'Integration tests only run against a database ending in _ci or _test');
