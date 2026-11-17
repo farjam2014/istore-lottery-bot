@@ -62,7 +62,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
-      '20261117_005_draw_seed_keyring.sql'
+      '20261117_005_draw_seed_keyring.sql',
+      '20261117_006_draw_relational_integrity.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -72,7 +73,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     for(const version of [
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
-      '20261117_004_draw_commitment_publication.sql'
+      '20261117_004_draw_commitment_publication.sql',
+      '20261117_006_draw_relational_integrity.sql'
     ]){
       await pool.execute('DELETE FROM schema_migrations WHERE version=?',[version]);
       await migrate();
