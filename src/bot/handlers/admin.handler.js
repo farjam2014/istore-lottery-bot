@@ -236,7 +236,7 @@ export function registerAdminHandlers(bot){
       return ctx.answerCbQuery(error.message||'آماده‌سازی قرعه‌کشی ناموفق بود.',{show_alert:true});
     }
   });
-  bot.action(/^admin:campaign:draw:publish:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:draw:publish:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);
     const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[drawId]);
@@ -246,13 +246,13 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery();
     return respond(ctx,'لینک عمومی محل انتشار Seed Commitment و Hash نامزدها را ارسال کنید. فقط لینک HTTPS پذیرفته می‌شود. ثبت لینک، خوداظهاری مدیر است و سامانه محتوای آن را مستقلاً تأیید نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+drawId)]]));
   });
-  bot.action(/^admin:campaign:draw:publication-cancel:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:draw:publication-cancel:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
     if(wizard&&['draw_publication_reference','draw_publication_confirm'].includes(wizard.step)&&Number(wizard.payload?.drawId)===drawId)await clearWizard(ctx.from.id);
     await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ثبت انتشار لغو شد.');
   });
-  bot.action(/^admin:campaign:draw:publication-confirm:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:draw:publication-confirm:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
     if(!wizard||wizard.step!=='draw_publication_confirm'||Number(wizard.payload?.drawId)!==drawId||!wizard.payload?.reference)return ctx.answerCbQuery('مرحله ثبت انتشار منقضی شده است.',{show_alert:true});
