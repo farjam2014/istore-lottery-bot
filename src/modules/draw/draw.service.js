@@ -69,7 +69,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     await connection.execute('UPDATE campaign_draws SET candidate_snapshot_hash=? WHERE id=?',[snapshotHash,drawId]);
     await connection.execute(
       "INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,'draw_prepared','campaign_draw',?,?)",
-      [String(createdBy),'drawId',JSON.stringify({campaignId,candidateCount:candidates.length,winnerCount:count,algorithm:DRAW_ALGORITHM,seedHash:commitment,candidateSnapshotHash:snapshotHash})]
+      [String(createdBy),drawId,JSON.stringify({campaignId,candidateCount:candidates.length,winnerCount:count,algorithm:DRAW_ALGORITHM,seedHash:commitment,candidateSnapshotHash:snapshotHash})]
     );
     await connection.commit();
     return {drawId,campaignId:Number(campaignId),status:'prepared',algorithm:DRAW_ALGORITHM,seedHash:commitment,candidateSnapshotHash:snapshotHash,candidateCount:candidates.length,winnerCount:count};
