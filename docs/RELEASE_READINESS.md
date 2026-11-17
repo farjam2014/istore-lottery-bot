@@ -11,6 +11,7 @@ Target runtime: Ubuntu 24.04, Node.js 22+, MySQL 8+, systemd service `ustore-tel
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
 - [ ] Review the full PR diff and migration files; do not rely on `mergeable=true` alone.
 - [ ] Confirm the target host, application directory, systemd unit, Node version, MySQL version, and database name.
+- [ ] Confirm `MYSQL_DATABASE` and `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
 - [ ] Confirm a clean, known code version is deployed and record its commit SHA.
 - [ ] Confirm `.env` is a regular file owned by the service account with mode `600`. Never print or upload it.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
