@@ -4,7 +4,6 @@ export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
 export const CODE_FINAL_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const MIN_SEQUENCE_NUMBER = 10001;
 export const MAX_SEQUENCE_NUMBER = 999999;
-const RANDOM_SUFFIX_LENGTH = 2;
 
 function randomCharacters(length) {
   if (!Number.isInteger(length) || length < 0 || length > 5) {
