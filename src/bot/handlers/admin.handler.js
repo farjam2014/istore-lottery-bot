@@ -338,7 +338,7 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action(/^admin:campaign:codes:search:(\d+)$/,async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    if(!hasPermission(ctx.from.id,'campaign.write')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
@@ -355,7 +355,7 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    if(!hasPermission(ctx.from.id,'campaign.write')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
