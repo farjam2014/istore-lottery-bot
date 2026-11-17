@@ -9,8 +9,15 @@ ALTER TABLE draw_candidates
 
 UPDATE draw_candidates dc
 JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id
-SET dc.campaign_entry_id=cc.campaign_entry_id
-WHERE dc.campaign_entry_id IS NULL;
+JOIN campaign_entries ce ON ce.id=cc.campaign_entry_id AND ce.campaign_id=cc.campaign_id
+SET dc.campaign_entry_id=cc.campaign_entry_id,
+    dc.campaign_id=cc.campaign_id,
+    dc.participant_id=ce.participant_id,
+    dc.code_snapshot=cc.code
+WHERE dc.campaign_entry_id IS NULL
+   OR dc.campaign_id IS NULL
+   OR dc.participant_id IS NULL
+   OR dc.code_snapshot IS NULL;
 
 ALTER TABLE draw_candidates
   MODIFY campaign_entry_id BIGINT UNSIGNED NOT NULL,
