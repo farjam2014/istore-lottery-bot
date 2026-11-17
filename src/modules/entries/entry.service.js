@@ -16,10 +16,12 @@ export async function joinFreeCampaign({telegramUserId,campaignId}){
     if(existing){
       const [existingCodes]=await c.execute('SELECT code FROM campaign_codes WHERE campaign_entry_id=? ORDER BY id',[existing.id]);
       if(existing.status!=='eligible')throw new Error('وضعیت شرکت شما در این کمپین قابل صدور کد نیست.');
-      if(existingCodes.length){await c.commit();return {entryId:existing.id,codes:existingCodes.map(x=>x.code),alreadyJoined:true,status:existing.status};}
-      const repaired=await issueCampaignCodes(c,existing.id,campaignId,campaign.codes_per_entry);
+      const target=Math.max(1,Math.min(100,Number(campaign.codes_per_entry)||1));
+      if(existingCodes.length>=target){await c.commit();return {entryId:existing.id,codes:existingCodes.map(x=>x.code),alreadyJoined:true,status:existing.status};}
+      const repaired=await issueCampaignCodes(c,existing.id,campaignId,target-existingCodes.length);
+      const allCodes=[...existingCodes.map(x=>x.code),...repaired];
       await c.commit();
-      return {entryId:existing.id,codes:repaired,alreadyJoined:true,status:existing.status,repaired:true};
+      return {entryId:existing.id,codes:allCodes,alreadyJoined:true,status:existing.status,repaired:true};
     }
     if(campaign.capacity!==null){
       const [[count]]=await c.execute("SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status IN ('eligible','pending_payment')",[campaignId]);
