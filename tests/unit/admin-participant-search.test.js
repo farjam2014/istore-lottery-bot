@@ -13,6 +13,9 @@ test('admin participant search callback starts a search session, persists result
   assert.ok(source.includes("SET step='participant_results',campaign_id=NULL,query_text=?"));
   assert.ok(source.includes("SELECT query_text FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant_results'"));
   assert.ok(source.includes("hasPermission(ctx.from.id,'participant.export')"));
+  assert.ok(source.includes("'admin:participant:view:'+p.id+':'+pagination.page"));
+  assert.ok(source.includes("admin:participant:view:(\\d+)(?::(\\d+))?"));
+  assert.ok(source.includes("admin:participants:page:'+(Number(ctx.match[2])||0)"));
   assert.match(source, /if\(participantSearch\).*showParticipants\(ctx,0,query\)/s);
   assert.ok(source.includes('مشتری‌ای پیدا نشد'));
 });
