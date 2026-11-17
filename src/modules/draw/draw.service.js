@@ -27,7 +27,7 @@ export function verifyCampaignDraw({drawId,algorithm,seed,seedHash,candidateSnap
   const id=Number(drawId);
   if(!Number.isSafeInteger(id)||id<1) return {valid:false,reason:'invalid_draw_id'};
   if(!/^[a-f0-9]{64}$/i.test(String(seed??''))||sha256(String(seed))!==String(seedHash)) return {valid:false,reason:'seed_commitment_mismatch'};
-  if(!Array.isArray(candidates)||!Array.isArray(winners)||!candidates.length||!winners.length) return {valid:false,reason:'invalid_draw_payload'};
+  if(!Array.isArray(candidates)||!Array.isArray(winners)||!candidates.length||!winners.length||winners.some(winner=>!winner||typeof winner!=='object')) return {valid:false,reason:'invalid_draw_payload'};
   const candidateIds=new Set();const codeIds=new Set();
   const candidateIntegrity=candidates.every(candidate=>{
     if(!candidate||String(candidate.draw_id)!==String(id)) return false;
