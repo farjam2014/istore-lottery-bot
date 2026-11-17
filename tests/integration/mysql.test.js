@@ -41,6 +41,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(Number(legacyMigrated.sequence_number),1);assert.equal(Number(legacyMigrated.format_version),1);assert.equal(legacyMigrated.status,'active');
     const [[legacyCounter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[legacyCampaignId]);
     assert.equal(Number(legacyCounter.last_sequence),1);
+    // Simulate a crash after migration 005 DDL committed but before its history row was recorded.
+    await pool.execute("DELETE FROM schema_migrations WHERE version='20261117_005_draw_seed_keyring.sql'");
+    await migrate();
+    const [[keyringRecovery]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_005_draw_seed_keyring.sql'");
+    assert.match(keyringRecovery.checksum,/^[a-f0-9]{64}$/);
     const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
     const legacyConn=await pool.getConnection();let postMigrationCodes;try{await legacyConn.beginTransaction();postMigrationCodes=await issueCampaignCodes(legacyConn,legacyEntryId,legacyCampaignId,1);await legacyConn.commit();}catch(error){await legacyConn.rollback();throw error;}finally{legacyConn.release();}
     const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
