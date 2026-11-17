@@ -550,6 +550,13 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     const [[before]]=await pool.execute('SELECT status,revealed_seed,seed_ciphertext,candidate_snapshot_hash FROM campaign_draws WHERE id=?',[drawId]);
     assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
     await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
+    const [[tamperTarget]]=await pool.execute('SELECT id,campaign_code_id,code_snapshot FROM draw_candidates WHERE draw_id=? ORDER BY id LIMIT 1',[drawId]);
+    await pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]);
+    await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/دستکاری شده/);
+    await pool.execute('UPDATE draw_candidates SET code_snapshot=? WHERE id=?',[tamperTarget.code_snapshot,tamperTarget.id]);
+    await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=?",[tamperTarget.campaign_code_id]);
+    await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/وضعیت یکی از کدها/);
+    await pool.execute("UPDATE campaign_codes SET status='active' WHERE id=?",[tamperTarget.campaign_code_id]);
     const completed=await completeCampaignDraw({drawId,completedBy:telegramIds[0]});
     assert.equal(completed.status,'completed');assert.equal(completed.winners.length,2);
     assert.equal(createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
