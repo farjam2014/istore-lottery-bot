@@ -53,8 +53,8 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     if(candidates.length<count) throw new Error('تعداد کدهای واجد شرایط از تعداد برندگان کمتر است.');
     if(new Set(candidates.map(x=>String(x.participant_id))).size<count) throw new Error('تعداد شرکت‌کنندگان یکتای واجد شرایط از تعداد برندگان کمتر است.');
     const [drawInsert]=await connection.execute(
-      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,winner_count,seed_ciphertext,seed_nonce,seed_tag) VALUES(?,'prepared',?,?,?,?,?,?,?)",
-      [campaignId,DRAW_ALGORITHM,commitment,candidates.length,count,encrypted.ciphertext,encrypted.nonce,encrypted.tag]
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,winner_count,created_by,seed_ciphertext,seed_nonce,seed_tag) VALUES(?,'prepared',?,?,?,?,?,?,?,?)",
+      [campaignId,DRAW_ALGORITHM,commitment,candidates.length,count,String(createdBy),encrypted.ciphertext,encrypted.nonce,encrypted.tag]
     );
     const drawId=drawInsert.insertId;
     const candidateHashes=[];
