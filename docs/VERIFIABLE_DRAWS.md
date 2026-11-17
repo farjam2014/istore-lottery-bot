@@ -35,3 +35,25 @@ The service refuses completion if a candidate's stored snapshot integrity fails 
 ## Operational boundary
 
 The campaign-code migration assigns legacy codes stable per-campaign sequence numbers in original code-ID order, keeps them at format version 1, and seeds each counter to the highest migrated sequence. Campaigns with more than 999999 legacy codes are rejected before migration. The draw-publication migration adds the publication reference and audit fields. These migrations are versioned and must be reviewed and backed up before production application. A green CI run does not apply migrations or deploy code. Never run integration tests against a production database.
+
+
+## Offline proof artifact (version 1)
+
+After a draw is completed, an administrator with `campaign.draw` can download a gzip-compressed JSON proof from the draw result screen. The artifact contains the draw ID and campaign ID, algorithm version, revealed seed, seed commitment, candidate snapshot hash, every committed candidate record, winner records, and the recorded publication attestation. It intentionally excludes participant names, phone numbers, Instagram handles, and Telegram IDs. Numeric internal participant IDs are included because the verifier needs to check that winners are unique participants; treat the file as an internal identifier-bearing record, not as anonymous data.
+
+On a machine with Node.js 22 and the repository source:
+
+```sh
+gunzip -c campaign-draw-<id>-proof.json.gz > proof.json
+npm run verify:draw-proof -- proof.json
+```
+
+The verifier is pure local code: it reads only the JSON file and does not connect to MySQL, Telegram, environment variables, or the seed-encryption key. Exit code 0 means the proof is internally consistent with the published seed commitment and snapshot hash; exit code 1 means verification failed; exit code 2 means the CLI usage is invalid.
+
+The proof verifier checks the supported algorithm, seed commitment, candidate record hashes, candidate snapshot hash, candidate/winner counts, unique candidate/code identifiers, contiguous winner ranks, unique participant winners, and deterministic winner selection. Keep the original downloaded artifact unchanged and retain its SHA-256 digest separately when archiving or sharing it.
+
+Important limitations:
+- A valid proof demonstrates that the exported candidate list and winners are consistent with the committed snapshot and revealed seed. It does **not** independently prove that every person who should have been eligible was included, or that excluded/ineligible people were correctly filtered. That requires a separately published eligibility register and independent reconciliation against the campaign rules and source records.
+- The publication URL and timestamp in the proof are admin self-attestation. The verifier does not fetch the URL, prove it was public at the stated time, or prove that its content was not changed later.
+- The proof contains internal numeric participant IDs. Do not publish it broadly without assessing the privacy implications and applicable campaign rules.
+- Telegram delivery is gzip-compressed and capped at 45 MiB. Larger proofs currently fail closed; chunked export is not implemented.
