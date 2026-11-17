@@ -140,6 +140,20 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       return false;
     }
   }
+  if(file==='20261117_006_draw_relational_integrity.sql'){
+    if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
+    if(index===1) return hasIndex(connection,'campaign_codes','uq_code_entry_campaign_value');
+    if(index===2) return hasColumn(connection,'draw_candidates','campaign_entry_id');
+    if(index===3) return false; // Deterministic backfill; safe to replay after interruption.
+    if(index===4) return allSchemaChecks(connection,[
+      hasIndex(connection,'draw_candidates','uq_candidate_full_identity'),
+      hasForeignKey(connection,'draw_candidates','fk_candidate_entry_participant'),
+      hasForeignKey(connection,'draw_candidates','fk_candidate_code_entry_value')
+    ],'Partial DDL detected in draw candidate relational-integrity constraints. Inspect draw_candidates before repair.');
+    if(index===5) return hasColumn(connection,'draw_winners','campaign_entry_id');
+    if(index===6) return false; // Deterministic backfill; safe to replay after interruption.
+    if(index===7) return hasForeignKey(connection,'draw_winners','fk_winner_exact_candidate');
+  }
   if(file==='20261117_005_draw_seed_keyring.sql' && index===0){
     const [[column]]=await connection.execute(
       "SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draws' AND COLUMN_NAME='seed_key_id'"
