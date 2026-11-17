@@ -287,8 +287,16 @@ export function registerAdminHandlers(bot){
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'campaign_code',?) ON DUPLICATE KEY UPDATE step=VALUES(step),campaign_id=VALUES(campaign_id)",[String(ctx.from.id),campaignId]);
     await ctx.answerCbQuery();
-    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:detail:'+campaignId)]]));
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
   });
+  bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const campaignId=Number(ctx.match[1]);
+    await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND campaign_id=?",[String(ctx.from.id),campaignId]);
+    await ctx.answerCbQuery('جست‌وجو لغو شد.');
+    return showCampaignDetail(ctx,campaignId);
+  });
+
   bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     const campaignId=Number(ctx.match[1]);
