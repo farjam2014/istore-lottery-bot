@@ -42,6 +42,10 @@ test('proof rejects altered seed, candidate list, winner, algorithm and missing 
   assert.equal(verifyDrawProof(badUrl).reason,'publication_metadata_missing');
   const badTimestamp=structuredClone(proof);badTimestamp.draw.completedAt='not-a-date';
   assert.equal(verifyDrawProof(badTimestamp).reason,'publication_metadata_missing');
+  const latePublication=structuredClone(proof);latePublication.draw.publication.publishedAt='2026-11-17T10:02:00.000Z';
+  assert.equal(verifyDrawProof(latePublication).reason,'publication_metadata_missing');
+  const credentialUrl=structuredClone(proof);credentialUrl.draw.publication.reference='https://user:secret@example.com/draw/9';
+  assert.equal(verifyDrawProof(credentialUrl).reason,'publication_metadata_missing');
   const wrongCampaign=structuredClone(proof);wrongCampaign.draw.campaignId=14;
   assert.equal(verifyDrawProof(wrongCampaign).reason,'candidate_campaign_mismatch');
 });
