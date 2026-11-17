@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {rankDrawCandidates,verifyCampaignDraw,verifyDrawProof,DRAW_ALGORITHM,DRAW_PROOF_VERSION} from '../../src/modules/draw/draw-verifier.js';
+import {rankDrawCandidates,verifyCampaignDraw,verifyDrawProof,isValidPublicationReference,DRAW_ALGORITHM,DRAW_PROOF_VERSION} from '../../src/modules/draw/draw-verifier.js';
 
 const seed='c'.repeat(64);
 const candidates=[
@@ -21,6 +21,16 @@ const proof={
   draw:{id:9,campaignId:13,status:'completed',algorithm:DRAW_ALGORITHM,seedHash:createHash('sha256').update(seed).digest('hex'),revealedSeed:seed,candidateSnapshotHash:snapshotHash,candidateCount:3,winnerCount:2,publication:{reference:'https://example.com/draw/9',publishedAt:'2026-11-17T10:00:00.000Z',publishedBy:'12345'},completedAt:'2026-11-17T10:01:00.000Z'},
   candidates,winners
 };
+
+test('publication references require a real HTTPS URL without embedded credentials',()=>{
+  assert.equal(isValidPublicationReference('https://example.com/draw/9'),true);
+  assert.equal(isValidPublicationReference('http://example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://'),false);
+  assert.equal(isValidPublicationReference('https://!!!!!!!!'),false);
+  assert.equal(isValidPublicationReference('https://user:secret@example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference(' https://example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://example.com/'+('a'.repeat(490))),false);
+});
 
 test('offline proof verifies without database or encryption key',()=>{
   const result=verifyDrawProof(proof);
