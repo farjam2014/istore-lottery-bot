@@ -22,10 +22,12 @@ function decryptSeed(row){
 }
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
-export function verifyCampaignDraw({seed,seedHash,candidateSnapshotHash,candidates,winners}){
+export function verifyCampaignDraw({drawId,seed,seedHash,candidateSnapshotHash,candidates,winners}){
+  if(!Number.isSafeInteger(Number(drawId))||Number(drawId)<1) return {valid:false,reason:'invalid_draw_id'};
   if(sha256(String(seed))!==String(seedHash)) return {valid:false,reason:'seed_commitment_mismatch'};
   const candidateIntegrity=candidates.every(candidate=>
-    sha256(candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===candidate.candidate_hash
+    String(candidate.draw_id)===String(drawId) &&
+    sha256(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===candidate.candidate_hash
   );
   if(!candidateIntegrity) return {valid:false,reason:'candidate_record_mismatch'};
   const snapshotHash=sha256(candidates.map(x=>x.candidate_hash).sort().join(''));
@@ -84,7 +86,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     const drawId=drawInsert.insertId;
     const candidateHashes=[];
     for(const candidate of candidates){
-      const candidateHash=sha256(campaignId+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code);
+      const candidateHash=sha256(drawId+':'+campaignId+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code);
       candidateHashes.push(candidateHash);
       await connection.execute(
         'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?)',
@@ -122,7 +124,7 @@ export async function completeCampaignDraw({drawId,completedBy}){
     );
     if(candidates.length!==Number(draw.candidate_count)||!candidates.length) throw new Error('Snapshot نامزدهای قرعه‌کشی ناقص یا دستکاری شده است.');
     for(const candidate of candidates){
-      const expectedHash=sha256(draw.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot);
+      const expectedHash=sha256(draw.id+':'+draw.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot);
       if(String(candidate.campaign_id)!==String(draw.campaign_id)||expectedHash!==candidate.candidate_hash) throw new Error('اطلاعات یکی از نامزدهای Snapshot دستکاری شده است.');
       if(candidate.code_status!=='active'||candidate.entry_status!=='eligible'||candidate.participant_status!=='active'||candidate.current_code!==candidate.code_snapshot) throw new Error('وضعیت یکی از کدها یا شرکت‌کنندگان پس از آماده‌سازی قرعه‌کشی تغییر کرده است؛ قرعه‌کشی متوقف شد.');
     }
