@@ -1,5 +1,6 @@
 import {createHash,createHmac} from 'node:crypto';
 import {isIP} from 'node:net';
+import {isIP} from 'node:net';
 
 export const DRAW_ALGORITHM='HMAC-SHA256 candidate-commitment-rank-v2';
 export const DRAW_PROOF_VERSION=1;
