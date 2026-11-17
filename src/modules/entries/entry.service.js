@@ -14,8 +14,9 @@ export async function joinFreeCampaign({telegramUserId,campaignId}){
     const [[existing]]=await c.execute('SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',[campaignId,profile.id]);
     if(campaign.participation_type!=='free')throw new Error('این کمپین پولی است؛ برای شرکت باید سفارش پرداختی ثبت شود.');
     if(existing){
-      const [existingCodes]=await c.execute('SELECT code FROM campaign_codes WHERE campaign_entry_id=? ORDER BY id',[existing.id]);
+      const [existingCodes]=await c.execute('SELECT code,status FROM campaign_codes WHERE campaign_entry_id=? ORDER BY id',[existing.id]);
       if(existing.status!=='eligible')throw new Error('وضعیت شرکت شما در این کمپین قابل صدور کد نیست.');
+      if(existingCodes.some(code=>code.status!=='active'))throw new Error('حداقل یکی از کدهای قبلی شما غیرفعال شده است؛ برای بررسی با پشتیبانی تماس بگیرید.');
       const target=normalizeRequestedCodeCount(campaign.codes_per_entry);
       if(existingCodes.length>=target){await c.commit();return {entryId:existing.id,codes:existingCodes.map(x=>x.code),alreadyJoined:true,status:existing.status};}
       const repaired=await issueCampaignCodes(c,existing.id,campaignId,target-existingCodes.length);
@@ -32,7 +33,7 @@ export async function joinFreeCampaign({telegramUserId,campaignId}){
     const codes=await issueCampaignCodes(c,insert.insertId,campaignId,campaign.codes_per_entry);
     await c.commit();
     return {entryId:insert.insertId,codes,alreadyJoined:false,status:'eligible'};
-  }catch(error){await c.rollback();if(error.code==='ER_DUP_ENTRY'){const [rows]=await pool.execute("SELECT e.id,e.status,cc.code FROM campaign_entries e LEFT JOIN campaign_codes cc ON cc.campaign_entry_id=e.id JOIN participants p ON p.id=e.participant_id WHERE e.campaign_id=? AND p.telegram_user_id=? ORDER BY cc.id",[campaignId,String(telegramUserId)]);if(rows.length)return {entryId:rows[0].id,codes:rows.map(x=>x.code).filter(Boolean),alreadyJoined:true,status:rows[0].status};}throw error;}
+  }catch(error){await c.rollback();if(error.code==='ER_DUP_ENTRY'){const [rows]=await pool.execute("SELECT e.id,e.status,cc.code FROM campaign_entries e LEFT JOIN campaign_codes cc ON cc.campaign_entry_id=e.id AND cc.status='active' JOIN participants p ON p.id=e.participant_id WHERE e.campaign_id=? AND p.telegram_user_id=? AND e.status='eligible' ORDER BY cc.id",[campaignId,String(telegramUserId)]);if(rows.length)return {entryId:rows[0].id,codes:rows.map(x=>x.code).filter(Boolean),alreadyJoined:true,status:rows[0].status};}throw error;}
   finally{c.release();}
 }
 
