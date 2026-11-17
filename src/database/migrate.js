@@ -128,6 +128,14 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       return false;
     }
   }
+  if(file==='20261117_005_draw_seed_keyring.sql' && index===0){
+    const [[column]]=await connection.execute(
+      "SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draws' AND COLUMN_NAME='seed_key_id'"
+    );
+    if(!column) return false;
+    if(String(column.COLUMN_TYPE).toLowerCase()!=='varchar(64)'||column.IS_NULLABLE!=='NO'||String(column.COLUMN_DEFAULT)!=='legacy-env') throw new Error('Unexpected existing campaign_draws.seed_key_id definition; inspect schema before replaying keyring migration.');
+    return true;
+  }
   if(file==='20261117_002_admin_campaign_code_search.sql' && index===0){
     const checks=await Promise.all([
       hasColumn(connection,'admin_search_sessions','campaign_id'),
