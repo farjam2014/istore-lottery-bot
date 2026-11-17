@@ -33,9 +33,9 @@ FROM campaign_codes
 GROUP BY campaign_id
 HAVING COUNT(*) > 999999;
 
--- Legacy draw records that point at a code from a different campaign.
--- Migration 003 leaves new snapshot columns NULL for legacy records; these
--- records must be reviewed and must not be silently rewritten.
+-- Legacy draw evidence blocks migration 006. The migration deliberately refuses
+-- to infer historical entry/participant/code snapshots for any existing rows.
+-- Any non-zero count requires explicit reconciliation before release.
 SELECT COUNT(*) AS candidate_draw_code_campaign_mismatches
 FROM draw_candidates dc
 JOIN campaign_draws d ON d.id=dc.draw_id
@@ -47,6 +47,10 @@ FROM draw_winners dw
 JOIN campaign_draws d ON d.id=dw.draw_id
 JOIN campaign_codes cc ON cc.id=dw.campaign_code_id
 WHERE d.campaign_id<>cc.campaign_id;
+
+SELECT 'draw_rows_blocking_migration_006' AS check_name,
+       (SELECT COUNT(*) FROM draw_candidates) AS candidate_rows,
+       (SELECT COUNT(*) FROM draw_winners) AS winner_rows;
 
 -- Prepared draws need special handling: the old schema stores seed_hash only.
 -- Do not cancel/recreate these draws or assume the seed can be recovered.
@@ -75,6 +79,7 @@ FROM (
   UNION ALL SELECT '20261117_003_verifiable_campaign_draws.sql'
   UNION ALL SELECT '20261117_004_draw_commitment_publication.sql'
   UNION ALL SELECT '20261117_005_draw_seed_keyring.sql'
+  UNION ALL SELECT '20261117_006_draw_relational_integrity.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
