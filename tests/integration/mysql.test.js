@@ -30,6 +30,13 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(repeated.alreadyJoined,true);assert.deepEqual(repeated.codes,first.codes);
     const second=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[1]});
     assert.equal(second.codes.length,2);assert.notDeepEqual(second.codes,first.codes);
+    for(const campaignId of campaignIds){
+      const [issued]=await pool.execute('SELECT sequence_number,random_prefix,random_suffix,format_version,status,code FROM campaign_codes WHERE campaign_id=? ORDER BY sequence_number',[campaignId]);
+      assert.deepEqual(issued.map(x=>Number(x.sequence_number)),[10001,10002]);
+      assert.ok(issued.every(x=>Number(x.format_version)===2&&x.status==='active'&&x.code.length>0));
+      assert.ok(issued.every(x=>String(x.random_prefix).length===1&&/^[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_prefix)));
+      assert.ok(issued.every(x=>/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_suffix)));
+    }
     await pool.execute("UPDATE participants SET full_name='Changed Name' WHERE id=?",[participantId]);
     const [[entry]]=await pool.execute('SELECT profile_snapshot FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignIds[0],participantId]);
     const snapshot=typeof entry.profile_snapshot==='string'?JSON.parse(entry.profile_snapshot):entry.profile_snapshot;
@@ -79,8 +86,10 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     const [[approvalNotice]]=await pool.execute("SELECT payload FROM telegram_notification_outbox WHERE chat_id=? ORDER BY id DESC LIMIT 1",[telegramId]);
     const approvalPayload=typeof approvalNotice.payload==='string'?JSON.parse(approvalNotice.payload):approvalNotice.payload;
     assert.match(approvalPayload.text,/پرداخت سفارش/);assert.match(approvalPayload.text,/کدهای شرکت شما/);
-    const [codes]=await pool.execute('SELECT code FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.campaign_id=?',[campaignId]);
+    const [codes]=await pool.execute('SELECT cc.code,cc.sequence_number,cc.random_prefix,cc.random_suffix,cc.format_version FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.campaign_id=? ORDER BY cc.sequence_number',[campaignId]);
     assert.equal(codes.length,2);
+    assert.deepEqual(codes.map(x=>Number(x.sequence_number)),[10001,10002]);
+    assert.ok(codes.every(x=>Number(x.format_version)===2));
     await assert.rejects(reviewReceipt({adminId:'1',receiptId:retry.receiptId,decision:'approve'}),/قبلاً/);
     const [[order]]=await pool.execute('SELECT status FROM payment_orders WHERE id=?',[orderId]);assert.equal(order.status,'approved');
   }finally{
