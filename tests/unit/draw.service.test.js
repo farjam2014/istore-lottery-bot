@@ -31,7 +31,7 @@ test('draw ranking rejects malformed seed material',()=>{
 
 test('public verifier checks seed commitment and reproducible unique-participant winners',()=>{
   const seed='c'.repeat(64);
-  const snapshot=candidates.map(candidate=>({...candidate,candidate_hash:createHash('sha256').update(candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot).digest('hex')}));
+  const snapshot=candidates.map(candidate=>({...candidate,candidate_hash:createHash('sha256').update(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot).digest('hex')}));
   const candidateSnapshotHash=createHash('sha256').update(snapshot.map(x=>x.candidate_hash).sort().join('')).digest('hex');
   const ranked=rankDrawCandidates(seed,snapshot);
   const chosen=[];const participants=new Set();
@@ -42,12 +42,14 @@ test('public verifier checks seed commitment and reproducible unique-participant
     if(chosen.length===2) break;
   }
   const commitment=createHash('sha256').update(seed).digest('hex');
-  const result=verifyCampaignDraw({seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
+  const result=verifyCampaignDraw({drawId:9,seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
   assert.equal(result.valid,true);
   assert.match(result.snapshotHash,/^[a-f0-9]{64}$/);
-  const altered=verifyCampaignDraw({seed:'d'.repeat(64),seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
+  const altered=verifyCampaignDraw({drawId:9,seed:'d'.repeat(64),seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
   assert.equal(altered.valid,false);
   assert.equal(altered.reason,'seed_commitment_mismatch');
-  const changedSnapshot=verifyCampaignDraw({seed,seedHash:commitment,candidateSnapshotHash:'0'.repeat(64),candidates:snapshot,winners:chosen});
+  const changedSnapshot=verifyCampaignDraw({drawId:9,seed,seedHash:commitment,candidateSnapshotHash:'0'.repeat(64),candidates:snapshot,winners:chosen});
   assert.equal(changedSnapshot.valid,false);assert.equal(changedSnapshot.reason,'candidate_snapshot_mismatch');
+  const wrongDraw=verifyCampaignDraw({drawId:10,seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
+  assert.equal(wrongDraw.valid,false);assert.equal(wrongDraw.reason,'candidate_record_mismatch');
 });
