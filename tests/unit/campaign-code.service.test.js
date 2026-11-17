@@ -18,8 +18,8 @@ test('production generator starts at 1 and emits the exact allowed random alphab
     const generated=generateCampaignCode({campaignId:13,sequenceNumber:sequence});
     assert.match(generated.code,/^P13-[A-Z0-9]{6}-[A-Z0-9][A-Z0]$/);
     assert.equal(generated.randomPrefix.length,6-String(sequence).length);
-    assert.match(generated.randomPrefix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[A-Z0]$/);
-    assert.match(generated.randomSuffix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][A-Z0]$/);
+    assert.match(generated.randomPrefix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/);
+    assert.match(generated.randomSuffix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/);
   }
   assert.throws(()=>generateCampaignCode({campaignId:13,sequenceNumber:0}),/outside the allowed/);
   assert.throws(()=>generateCampaignCode({campaignId:13,sequenceNumber:MAX_SEQUENCE_NUMBER+1}),/outside the allowed/);
@@ -37,12 +37,14 @@ test('generator handles every digit-width boundary and maximum sequence',()=>{
 
 test('prefix and suffix validators reject malformed structures and forbidden final digits',()=>{
   assert.throws(()=>buildSequencePart(10,'ABC'),/does not match/);
-  assert.equal(buildSequencePart(10,'ABCI'),'ABCI10');
+  assert.throws(()=>buildSequencePart(10,'ABCI'),/disallowed characters/);
+  assert.throws(()=>buildSequencePart(10,'ABCO'),/disallowed characters/);
   assert.throws(()=>buildSequencePart(10,'ABC5'),/disallowed characters/);
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'M8'}),/Random suffix/);
   assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'M0'}),'P13-ABCD10-M0');
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'O0'}),/Random suffix/);
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'I0'}),/Random suffix/);
+  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'MO'}),/Random suffix/);
 });
 
 test('requested issuance count must be an integer from 1 through 100',()=>{
