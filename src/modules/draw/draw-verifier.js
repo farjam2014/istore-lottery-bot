@@ -4,6 +4,14 @@ export const DRAW_ALGORITHM='HMAC-SHA256 candidate-commitment-rank-v2';
 export const DRAW_PROOF_VERSION=1;
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
+export function isValidPublicationReference(value){
+  if(typeof value!=='string'||value.length<1||value.length>500||value.trim()!==value) return false;
+  try{
+    const url=new URL(value);
+    return url.protocol==='https:'&&Boolean(url.hostname)&&!url.username&&!url.password;
+  }catch{return false;}
+}
+
 export function rankDrawCandidates(seed,candidates){
   if(!/^[a-f0-9]{64}$/i.test(String(seed))) throw new Error('Draw seed must be 32 bytes encoded as 64 hexadecimal characters.');
   if(!Array.isArray(candidates)) throw new TypeError('Candidates must be an array.');
@@ -44,10 +52,8 @@ export function verifyDrawProof(proof){
   if(!Number.isSafeInteger(Number(draw.candidateCount))||Number(draw.candidateCount)<1||!Number.isSafeInteger(Number(draw.winnerCount))||Number(draw.winnerCount)<1) return {valid:false,reason:'invalid_draw_counts'};
   if(!Array.isArray(proof.candidates)||proof.candidates.length!==Number(draw.candidateCount)||!Array.isArray(proof.winners)||proof.winners.length!==Number(draw.winnerCount)) return {valid:false,reason:'proof_count_mismatch'};
   if(proof.candidates.some(candidate=>String(candidate?.campaign_id)!==String(draw.campaignId))) return {valid:false,reason:'candidate_campaign_mismatch'};
-  let publicationUrl;
-  try{publicationUrl=new URL(draw.publication?.reference);}catch{return {valid:false,reason:'publication_metadata_missing'};}
-  const publishedAt=Date.parse(draw.publication.publishedAt);
+  const publishedAt=Date.parse(draw.publication?.publishedAt);
   const completedAt=Date.parse(draw.completedAt);
-  if(publicationUrl.protocol!=='https:'||!publicationUrl.hostname||publicationUrl.username||publicationUrl.password||!/^[0-9]+$/.test(String(draw.publication.publishedBy??''))||!Number.isFinite(publishedAt)||!Number.isFinite(completedAt)||publishedAt>completedAt) return {valid:false,reason:'publication_metadata_missing'};
+  if(!isValidPublicationReference(draw.publication?.reference)||!/^[0-9]+$/.test(String(draw.publication?.publishedBy??''))||!Number.isFinite(publishedAt)||!Number.isFinite(completedAt)||publishedAt>completedAt) return {valid:false,reason:'publication_metadata_missing'};
   return verifyCampaignDraw({drawId:draw.id,algorithm:draw.algorithm,seed:draw.revealedSeed,seedHash:draw.seedHash,candidateSnapshotHash:draw.candidateSnapshotHash,candidates:proof.candidates,winners:proof.winners});
 }
