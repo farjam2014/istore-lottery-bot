@@ -1,26 +1,11 @@
-import {createHash,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
+import {createHash} from 'node:crypto';
+import {encryptDrawSeed,decryptDrawSeed} from './draw-keyring.js';
 import {pool} from '../../database/pool.js';
 
 export {DRAW_ALGORITHM,rankDrawCandidates,verifyCampaignDraw} from './draw-verifier.js';
 import {DRAW_ALGORITHM,rankDrawCandidates} from './draw-verifier.js';
 const MAX_WINNERS=100;
 
-function encryptionKey(){
-  const value=String(process.env.DRAW_SEED_ENCRYPTION_KEY??'').trim();
-  if(!/^[a-f0-9]{64}$/i.test(value)) throw new Error('DRAW_SEED_ENCRYPTION_KEY must be configured as exactly 32 bytes of hexadecimal data.');
-  return Buffer.from(value,'hex');
-}
-function encryptSeed(seed){
-  const nonce=randomBytes(12);
-  const cipher=createCipheriv('aes-256-gcm',encryptionKey(),nonce);
-  const ciphertext=Buffer.concat([cipher.update(seed,'utf8'),cipher.final()]);
-  return {ciphertext:ciphertext.toString('base64'),nonce:nonce.toString('hex'),tag:cipher.getAuthTag().toString('hex')};
-}
-function decryptSeed(row){
-  const decipher=createDecipheriv('aes-256-gcm',encryptionKey(),Buffer.from(row.seed_nonce,'hex'));
-  decipher.setAuthTag(Buffer.from(row.seed_tag,'hex'));
-  return Buffer.concat([decipher.update(Buffer.from(row.seed_ciphertext,'base64')),decipher.final()]).toString('utf8');
-}
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
@@ -29,7 +14,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
   if(!/^\d+$/.test(String(createdBy??''))) throw new Error('Draw creator must be a numeric Telegram user ID.');
   const seed=randomBytes(32).toString('hex');
   const commitment=sha256(seed);
-  const encrypted=encryptSeed(seed);
+  const encrypted=encryptDrawSeed(seed);
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
@@ -45,8 +30,8 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     if(candidates.length<count) throw new Error('تعداد کدهای واجد شرایط از تعداد برندگان کمتر است.');
     if(new Set(candidates.map(x=>String(x.participant_id))).size<count) throw new Error('تعداد شرکت‌کنندگان یکتای واجد شرایط از تعداد برندگان کمتر است.');
     const [drawInsert]=await connection.execute(
-      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,winner_count,created_by,seed_ciphertext,seed_nonce,seed_tag) VALUES(?,'prepared',?,?,?,?,?,?,?,?)",
-      [campaignId,DRAW_ALGORITHM,commitment,candidates.length,count,String(createdBy),encrypted.ciphertext,encrypted.nonce,encrypted.tag]
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,winner_count,created_by,seed_ciphertext,seed_nonce,seed_tag,seed_key_id) VALUES(?,'prepared',?,?,?,?,?,?,?,?,?)",
+      [campaignId,DRAW_ALGORITHM,commitment,candidates.length,count,String(createdBy),encrypted.ciphertext,encrypted.nonce,encrypted.tag,encrypted.keyId]
     );
     const drawId=drawInsert.insertId;
     const candidateHashes=[];
@@ -97,7 +82,7 @@ export async function completeCampaignDraw({drawId,completedBy}){
     }
     const actualSnapshot=sha256(candidates.map(x=>x.candidate_hash).sort().join(''));
     if(actualSnapshot!==draw.candidate_snapshot_hash) throw new Error('Hash فهرست نامزدها با Snapshot ثبت‌شده مطابقت ندارد.');
-    const seed=decryptSeed(draw);
+    const seed=decryptDrawSeed(draw);
     if(sha256(seed)!==draw.seed_hash) throw new Error('Seed قرعه‌کشی با Commitment اولیه مطابقت ندارد.');
     const ranked=rankDrawCandidates(seed,candidates);
     const winners=[];
