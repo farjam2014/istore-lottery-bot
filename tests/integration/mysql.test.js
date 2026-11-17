@@ -229,6 +229,34 @@ test('MySQL integration: payment admin search session migration exists',{skip:!e
 });
 
 
+test('MySQL integration: campaign code search session migration supports campaign-scoped search',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  await migrate();
+  const [columns]=await pool.execute("SELECT COLUMN_NAME,COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions'");
+  const step=columns.find(x=>x.COLUMN_NAME==='step');assert.ok(step);assert.match(step.COLUMN_TYPE,/campaign_code/);
+  assert.ok(columns.some(x=>x.COLUMN_NAME==='campaign_id'));
+});
+
+test('MySQL integration: concurrent free entries receive unique sequential campaign codes',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
+  const ids=[1,2,3,4].map(n=>String(BigInt(760000000000+n*10000000000)+(BigInt(Date.now())%1000000000n)));const participantIds=[];let campaignId;
+  try{
+    await migrate();
+    for(let i=0;i<ids.length;i++){const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[ids[i],'Sequence Race '+i,'+98912144444'+i,'sequence_race_'+i]);participantIds.push(p.insertId);}
+    const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'open','free',2)",['sequence-race-'+ids[0],'Sequence race']);campaignId=c.insertId;
+    const outcomes=await Promise.all(ids.map(telegramUserId=>joinFreeCampaign({telegramUserId,campaignId})));
+    assert.ok(outcomes.every(x=>x.codes.length===2));
+    const [rows]=await pool.execute('SELECT sequence_number,code FROM campaign_codes WHERE campaign_id=? ORDER BY sequence_number',[campaignId]);
+    assert.deepEqual(rows.map(x=>Number(x.sequence_number)),[10001,10002,10003,10004,10005,10006,10007,10008]);
+    assert.equal(new Set(rows.map(x=>x.code)).size,8);
+    const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);assert.equal(Number(counter.last_sequence),10008);
+  }finally{
+    if(campaignId){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=?',[campaignId]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE campaign_id=?',[campaignId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
+    for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
+  }
+});
 test('MySQL integration: update guard and profile change workflow schema are available',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
