@@ -909,8 +909,8 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
   }finally{
     if(drawId){
       await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);
-      await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);
-      await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+      await pool.execute('DELETE FROM draw_candidates WHERE draw_id IN (?,?)',[drawId,secondDrawId||0]);
+      await pool.execute('DELETE FROM campaign_draws WHERE id IN (?,?)',[drawId,secondDrawId||0]);
     }
     if(codes.length)await pool.execute('DELETE FROM campaign_codes WHERE id IN ('+codes.map(()=>'?').join(',')+')',codes);
     if(entries.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entries.map(()=>'?').join(',')+')',entries);
