@@ -4,6 +4,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import mysql from 'mysql2/promise';
 import {pool} from '../../src/database/pool.js';
+import {migrate} from '../../src/database/migrate.js';
 import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed} from '../../src/modules/draw/draw-keyring.js';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
@@ -33,6 +34,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let restored;
   let restoreCreated=false;
   try{
+    await migrate();
     const [campaign]=await pool.execute(
       "INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'closed','free',1)",
       ['backup-restore-'+randomBytes(8).toString('hex'),'Backup restore keyring test']
