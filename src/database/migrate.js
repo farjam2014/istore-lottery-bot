@@ -41,6 +41,13 @@ async function hasTable(connection,table){
 
 // These guards make replay safe if MySQL committed DDL but the process stopped
 // before schema_migrations could record the completed migration.
+async function allSchemaChecks(connection,checks,message){
+  const results=await Promise.all(checks);
+  if(results.every(Boolean)) return true;
+  if(results.some(Boolean)) throw new Error(message);
+  return false;
+}
+
 async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261117_001_campaign_code_sequence.sql'){
     if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_id_campaign');
@@ -62,6 +69,40 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index===2) return hasTable(connection,'campaign_code_counters');
     // INSERT ... SELECT is intentionally replayable only after the table exists.
     return false;
+  }
+  if(file==='20261117_003_verifiable_campaign_draws.sql'){
+    if(index===0) return allSchemaChecks(connection,[
+      hasColumn(connection,'campaign_draws','winner_count'),
+      hasColumn(connection,'campaign_draws','seed_ciphertext'),
+      hasColumn(connection,'campaign_draws','seed_nonce'),
+      hasColumn(connection,'campaign_draws','seed_tag'),
+      hasColumn(connection,'campaign_draws','revealed_seed'),
+      hasColumn(connection,'campaign_draws','candidate_snapshot_hash'),
+      hasIndex(connection,'campaign_draws','uq_draw_id_campaign')
+    ],'Partial DDL detected in verifiable campaign draw migration (campaign_draws). Inspect schema before repair.');
+    if(index===1) return allSchemaChecks(connection,[
+      hasIndex(connection,'campaign_codes','uq_campaign_code_id_campaign')
+    ],'Partial DDL detected in verifiable campaign draw migration (campaign_codes). Inspect schema before repair.');
+    if(index===2) return allSchemaChecks(connection,[
+      hasColumn(connection,'draw_candidates','campaign_id'),
+      hasColumn(connection,'draw_candidates','participant_id'),
+      hasColumn(connection,'draw_candidates','code_snapshot'),
+      hasIndex(connection,'draw_candidates','uq_draw_candidate_campaign'),
+      hasForeignKey(connection,'draw_candidates','fk_candidate_draw_campaign'),
+      hasForeignKey(connection,'draw_candidates','fk_candidate_code_campaign'),
+      hasForeignKey(connection,'draw_candidates','fk_candidate_participant')
+    ],'Partial DDL detected in verifiable campaign draw migration (draw_candidates). Inspect schema before repair.');
+    if(index===3) return allSchemaChecks(connection,[
+      hasColumn(connection,'draw_winners','campaign_id'),
+      hasColumn(connection,'draw_winners','participant_id'),
+      hasColumn(connection,'draw_winners','candidate_id'),
+      hasColumn(connection,'draw_winners','code_snapshot'),
+      hasIndex(connection,'draw_winners','uq_draw_winner_participant'),
+      hasForeignKey(connection,'draw_winners','fk_winner_draw_campaign'),
+      hasForeignKey(connection,'draw_winners','fk_winner_candidate'),
+      hasForeignKey(connection,'draw_winners','fk_winner_code_campaign'),
+      hasForeignKey(connection,'draw_winners','fk_winner_participant')
+    ],'Partial DDL detected in verifiable campaign draw migration (draw_winners). Inspect schema before repair.');
   }
   if(file==='20261117_002_admin_campaign_code_search.sql' && index===0){
     const checks=await Promise.all([
