@@ -6,6 +6,9 @@ export const MIN_SEQUENCE_NUMBER = 1;
 export const MAX_SEQUENCE_NUMBER = 999999;
 
 export function normalizeRequestedCodeCount(value) {
+  if (typeof value === 'boolean' || value === null || value === undefined || (typeof value !== 'number' && typeof value !== 'string')) {
+    throw new RangeError('Requested code count must be an integer between 1 and 100.');
+  }
   const count = Number(value);
   if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
     throw new RangeError('Requested code count must be an integer between 1 and 100.');
