@@ -58,6 +58,10 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       return hasIndex(connection,'campaign_entries','uq_entry_id_campaign');
     }
     if(index===1){
+      const [[mismatchedCode]]=await connection.execute(
+        'SELECT cc.id,cc.campaign_id AS code_campaign_id,ce.campaign_id AS entry_campaign_id FROM campaign_codes cc JOIN campaign_entries ce ON ce.id=cc.campaign_entry_id WHERE cc.campaign_id<>ce.campaign_id LIMIT 1'
+      );
+      if(mismatchedCode) throw new Error('Legacy campaign code '+mismatchedCode.id+' references campaign '+mismatchedCode.code_campaign_id+' but its entry belongs to campaign '+mismatchedCode.entry_campaign_id+'. Reconcile this data before applying the composite campaign-code foreign key.');
       const checks=await Promise.all([
         hasColumn(connection,'campaign_codes','sequence_number'),
         hasColumn(connection,'campaign_codes','random_prefix'),
