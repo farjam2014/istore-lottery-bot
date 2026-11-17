@@ -10,7 +10,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const {migrate}=await import('../../src/database/migrate.js');
   const {createProfile,findByTelegramId}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
-  let participantId;const campaignIds=[];let telegramId;
+  let participantId;const campaignIds=[];let telegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;
   try{
     // Simulate a process crash after the first DDL statement of migration 001:
     // the index exists, but schema_migrations has not recorded the migration yet.
@@ -19,6 +19,17 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
+    for(const statement of baseSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
+    // Seed a pre-migration legacy record to prove sequence backfill preserves issuance history.
+    const legacyUid=String(690000000000n+(BigInt(Date.now())%100000000000n));
+    const [legacyP]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[legacyUid,'Legacy Migration Tester','+989121234560','legacy_migration']);
+    legacyParticipantId=legacyP.insertId;
+    const [legacyC]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'closed','free',1)",['legacy-migration-'+legacyUid,'Legacy migration']);
+    legacyCampaignId=legacyC.insertId;
+    const [legacyE]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('legacy',true),'eligible')",[legacyCampaignId,legacyParticipantId]);
+    legacyEntryId=legacyE.insertId;
+    const [legacyCode]=await pool.execute('INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code) VALUES(?,?,?)',[legacyEntryId,legacyCampaignId,'LEGACY-CODE-001']);
+    legacyCodeId=legacyCode.insertId;
     for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
     const [[recoveryIndex]]=await pool.execute(
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
@@ -27,6 +38,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await migrate();
     const [[recoveredMigration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_001_campaign_code_sequence.sql'");
     assert.match(recoveredMigration.checksum,/^[a-f0-9]{64}$/);
+    const [[legacyMigrated]]=await pool.execute('SELECT sequence_number,format_version,status FROM campaign_codes WHERE id=?',[legacyCodeId]);
+    assert.equal(Number(legacyMigrated.sequence_number),1);assert.equal(Number(legacyMigrated.format_version),1);assert.equal(legacyMigrated.status,'active');
+    const [[legacyCounter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[legacyCampaignId]);
+    assert.equal(Number(legacyCounter.last_sequence),1);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
@@ -66,6 +81,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     }
     if(campaignIds.length)await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);
+    if(legacyCodeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[legacyCodeId]);
+    if(legacyEntryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[legacyEntryId]);
+    if(legacyCampaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[legacyCampaignId]);
+    if(legacyParticipantId)await pool.execute('DELETE FROM participants WHERE id=?',[legacyParticipantId]);
   }
 });
 
