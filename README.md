@@ -39,11 +39,13 @@ Integration tests require a disposable MySQL database whose name ends in `_ci` o
 
 Supported on Ubuntu 22.04 and 24.04. The installer installs Git, Node.js 22 and MySQL, runs the automated tests, creates a dedicated database and MySQL user, applies versioned migrations, and installs the `ustore-telegram-bot` systemd service.
 
-Run as root on the VPS:
+Run only after taking and verifying a production database backup. This installer changes the production schema and requires explicit approval flags:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/install/resumable-ubuntu-v2/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/farjam2014/istore-lottery-bot/install/resumable-ubuntu-v2/install.sh | sudo env ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 bash
 ```
+
+The installer binds `MIGRATION_TARGET_DATABASE` to the validated `MYSQL_DATABASE` from `.env` (or the newly generated database name). If you supply `MIGRATION_TARGET_DATABASE` yourself, it must match exactly. The two approval flags authorize schema/database changes; do not set them until the backup and target have been checked.
 
 ### Safe resume behavior
 
