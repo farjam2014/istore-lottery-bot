@@ -143,15 +143,27 @@ async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261117_006_draw_relational_integrity.sql'){
     if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
     if(index===1) return hasIndex(connection,'campaign_codes','uq_code_entry_campaign_value');
-    if(index===2) return hasColumn(connection,'draw_candidates','campaign_entry_id');
-    if(index===3) return false; // Deterministic backfill; safe to replay after interruption.
+    if(index===2){
+      const [[legacy]]=await connection.execute('SELECT (SELECT COUNT(*) FROM draw_candidates)+(SELECT COUNT(*) FROM draw_winners) AS total');
+      if(Number(legacy.total)>0) throw new Error('Draw relational-integrity migration requires empty legacy draw tables. Existing draw evidence must be reviewed and reconciled explicitly; no historical candidate snapshot will be inferred.');
+      return hasColumn(connection,'draw_candidates','campaign_entry_id');
+    }
+    if(index===3){
+      const [[rows]]=await connection.execute('SELECT COUNT(*) AS total FROM draw_candidates');
+      if(Number(rows.total)>0) throw new Error('Draw candidates appeared during migration preflight. Stop and inspect before continuing.');
+      return false; // Deterministic no-op backfill; safe to replay after interruption.
+    }
     if(index===4) return allSchemaChecks(connection,[
       hasIndex(connection,'draw_candidates','uq_candidate_full_identity'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_entry_participant'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_code_entry_value')
     ],'Partial DDL detected in draw candidate relational-integrity constraints. Inspect draw_candidates before repair.');
     if(index===5) return hasColumn(connection,'draw_winners','campaign_entry_id');
-    if(index===6) return false; // Deterministic backfill; safe to replay after interruption.
+    if(index===6){
+      const [[rows]]=await connection.execute('SELECT COUNT(*) AS total FROM draw_winners');
+      if(Number(rows.total)>0) throw new Error('Draw winners appeared during migration preflight. Stop and inspect before continuing.');
+      return false; // Deterministic no-op backfill; safe to replay after interruption.
+    }
     if(index===7) return hasForeignKey(connection,'draw_winners','fk_winner_exact_candidate');
   }
   if(file==='20261117_005_draw_seed_keyring.sql' && index===0){
