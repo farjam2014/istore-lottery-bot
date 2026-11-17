@@ -126,9 +126,17 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       const [[step]]=await connection.execute(
         "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'"
       );
-      const ready=Boolean(step?.COLUMN_TYPE?.includes("'draw_publication_reference'")&&step?.COLUMN_TYPE?.includes("'draw_publication_confirm'"));
+      const requiredSteps=[
+        'select_type','title','description','poster','prize_title','prize_description',
+        'prize_value','starts_at','ends_at','draw_at','terms','capacity','codes',
+        'price','payment_methods','confirm','payment_settings','payment_reject',
+        'draw_publication_reference','draw_publication_confirm'
+      ];
+      const enumType=String(step?.COLUMN_TYPE||'');
+      const hasPublicationStep=enumType.includes("'draw_publication_reference'")||enumType.includes("'draw_publication_confirm'");
+      const ready=requiredSteps.every(value=>enumType.includes("'"+value+"'"));
       if(ready) return true;
-      if(step?.COLUMN_TYPE?.includes("'draw_publication_reference'")||step?.COLUMN_TYPE?.includes("'draw_publication_confirm'")) throw new Error('Partial DDL detected in admin_wizards publication workflow enum. Inspect schema before repair.');
+      if(hasPublicationStep) throw new Error('Partial or incompatible DDL detected in admin_wizards publication workflow enum: one or more legacy wizard steps are missing. Inspect schema before repair.');
       return false;
     }
   }
