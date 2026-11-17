@@ -1,5 +1,5 @@
 import {pool} from '../../database/pool.js';
-import {issueCampaignCodes} from '../codes/code-issuance.service.js';
+import {issueCampaignCodes,normalizeRequestedCodeCount} from '../codes/code-issuance.service.js';
 
 export async function joinFreeCampaign({telegramUserId,campaignId}){
   const c=await pool.getConnection();
@@ -16,7 +16,7 @@ export async function joinFreeCampaign({telegramUserId,campaignId}){
     if(existing){
       const [existingCodes]=await c.execute('SELECT code FROM campaign_codes WHERE campaign_entry_id=? ORDER BY id',[existing.id]);
       if(existing.status!=='eligible')throw new Error('وضعیت شرکت شما در این کمپین قابل صدور کد نیست.');
-      const target=Math.max(1,Math.min(100,Number(campaign.codes_per_entry)||1));
+      const target=normalizeRequestedCodeCount(campaign.codes_per_entry);
       if(existingCodes.length>=target){await c.commit();return {entryId:existing.id,codes:existingCodes.map(x=>x.code),alreadyJoined:true,status:existing.status};}
       const repaired=await issueCampaignCodes(c,existing.id,campaignId,target-existingCodes.length);
       const allCodes=[...existingCodes.map(x=>x.code),...repaired];
