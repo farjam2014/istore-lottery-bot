@@ -34,6 +34,8 @@ test('proof rejects altered seed, candidate list, winner, algorithm and missing 
   assert.equal(verifyDrawProof(unknownAlgorithm).reason,'unsupported_draw_algorithm');
   const unpublished=structuredClone(proof);unpublished.draw.publication=null;
   assert.equal(verifyDrawProof(unpublished).reason,'publication_metadata_missing');
+  const wrongCampaign=structuredClone(proof);wrongCampaign.draw.campaignId=14;
+  assert.equal(verifyDrawProof(wrongCampaign).reason,'candidate_campaign_mismatch');
 });
 test('proof rejects truncated, duplicated and malformed payloads',()=>{
   const truncated=structuredClone(proof);truncated.candidates.pop();
