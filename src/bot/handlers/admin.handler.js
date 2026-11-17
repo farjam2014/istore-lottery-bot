@@ -167,7 +167,7 @@ async function showCampaignDetail(ctx,id){
   if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&!c.commitment_published_at)actions.push([Markup.button.callback('🔗 ثبت انتشار Commitment','admin:campaign:draw:publish:'+c.prepared_draw_id)]);
   else if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&c.commitment_published_at)actions.push([Markup.button.callback('▶️ اجرای قرعه‌کشی آماده‌شده','admin:campaign:draw:complete:'+c.prepared_draw_id)]);
   else if(canDraw&&c.status==='closed')actions.push([Markup.button.callback('🎲 آماده‌سازی قرعه‌کشی','admin:campaign:draw:prepare:'+c.id)]);
-  if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
+  if(['draft','paused','closed'].includes(c.status)&&!c.prepared_draw_id)actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
   actions.push([Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]);
   const message='🎯 کمپین #'+c.id+' — '+c.title+
     '\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+
