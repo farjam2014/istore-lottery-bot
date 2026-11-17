@@ -67,7 +67,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(first.codes.length,2);assert.equal(first.alreadyJoined,false);
     const repeated=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]});
     assert.equal(repeated.alreadyJoined,true);assert.deepEqual(repeated.codes,first.codes);
-    await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE campaign_entry_id=? AND id=(SELECT code_id FROM (SELECT MIN(id) AS code_id FROM campaign_codes WHERE campaign_entry_id=?) x)",[first.entryId,first.entryId]);
+    const [[codeToRevoke]]=await pool.execute('SELECT MIN(id) AS id FROM campaign_codes WHERE campaign_entry_id=?',[first.entryId]);
+    await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=? AND campaign_entry_id=?",[codeToRevoke.id,first.entryId]);
     await assert.rejects(joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]}),/کدهای قبلی شما غیرفعال شده است/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE campaign_entry_id=?",[first.entryId]);
     const second=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[1]});
