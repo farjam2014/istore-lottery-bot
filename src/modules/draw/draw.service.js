@@ -50,7 +50,7 @@ export function rankDrawCandidates(seed,candidates){
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
   const count=Number(winnerCount);
   if(!Number.isSafeInteger(count)||count<1||count>MAX_WINNERS) throw new RangeError('Winner count must be between 1 and 100.');
-  if(!/^\\d+$/.test(String(createdBy??''))) throw new Error('Draw creator must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(createdBy??''))) throw new Error('Draw creator must be a numeric Telegram user ID.');
   const seed=randomBytes(32).toString('hex');
   const commitment=sha256(seed);
   const encrypted=encryptSeed(seed);
@@ -94,7 +94,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
 }
 
 export async function completeCampaignDraw({drawId,completedBy}){
-  if(!/^\\d+$/.test(String(completedBy??''))) throw new Error('Draw completer must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(completedBy??''))) throw new Error('Draw completer must be a numeric Telegram user ID.');
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
