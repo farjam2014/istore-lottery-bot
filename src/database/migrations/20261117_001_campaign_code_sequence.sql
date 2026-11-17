@@ -21,5 +21,5 @@ CREATE TABLE campaign_code_counters (
   CONSTRAINT chk_code_counter_range CHECK(last_sequence BETWEEN 10000 AND 999999)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO campaign_code_counters(campaign_id,last_sequence)
+INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence)
 SELECT id,10000 FROM campaigns;
