@@ -46,7 +46,7 @@ async function isAdmin(ctx){
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
     const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
-    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(['participant','participant_results'].includes(searchSession?.step))return hasPermission(id,'participant.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
+    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
@@ -540,7 +540,7 @@ export function registerAdminHandlers(bot){
   bot.on('text',async(ctx,next)=>{
     if(!await isAdmin(ctx))return next();
     if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');const c=await pool.getConnection();try{await c.beginTransaction();const [[old]]=await c.execute('SELECT role FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[target]);await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE role=VALUES(role),is_active=1,added_by=VALUES(added_by)',[target,pending[0].role,String(ctx.from.id)]);await c.execute("INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?, ?,?)",[target,String(ctx.from.id),old?'role_changed':'assigned',old?.role||null,pending[0].role]);await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'دسترسی مدیر ثبت شد: '+target+' | '+pending[0].role,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
-    const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);
+    const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant'",[String(ctx.from.id)]);
     if(participantSearch){
       const raw=ctx.message.text.trim();
       if(/^\/cancel(?:@\w+)?$/i.test(raw)){
