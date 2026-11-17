@@ -383,6 +383,18 @@ export function registerAdminHandlers(bot){
     return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-'+campaignId+'-codes.csv'},{caption:'خروجی کدهای کمپین «'+campaign.title+'»: '+rows.length+' کد (حداکثر ۵۰٬۰۰۰ رکورد).'});
   });
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
+  bot.action('admin:participants:search',async ctx=>{
+    if(!await hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'participant',NULL) ON DUPLICATE KEY UPDATE step='participant',campaign_id=NULL",[String(ctx.from.id)]);
+    await ctx.answerCbQuery();
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
+  });
+  bot.action('admin:participants:search:cancel',async ctx=>{
+    if(!await hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant'",[String(ctx.from.id)]);
+    await ctx.answerCbQuery('جست‌وجو لغو شد.');
+    return showParticipants(ctx,0);
+  });
   bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]));});
   bot.action(/^admin:participant:view:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
