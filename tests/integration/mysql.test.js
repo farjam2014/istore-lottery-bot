@@ -41,6 +41,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(Number(legacyMigrated.sequence_number),1);assert.equal(Number(legacyMigrated.format_version),1);assert.equal(legacyMigrated.status,'active');
     const [[legacyCounter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[legacyCampaignId]);
     assert.equal(Number(legacyCounter.last_sequence),1);
+    const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
+    const legacyConn=await pool.getConnection();let postMigrationCodes;try{await legacyConn.beginTransaction();postMigrationCodes=await issueCampaignCodes(legacyConn,legacyEntryId,legacyCampaignId,1);await legacyConn.commit();}catch(error){await legacyConn.rollback();throw error;}finally{legacyConn.release();}
+    const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
+    assert.equal(Number(nextLegacyCode.sequence_number),2);assert.equal(Number(nextLegacyCode.format_version),2);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
@@ -80,7 +84,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     }
     if(campaignIds.length)await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);
-    if(legacyCodeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[legacyCodeId]);
+    if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[legacyEntryId]);
     if(legacyCampaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[legacyCampaignId]);
     if(legacyParticipantId)await pool.execute('DELETE FROM participants WHERE id=?',[legacyParticipantId]);
