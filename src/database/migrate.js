@@ -88,6 +88,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       hasColumn(connection,'draw_candidates','participant_id'),
       hasColumn(connection,'draw_candidates','code_snapshot'),
       hasIndex(connection,'draw_candidates','uq_draw_candidate_campaign'),
+      hasIndex(connection,'draw_candidates','uq_candidate_id_draw_campaign'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_draw_campaign'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_code_campaign'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_participant')
@@ -100,6 +101,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       hasIndex(connection,'draw_winners','uq_draw_winner_participant'),
       hasForeignKey(connection,'draw_winners','fk_winner_draw_campaign'),
       hasForeignKey(connection,'draw_winners','fk_winner_candidate'),
+      hasForeignKey(connection,'draw_winners','fk_winner_candidate_draw'),
       hasForeignKey(connection,'draw_winners','fk_winner_code_campaign'),
       hasForeignKey(connection,'draw_winners','fk_winner_participant')
     ],'Partial DDL detected in verifiable campaign draw migration (draw_winners). Inspect schema before repair.');
