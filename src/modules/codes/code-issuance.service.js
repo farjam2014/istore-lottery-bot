@@ -2,7 +2,7 @@ import {randomInt} from 'node:crypto';
 
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
 export const CODE_FINAL_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-export const MIN_SEQUENCE_NUMBER = 10001;
+export const MIN_SEQUENCE_NUMBER = 1;
 export const MAX_SEQUENCE_NUMBER = 999999;
 
 export function normalizeRequestedCodeCount(value) {
@@ -77,7 +77,7 @@ export function generateCampaignCode({campaignId, sequenceNumber}) {
 export async function issueCampaignCodes(connection, entryId, campaignId, requestedCount) {
   const count = normalizeRequestedCodeCount(requestedCount);
   await connection.execute(
-    'INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',
+    'INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,0)',
     [campaignId]
   );
   const [[counter]] = await connection.execute(
@@ -86,7 +86,7 @@ export async function issueCampaignCodes(connection, entryId, campaignId, reques
   );
   if (!counter) throw new Error('شمارنده کد کمپین پیدا نشد.');
   let lastSequence = Number(counter.last_sequence);
-  if (!Number.isSafeInteger(lastSequence) || lastSequence < 10000 || lastSequence > MAX_SEQUENCE_NUMBER) {
+  if (!Number.isSafeInteger(lastSequence) || lastSequence < 0 || lastSequence > MAX_SEQUENCE_NUMBER) {
     throw new Error('وضعیت شمارنده کد کمپین نامعتبر است.');
   }
   if (lastSequence + count > MAX_SEQUENCE_NUMBER) {
