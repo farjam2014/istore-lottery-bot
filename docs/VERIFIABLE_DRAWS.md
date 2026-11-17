@@ -68,6 +68,6 @@ The proof verifier checks the supported algorithm, seed commitment, candidate re
 
 Important limitations:
 - A valid proof demonstrates that the exported candidate list and winners are consistent with the committed snapshot and revealed seed. It does **not** independently prove that every person who should have been eligible was included, or that excluded/ineligible people were correctly filtered. That requires a separately published eligibility register and independent reconciliation against the campaign rules and source records.
-- The publication URL and timestamp in the proof are admin self-attestation. The verifier does not fetch the URL, prove it was public at the stated time, or prove that its content was not changed later.
+- The publication URL and timestamp in the proof are admin self-attestation. The input validator requires HTTPS and rejects IP literals and common special-use/internal host suffixes, but it does not perform DNS or network reachability checks. The verifier does not fetch the URL, prove it was public at the stated time, or prove that its content was not changed later.
 - The proof contains internal numeric participant IDs. Do not publish it broadly without assessing the privacy implications and applicable campaign rules.
 - Telegram delivery is gzip-compressed and capped at 45 MiB. Larger proofs currently fail closed; chunked export is not implemented.
