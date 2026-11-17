@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {rankDrawCandidates,verifyCampaignDraw,verifyDrawProof,DRAW_ALGORITHM,DRAW_PROOF_VERSION} from '../../src/modules/draw/draw-verifier.js';
 
 const seed='c'.repeat(64);
@@ -48,4 +52,20 @@ test('proof rejects truncated, duplicated and malformed payloads',()=>{
   assert.equal(verifyDrawProof(duplicate).reason,'candidate_record_mismatch');
   assert.equal(verifyDrawProof('{bad json').valid,false);
   assert.equal(verifyDrawProof({...proof,proofVersion:99}).reason,'unsupported_or_malformed_proof');
+});
+
+test('offline CLI accepts a valid proof and rejects a tampered proof',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'ustore-draw-proof-'));
+  const file=join(directory,'proof.json');
+  try{
+    await writeFile(file,JSON.stringify(proof));
+    const valid=spawnSync(process.execPath,['scripts/verify-draw-proof.js',file],{encoding:'utf8'});
+    assert.equal(valid.status,0,valid.stderr);
+    assert.equal(JSON.parse(valid.stdout).valid,true);
+    const tampered=structuredClone(proof);tampered.draw.revealedSeed='e'.repeat(64);
+    await writeFile(file,JSON.stringify(tampered));
+    const invalid=spawnSync(process.execPath,['scripts/verify-draw-proof.js',file],{encoding:'utf8'});
+    assert.equal(invalid.status,1);
+    assert.equal(JSON.parse(invalid.stdout).valid,false);
+  }finally{await rm(directory,{recursive:true,force:true});}
 });
