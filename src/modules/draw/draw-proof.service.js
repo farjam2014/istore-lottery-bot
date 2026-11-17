@@ -1,4 +1,5 @@
 import {pool} from '../../database/pool.js';
+import {verifyDrawProof} from './draw-verifier.js';
 
 export async function getCampaignDrawProof(drawId){
   const id=Number(drawId);
@@ -19,7 +20,7 @@ export async function getCampaignDrawProof(drawId){
     [id]
   );
   if(candidates.length!==Number(draw.candidate_count)||winners.length!==Number(draw.winner_count)) throw new Error('داده‌های Snapshot یا برندگان ناقص‌اند؛ ساخت پرونده اثبات متوقف شد.');
-  return {
+  const proof={
     proofVersion:1,
     draw:{
       id:Number(draw.id),campaignId:Number(draw.campaign_id),status:draw.status,algorithm:draw.algorithm,
@@ -38,4 +39,7 @@ export async function getCampaignDrawProof(drawId){
       code_snapshot:row.code_snapshot,rank_position:Number(row.rank_position)
     }))
   };
+  const verification=verifyDrawProof(proof);
+  if(!verification.valid) throw new Error('پرونده اثبات با داده‌های ذخیره‌شده سازگار نیست: '+verification.reason);
+  return proof;
 }
