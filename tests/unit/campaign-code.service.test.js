@@ -24,6 +24,19 @@ test('production generator starts at 10001 and emits allowed random characters',
   assert.throws(()=>generateCampaignCode({campaignId:13,sequenceNumber:MAX_SEQUENCE_NUMBER+1}),/outside the allowed/);
 });
 
+test('generator supports the final sequence and six-digit transition boundaries',()=>{
+  const beforeTransition=generateCampaignCode({campaignId:13,sequenceNumber:99999});
+  assert.match(beforeTransition.code,/^P13-[A-Z0-9]99999-[A-Z0-9][A-Z0]$/);
+  assert.equal(beforeTransition.randomPrefix.length,1);
+  const transition=generateCampaignCode({campaignId:13,sequenceNumber:100000});
+  assert.equal(transition.code.split('-')[1],'100000');
+  assert.equal(transition.randomPrefix,'');
+  const final=generateCampaignCode({campaignId:13,sequenceNumber:999999});
+  assert.equal(final.code.split('-')[1],'999999');
+  assert.equal(final.randomPrefix,'');
+  assert.throws(()=>generateCampaignCode({campaignId:0,sequenceNumber:10001}),/Campaign ID/);
+});
+
 test('prefix and suffix validators reject malformed structures',()=>{
   assert.throws(()=>buildSequencePart(14,'ABC'),/does not match/);
   assert.throws(()=>buildSequencePart(14,'ABCI'),/disallowed characters/);
