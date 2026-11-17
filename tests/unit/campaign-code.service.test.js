@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildSequencePart,formatCampaignCode,generateCampaignCode,MAX_SEQUENCE_NUMBER} from '../../src/modules/codes/code-issuance.service.js';
+import {buildSequencePart,formatCampaignCode,generateCampaignCode,MAX_SEQUENCE_NUMBER,normalizeRequestedCodeCount} from '../../src/modules/codes/code-issuance.service.js';
 
 test('six-character middle segment places sequence digits at the right edge',()=>{
   const cases=[[6,'ABCDG','ABCDG6'],[14,'ABCG','ABCG14'],[56,'ABCG','ABCG56'],[86,'ABDG','ABDG86'],[565,'ABG','ABG565'],[1434,'AG','AG1434'],[64467,'G','G64467'],[64,'ABCG','ABCG64'],[2,'ABCDG','ABCDG2'],[975465,'','975465'],[10001,'G','G10001'],[99999,'Z','Z99999'],[100000,'','100000'],[999999,'','999999']];
@@ -42,4 +42,12 @@ test('prefix and suffix validators reject malformed structures',()=>{
   assert.throws(()=>buildSequencePart(14,'ABCI'),/disallowed characters/);
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),/Random suffix/);
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'O0'}),/Random suffix/);
+});
+
+test('requested issuance count must be an integer from 1 through 100',()=>{
+  assert.equal(normalizeRequestedCodeCount(1),1);
+  assert.equal(normalizeRequestedCodeCount('100'),100);
+  for(const invalid of [0,-1,101,1.5,'abc',null,undefined]) {
+    assert.throws(()=>normalizeRequestedCodeCount(invalid),/integer between 1 and 100/);
+  }
 });
