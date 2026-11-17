@@ -21,9 +21,8 @@ WHERE dc.campaign_entry_id IS NULL
 
 ALTER TABLE draw_candidates
   MODIFY campaign_entry_id BIGINT UNSIGNED NOT NULL,
-  MODIFY campaign_id BIGINT UNSIGNED NOT NULL,
-  MODIFY participant_id BIGINT UNSIGNED NOT NULL,
-  MODIFY code_snapshot VARCHAR(32) NOT NULL,
+  ADD CONSTRAINT chk_draw_candidate_identity_complete
+    CHECK(campaign_id IS NOT NULL AND participant_id IS NOT NULL AND code_snapshot IS NOT NULL),
   ADD UNIQUE KEY uq_candidate_full_identity(id,draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot),
   ADD CONSTRAINT fk_candidate_entry_participant
     FOREIGN KEY(campaign_entry_id,campaign_id,participant_id)
@@ -47,11 +46,9 @@ SET w.campaign_entry_id=dc.campaign_entry_id
 WHERE w.campaign_entry_id IS NULL;
 
 ALTER TABLE draw_winners
-  MODIFY campaign_id BIGINT UNSIGNED NOT NULL,
-  MODIFY participant_id BIGINT UNSIGNED NOT NULL,
-  MODIFY candidate_id BIGINT UNSIGNED NOT NULL,
   MODIFY campaign_entry_id BIGINT UNSIGNED NOT NULL,
-  MODIFY code_snapshot VARCHAR(32) NOT NULL,
+  ADD CONSTRAINT chk_draw_winner_identity_complete
+    CHECK(campaign_id IS NOT NULL AND participant_id IS NOT NULL AND candidate_id IS NOT NULL AND code_snapshot IS NOT NULL),
   ADD CONSTRAINT fk_winner_exact_candidate
     FOREIGN KEY(candidate_id,draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot)
     REFERENCES draw_candidates(id,draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot);
