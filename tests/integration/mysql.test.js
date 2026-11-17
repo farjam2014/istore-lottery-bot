@@ -37,6 +37,49 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     );
     if(Number(recoveryIndex.total)===0) await pool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
     await migrate();
+
+    // Verify all five new migrations and the complete legacy admin wizard contract.
+    const expectedWizardSteps=[
+      'select_type','title','description','poster','prize_title','prize_description',
+      'prize_value','starts_at','ends_at','draw_at','terms','capacity','codes',
+      'price','payment_methods','confirm','payment_settings','payment_reject',
+      'draw_publication_reference','draw_publication_confirm'
+    ];
+    const [[wizardColumn]]=await pool.execute(
+      "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'"
+    );
+    for(const step of expectedWizardSteps) assert.ok(wizardColumn.COLUMN_TYPE.includes("'"+step+"'"),'Missing admin_wizards.step enum value: '+step);
+    const [[drawColumns]]=await pool.execute(
+      "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draws' AND COLUMN_NAME IN ('winner_count','seed_ciphertext','seed_nonce','seed_tag','revealed_seed','candidate_snapshot_hash','commitment_publication_reference','commitment_published_at','commitment_published_by','seed_key_id')"
+    );
+    assert.equal(Number(drawColumns.total),10,'All draw migration columns must exist.');
+    const [[searchStep]]=await pool.execute(
+      "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='step'"
+    );
+    assert.ok(searchStep.COLUMN_TYPE.includes("'campaign_code'"));
+    for(const version of [
+      '20261117_001_campaign_code_sequence.sql',
+      '20261117_002_admin_campaign_code_search.sql',
+      '20261117_003_verifiable_campaign_draws.sql',
+      '20261117_004_draw_commitment_publication.sql',
+      '20261117_005_draw_seed_keyring.sql'
+    ]){
+      const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
+      assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
+    }
+
+    // Simulate DDL committed but migration history not recorded for 002-004.
+    for(const version of [
+      '20261117_002_admin_campaign_code_search.sql',
+      '20261117_003_verifiable_campaign_draws.sql',
+      '20261117_004_draw_commitment_publication.sql'
+    ]){
+      await pool.execute('DELETE FROM schema_migrations WHERE version=?',[version]);
+      await migrate();
+      const [[recovered]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
+      assert.match(recovered?.checksum||'',/^[a-f0-9]{64}$/,'Replay guard failed for '+version);
+    }
+
     const [[recoveredMigration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_001_campaign_code_sequence.sql'");
     assert.match(recoveredMigration.checksum,/^[a-f0-9]{64}$/);
     const [[legacyMigrated]]=await pool.execute('SELECT sequence_number,format_version,status FROM campaign_codes WHERE id=?',[legacyCodeId]);
