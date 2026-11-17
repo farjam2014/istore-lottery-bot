@@ -52,4 +52,11 @@ test('public verifier checks seed commitment and reproducible unique-participant
   assert.equal(changedSnapshot.valid,false);assert.equal(changedSnapshot.reason,'candidate_snapshot_mismatch');
   const wrongDraw=verifyCampaignDraw({drawId:10,algorithm:DRAW_ALGORITHM,seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen});
   assert.equal(wrongDraw.valid,false);assert.equal(wrongDraw.reason,'candidate_record_mismatch');
+  const changedDatabaseIds=snapshot.map((x,index)=>({...x,id:x.id+1000+index}));
+  assert.equal(verifyCampaignDraw({drawId:9,algorithm:DRAW_ALGORITHM,seed,seedHash:commitment,candidateSnapshotHash,candidates:changedDatabaseIds,winners:chosen}).valid,true,'Ranking must not depend on mutable candidate row IDs.');
+  const alteredWinnerRanks=chosen.map((x,index)=>({...x,rank_position:index+2}));
+  assert.equal(verifyCampaignDraw({drawId:9,algorithm:DRAW_ALGORITHM,seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:alteredWinnerRanks}).reason,'winner_selection_mismatch');
+  const duplicateCandidate=[...snapshot,snapshot[0]];
+  assert.equal(verifyCampaignDraw({drawId:9,algorithm:DRAW_ALGORITHM,seed,seedHash:commitment,candidateSnapshotHash,candidates:duplicateCandidate,winners:chosen}).reason,'candidate_record_mismatch');
+  assert.equal(verifyCampaignDraw({drawId:9,algorithm:'legacy',seed,seedHash:commitment,candidateSnapshotHash,candidates:snapshot,winners:chosen}).reason,'unsupported_draw_algorithm');
 });
