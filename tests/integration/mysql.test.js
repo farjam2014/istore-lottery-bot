@@ -19,6 +19,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
+    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
     // Seed a pre-migration legacy record to prove sequence backfill preserves issuance history.
     const legacyUid=String(690000000000n+(BigInt(Date.now())%100000000000n));
     const [legacyP]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[legacyUid,'Legacy Migration Tester','+989121234560','legacy_migration']);
@@ -29,7 +30,6 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     legacyEntryId=legacyE.insertId;
     const [legacyCode]=await pool.execute('INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code) VALUES(?,?,?)',[legacyEntryId,legacyCampaignId,'LEGACY-CODE-001']);
     legacyCodeId=legacyCode.insertId;
-    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
     const [[recoveryIndex]]=await pool.execute(
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
     );
