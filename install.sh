@@ -129,6 +129,7 @@ MIGRATION_TARGET_DATABASE="$DB_NAME"
 log "Installing production dependencies and running automated tests."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && node --input-type=module -e \"import \\\"dotenv/config\\\"; import {loadDrawKeyring} from \\\"./src/modules/draw/draw-keyring.js\\\"; loadDrawKeyring();\""
+unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js' -print0 | xargs -0 -n1 node --check"
 
