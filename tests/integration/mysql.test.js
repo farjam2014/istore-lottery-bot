@@ -73,8 +73,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       const [issued]=await pool.execute('SELECT sequence_number,random_prefix,random_suffix,format_version,status,code FROM campaign_codes WHERE campaign_id=? ORDER BY sequence_number',[campaignId]);
       assert.deepEqual(issued.map(x=>Number(x.sequence_number)),[1,2]);
       assert.ok(issued.every(x=>Number(x.format_version)===2&&x.status==='active'&&x.code.length>0));
-      assert.ok(issued.every(x=>String(x.random_prefix).length===5&&/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_prefix)));
-      assert.ok(issued.every(x=>/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_suffix)));
+      assert.ok(issued.every(x=>String(x.random_prefix).length===5&&/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[A-Z0]$/.test(x.random_prefix)));
+      assert.ok(issued.every(x=>/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][A-Z0]$/.test(x.random_suffix)));
     }
     await pool.execute("UPDATE participants SET full_name='Changed Name' WHERE id=?",[participantId]);
     const [[entry]]=await pool.execute('SELECT profile_snapshot FROM campaign_entries WHERE campaign_id=? AND participant_id=?',[campaignIds[0],participantId]);
