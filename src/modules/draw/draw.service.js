@@ -22,6 +22,22 @@ function decryptSeed(row){
 }
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
+export function verifyCampaignDraw({seed,seedHash,candidates,winners}){
+  if(sha256(String(seed))!==String(seedHash)) return {valid:false,reason:'seed_commitment_mismatch'};
+  const snapshotHash=sha256(candidates.map(x=>x.candidate_hash).sort().join(''));
+  const ranked=rankDrawCandidates(seed,candidates);
+  const expected=[];const seen=new Set();
+  for(const candidate of ranked){
+    if(seen.has(String(candidate.participant_id))) continue;
+    seen.add(String(candidate.participant_id));
+    expected.push(candidate);
+    if(expected.length===winners.length) break;
+  }
+  const actual=[...winners].sort((a,b)=>Number(a.rank_position)-Number(b.rank_position));
+  const same=expected.length===actual.length&&expected.every((candidate,index)=>String(candidate.campaign_code_id)===String(actual[index].campaign_code_id)&&String(candidate.participant_id)===String(actual[index].participant_id));
+  return {valid:same,snapshotHash,reason:same?null:'winner_selection_mismatch'};
+}
+
 export function rankDrawCandidates(seed,candidates){
   if(!/^[a-f0-9]{64}$/i.test(String(seed))) throw new Error('Draw seed must be 32 bytes encoded as 64 hexadecimal characters.');
   const key=Buffer.from(seed,'hex');
@@ -34,7 +50,7 @@ export function rankDrawCandidates(seed,candidates){
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
   const count=Number(winnerCount);
   if(!Number.isSafeInteger(count)||count<1||count>MAX_WINNERS) throw new RangeError('Winner count must be between 1 and 100.');
-  if(!String(createdBy??'').trim()) throw new Error('Draw creator is required.');
+  if(!/^\\d+$/.test(String(createdBy??''))) throw new Error('Draw creator must be a numeric Telegram user ID.');
   const seed=randomBytes(32).toString('hex');
   const commitment=sha256(seed);
   const encrypted=encryptSeed(seed);
@@ -78,7 +94,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
 }
 
 export async function completeCampaignDraw({drawId,completedBy}){
-  if(!String(completedBy??'').trim()) throw new Error('Draw completer is required.');
+  if(!/^\\d+$/.test(String(completedBy??''))) throw new Error('Draw completer must be a numeric Telegram user ID.');
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
