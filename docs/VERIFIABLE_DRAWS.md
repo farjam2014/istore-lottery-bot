@@ -2,9 +2,9 @@
 
 ## Encryption key
 
-`DRAW_SEED_ENCRYPTION_KEY` must be a cryptographically random 32-byte value encoded as 64 hexadecimal characters. Generate it with a trusted cryptographic random generator, store it in the production secret manager or a root-readable environment file, and never commit it, print it in logs, or send it through Telegram.
+Draw seed encryption uses AES-256-GCM with a 32-byte cryptographically random key. The preferred configuration is the versioned keyring (`DRAW_SEED_ENCRYPTION_KEYS` plus `DRAW_SEED_ACTIVE_KEY_ID`); `DRAW_SEED_ENCRYPTION_KEY` remains supported as the legacy `legacy-env` key. Store key material in a production secret manager or a root-readable environment file, and never commit it, print it in logs, or send it through Telegram.
 
-Keep an encrypted, access-controlled backup of the exact key. Losing it while a draw is in `prepared` state makes the stored seed ciphertext unrecoverable and prevents completion of that draw. The seed commitment remains visible, but it cannot reconstruct the seed.
+Keep an encrypted, access-controlled backup of every configured key. Losing the key referenced by a draw in `prepared` state makes its stored seed ciphertext unrecoverable and prevents completion of that draw. The seed commitment remains visible, but it cannot reconstruct the seed.
 
 ## Keyring and rotation
 
