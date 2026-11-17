@@ -748,10 +748,10 @@ test('MySQL integration: production migration preflight contains only executable
   const {readFile}=await import('node:fs/promises');
   await migrate();
   const source=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
-  const statements=source.replace(/^\\s*--.*$/gm,'').split(';').map(statement=>statement.trim()).filter(Boolean);
+  const statements=source.replace(/^\s*--.*$/gm,'').split(';').map(statement=>statement.trim()).filter(Boolean);
   assert.ok(statements.length>=8,'Preflight must contain the expected inventory and integrity queries.');
   for(const statement of statements){
-    assert.match(statement,/^SELECT\\b/i,'Production preflight must remain read-only.');
+    assert.match(statement,/^SELECT\b/i,'Production preflight must remain read-only.');
     await pool.query(statement);
   }
 });
