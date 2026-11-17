@@ -271,6 +271,9 @@ test('MySQL integration: failed code issuance rolls back code rows and sequence 
       ['code-rollback-'+suffix,'Code rollback']
     );
     campaignId=campaign.insertId;
+    await pool.execute(
+      'INSERT INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',[campaignId]
+    );
     const [[before]]=await pool.execute(
       'SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]
     );
