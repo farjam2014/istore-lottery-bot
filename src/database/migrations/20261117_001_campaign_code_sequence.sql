@@ -21,5 +21,19 @@ CREATE TABLE campaign_code_counters (
   CONSTRAINT chk_code_counter_range CHECK(last_sequence BETWEEN 0 AND 999999)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Preserve legacy codes as format version 1 while assigning stable per-campaign
+-- sequence numbers in original issuance order. New codes start after this sequence.
+UPDATE campaign_codes cc
+JOIN (
+  SELECT id, ROW_NUMBER() OVER(PARTITION BY campaign_id ORDER BY id) AS legacy_sequence
+  FROM campaign_codes
+) ranked ON ranked.id=cc.id
+SET cc.sequence_number=ranked.legacy_sequence,
+    cc.format_version=1
+WHERE cc.sequence_number IS NULL;
+
 INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence)
-SELECT id,0 FROM campaigns;
+SELECT c.id,COALESCE(MAX(cc.sequence_number),0)
+FROM campaigns c
+LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id
+GROUP BY c.id;
