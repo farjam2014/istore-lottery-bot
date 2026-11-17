@@ -102,19 +102,22 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
 });
 
 
-test('MySQL integration: paid order receipt review is idempotent and codes issue only after approval',{skip:!enabled},async()=>{
+test('MySQL integration: paid order receipt review is idempotent and codes issue only after approval',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {createOrGetOrder,submitReceipt,reviewReceipt,updatePaymentSettings,expirePendingOrders}=await import('../../src/modules/payments/payment.service.js');
-  let participantId;let campaignId;let orderId;let previousOrderId;let receiptId;let telegramId;const financeAdminId=String(890000000000n+(BigInt(Date.now())%100000000000n));
+  let participantId;let campaignId;let orderId;let previousOrderId;let receiptId;let telegramId;let paymentCardId;const financeAdminId=String(890000000000n+(BigInt(Date.now())%100000000000n));
   try{
     await migrate();
+    const [[existingCards]]=await pool.execute('SELECT COUNT(*) AS total FROM payment_bank_cards');
+    if(Number(existingCards.total)>0){t.skip('Requires an empty disposable CI card table; refusing to modify pre-existing card records.');return;}
     telegramId=String(800000000000n+(BigInt(Date.now())%100000000000n));
     const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[telegramId,'Paid Integration','+989121111111','paid_test']);participantId=p.insertId;
     const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',150000,2)",['paid-it-'+telegramId,'Paid integration']);campaignId=c.insertId;
     await updatePaymentSettings({bankName:'Test Bank',cardNumber:'1234567812345678',cardHolder:'Test Holder',instructions:'',adminId:'1'});
+    const [[createdCard]]=await pool.execute('SELECT id FROM payment_bank_cards WHERE is_default=1 LIMIT 1');paymentCardId=createdCard?.id;
     const created=await createOrGetOrder({telegramUserId:telegramId,campaignId});orderId=created.order.id;
     assert.equal(Number(created.order.amount),150000);
     const before=await pool.execute('SELECT COUNT(*) total FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.campaign_id=?',[campaignId]);
@@ -144,6 +147,7 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     for(const id of [orderId,previousOrderId].filter(Boolean)){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[id]);}
     if(participantId){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[participantId]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[participantId]);await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);}
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(paymentCardId)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[paymentCardId]);
   }
 });
 
