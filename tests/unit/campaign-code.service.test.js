@@ -26,5 +26,7 @@ test('production generator starts at 10001 and emits allowed random characters',
 
 test('prefix and suffix validators reject malformed structures',()=>{
   assert.throws(()=>buildSequencePart(14,'ABC'),/does not match/);
-  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),/end with/);
+  assert.throws(()=>buildSequencePart(14,'ABCI'),/disallowed characters/);
+  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),/Random suffix/);
+  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'O0'}),/Random suffix/);
 });
