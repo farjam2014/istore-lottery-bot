@@ -755,3 +755,38 @@ test('MySQL integration: production migration preflight contains only executable
     await pool.query(statement);
   }
 });
+
+
+test('MySQL integration: campaign archive is blocked while a prepared draw exists',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {archiveCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
+  let campaignId,drawId;
+  const slug='archive-draw-'+Date.now();
+  try{
+    await migrate();
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type) VALUES(?,?,'closed','free')",[slug,'Archive draw guard']);
+    campaignId=campaign.insertId;
+    const [draw]=await pool.execute(
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','legacy-test',?,0,'9001')",
+      [campaignId,'a'.repeat(64)]
+    );
+    drawId=draw.insertId;
+    await assert.rejects(archiveCampaign({campaignId,actorId:'9001'}),/قرعه‌کشی آماده یا تکمیل‌شده/);
+    const [[unchanged]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(unchanged.status,'closed');
+    await pool.execute("UPDATE campaign_draws SET status='cancelled' WHERE id=?",[drawId]);
+    const archived=await archiveCampaign({campaignId,actorId:'9001'});
+    assert.equal(archived.to,'archived');
+    const [[updated]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(updated.status,'archived');
+  }finally{
+    if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    if(campaignId){
+      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.archived'",[campaignId]);
+      await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    }
+  }
+});
