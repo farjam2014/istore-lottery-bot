@@ -53,7 +53,7 @@ The campaign-code migration assigns legacy codes stable per-campaign sequence nu
 
 ## Offline proof artifact (version 1)
 
-After a draw is completed, an administrator with `campaign.draw` can download a gzip-compressed JSON proof from the draw result screen. The artifact contains the draw ID and campaign ID, algorithm version, revealed seed, seed commitment, candidate snapshot hash, every committed candidate record, winner records, and the recorded publication attestation. It intentionally excludes participant names, phone numbers, Instagram handles, and Telegram IDs. Numeric internal participant IDs are included because the verifier needs to check that winners are unique participants; treat the file as an internal identifier-bearing record, not as anonymous data.
+After a draw is completed, an administrator with `campaign.draw` can download a gzip-compressed JSON proof from the draw result screen. The artifact contains the draw ID and campaign ID, algorithm version, revealed seed, seed commitment, candidate snapshot hash, every committed candidate record, winner records, and the recorded publication attestation. It excludes participant names, phone numbers, Instagram handles, Telegram IDs, and the publishing administrator's Telegram ID; the publisher is represented only as `admin`. Numeric internal participant IDs are included because the verifier needs to check that winners are unique participants; treat the file as an internal identifier-bearing record, not as anonymous data.
 
 On a machine with Node.js 22 and the repository source:
 
