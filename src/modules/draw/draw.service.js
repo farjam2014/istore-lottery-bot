@@ -22,9 +22,14 @@ function decryptSeed(row){
 }
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
-export function verifyCampaignDraw({seed,seedHash,candidates,winners}){
+export function verifyCampaignDraw({seed,seedHash,candidateSnapshotHash,candidates,winners}){
   if(sha256(String(seed))!==String(seedHash)) return {valid:false,reason:'seed_commitment_mismatch'};
+  const candidateIntegrity=candidates.every(candidate=>
+    sha256(candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===candidate.candidate_hash
+  );
+  if(!candidateIntegrity) return {valid:false,reason:'candidate_record_mismatch'};
   const snapshotHash=sha256(candidates.map(x=>x.candidate_hash).sort().join(''));
+  if(snapshotHash!==String(candidateSnapshotHash)) return {valid:false,reason:'candidate_snapshot_mismatch',snapshotHash};
   const ranked=rankDrawCandidates(seed,candidates);
   const expected=[];const seen=new Set();
   for(const candidate of ranked){
@@ -34,7 +39,11 @@ export function verifyCampaignDraw({seed,seedHash,candidates,winners}){
     if(expected.length===winners.length) break;
   }
   const actual=[...winners].sort((a,b)=>Number(a.rank_position)-Number(b.rank_position));
-  const same=expected.length===actual.length&&expected.every((candidate,index)=>String(candidate.campaign_code_id)===String(actual[index].campaign_code_id)&&String(candidate.participant_id)===String(actual[index].participant_id));
+  const same=expected.length===actual.length&&expected.every((candidate,index)=>
+    String(candidate.campaign_code_id)===String(actual[index].campaign_code_id)&&
+    String(candidate.participant_id)===String(actual[index].participant_id)&&
+    String(candidate.code_snapshot)===String(actual[index].code_snapshot)
+  );
   return {valid:same,snapshotHash,reason:same?null:'winner_selection_mismatch'};
 }
 
