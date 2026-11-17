@@ -19,6 +19,7 @@ import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../s
 import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
+import {archiveCampaign} from '../../modules/campaigns/campaign-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -335,18 +336,9 @@ export function registerAdminHandlers(bot){
   });
   bot.action(/^admin:campaign:archive:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
-    const id=Number(ctx.match[1]);const c=await pool.getConnection();let from;
-    try{
-      await c.beginTransaction();
-      const [[row]]=await c.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[id]);
-      if(!row)throw new Error('کمپین پیدا نشد.');
-      if(!['draft','paused','closed'].includes(row.status))throw new Error('فقط کمپین پیش‌نویس، متوقف یا بسته قابل بایگانی است.');
-      const [[pending]]=await c.execute("SELECT COUNT(*) total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND o.status IN ('awaiting_receipt','under_review','rejected')",[id]);
-      if(Number(pending.total)>0)throw new Error('تا تعیین تکلیف سفارش‌های باز، بایگانی مجاز نیست.');
-      from=row.status;await c.execute("UPDATE campaigns SET status='archived' WHERE id=?",[id]);
-      await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.archived','campaign',id,JSON.stringify({from,to:'archived'})]);
-      await c.commit();
-    }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
+    const id=Number(ctx.match[1]);
+    try{await archiveCampaign({campaignId:id,actorId:String(ctx.from.id)});}
+    catch(error){return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}
     await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
