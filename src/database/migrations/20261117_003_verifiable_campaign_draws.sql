@@ -15,6 +15,7 @@ ALTER TABLE draw_candidates
   ADD COLUMN participant_id BIGINT UNSIGNED NULL AFTER campaign_id,
   ADD COLUMN code_snapshot VARCHAR(32) NULL AFTER participant_id,
   ADD UNIQUE KEY uq_draw_candidate_campaign(draw_id,campaign_id,campaign_code_id),
+  ADD UNIQUE KEY uq_candidate_id_draw_campaign(id,draw_id,campaign_id),
   ADD CONSTRAINT fk_candidate_draw_campaign FOREIGN KEY(draw_id,campaign_id) REFERENCES campaign_draws(id,campaign_id),
   ADD CONSTRAINT fk_candidate_code_campaign FOREIGN KEY(campaign_code_id,campaign_id) REFERENCES campaign_codes(id,campaign_id),
   ADD CONSTRAINT fk_candidate_participant FOREIGN KEY(participant_id) REFERENCES participants(id);
@@ -27,5 +28,6 @@ ALTER TABLE draw_winners
   ADD UNIQUE KEY uq_draw_winner_participant(draw_id,participant_id),
   ADD CONSTRAINT fk_winner_draw_campaign FOREIGN KEY(draw_id,campaign_id) REFERENCES campaign_draws(id,campaign_id),
   ADD CONSTRAINT fk_winner_candidate FOREIGN KEY(candidate_id) REFERENCES draw_candidates(id),
+  ADD CONSTRAINT fk_winner_candidate_draw FOREIGN KEY(candidate_id,draw_id,campaign_id) REFERENCES draw_candidates(id,draw_id,campaign_id),
   ADD CONSTRAINT fk_winner_code_campaign FOREIGN KEY(campaign_code_id,campaign_id) REFERENCES campaign_codes(id,campaign_id),
   ADD CONSTRAINT fk_winner_participant FOREIGN KEY(participant_id) REFERENCES participants(id);
