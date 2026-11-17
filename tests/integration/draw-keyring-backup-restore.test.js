@@ -12,6 +12,16 @@ const oldKey='31'.repeat(32);
 const newKey='42'.repeat(32);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
+async function migrateWithDeadlockRetry(maxAttempts=3){
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    try{return await migrate();}
+    catch(error){
+      if(error?.code!=='ER_LOCK_DEADLOCK'||attempt===maxAttempts)throw error;
+      await new Promise(resolve=>setTimeout(resolve,150*attempt));
+    }
+  }
+}
+
 test('MySQL backup/restore preserves prepared draw ciphertext and historical key recovery after rotation',{skip:!enabled},async()=>{
   const database=String(process.env.MYSQL_DATABASE||'');
   const host=String(process.env.MYSQL_HOST||'');
@@ -34,7 +44,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let restored;
   let restoreCreated=false;
   try{
-    await migrate();
+    await migrateWithDeadlockRetry();
     const [campaign]=await pool.execute(
       "INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'closed','free',1)",
       ['backup-restore-'+randomBytes(8).toString('hex'),'Backup restore keyring test']
