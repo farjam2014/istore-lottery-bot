@@ -15,6 +15,7 @@ import {getCorrelationId} from '../../shared/request-context.js';
 import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,normalizeCardNumber} from '../../modules/payments/bank-card.service.js';
 import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
 import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../shared/datetime.js';
+import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -156,6 +157,7 @@ async function showCampaignDetail(ctx,id){
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
   actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
+  if(c.status==='closed')actions.push([Markup.button.callback('🎲 آماده‌سازی قرعه‌کشی','admin:campaign:draw:prepare:'+c.id)]);
   if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
   actions.push([Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]);
   const message='🎯 کمپین #'+c.id+' — '+c.title+
@@ -217,6 +219,31 @@ export function registerAdminHandlers(bot){
     }catch(error){
       logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Admin campaign detail could not be opened');
       return ctx.reply('نمایش جزئیات کمپین با خطا مواجه شد. خطا در گزارش سامانه ثبت شد؛ دوباره تلاش کنید.');
+    }
+  });
+  bot.action(/^admin:campaign:draw:prepare:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const campaignId=Number(ctx.match[1]);
+    try{
+      const draw=await prepareCampaignDraw({campaignId,createdBy:ctx.from.id,winnerCount:1});
+      await ctx.answerCbQuery('Snapshot قرعه‌کشی ثبت شد.');
+      return respond(ctx,'🎲 قرعه‌کشی آماده شد؛ هنوز اجرا نشده است.\n\nشناسه قرعه‌کشی: '+draw.drawId+'\nتعداد کدهای واجد شرایط: '+draw.candidateCount+'\nالگوریتم: '+draw.algorithm+'\nتعهد Seed (SHA-256):\n'+draw.seedHash+'\nHash فهرست نامزدها:\n'+draw.candidateSnapshotHash+'\n\nاین مقادیر را پیش از اجرا ثبت و منتشر کنید. پس از اجرا Seed افشا می‌شود و نتیجه قابل بازبینی خواهد بود.',Markup.inlineKeyboard([[Markup.button.callback('⚠️ اجرای قرعه‌کشی و اعلام برنده','admin:campaign:draw:complete:'+draw.drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+campaignId)]]));
+    }catch(error){
+      logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Campaign draw preparation failed');
+      return ctx.answerCbQuery(error.message||'آماده‌سازی قرعه‌کشی ناموفق بود.',{show_alert:true});
+    }
+  });
+  bot.action(/^admin:campaign:draw:complete:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    try{
+      const result=await completeCampaignDraw({drawId,completedBy:ctx.from.id});
+      await ctx.answerCbQuery('قرعه‌کشی تکمیل شد.');
+      const winners=result.winners.map(w=>'رتبه '+w.rank+': '+w.code+' | شناسه شرکت‌کننده: '+w.participantId).join('\n');
+      return respond(ctx,'🏆 نتیجه قرعه‌کشی کمپین #'+result.campaignId+'\n\nتعداد نامزدها: '+result.candidateCount+'\nالگوریتم: '+result.algorithm+'\nتعهد Seed:\n'+result.seedHash+'\nSeed افشاشده:\n'+result.revealedSeed+'\nHash Snapshot:\n'+result.candidateSnapshotHash+'\n\nبرندگان:\n'+winners,Markup.inlineKeyboard([[Markup.button.callback('مشاهده کمپین','admin:campaign:detail:'+result.campaignId)],[Markup.button.callback('بازگشت به مدیریت','admin:home')]]));
+    }catch(error){
+      logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw completion failed');
+      return ctx.answerCbQuery(error.message||'اجرای قرعه‌کشی ناموفق بود.',{show_alert:true});
     }
   });
   bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
