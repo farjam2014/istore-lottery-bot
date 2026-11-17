@@ -27,6 +27,12 @@ FROM campaign_codes cc
 JOIN campaign_entries ce ON ce.id=cc.campaign_entry_id
 WHERE cc.campaign_id<>ce.campaign_id;
 
+-- Campaigns over the supported sequence limit must be resolved before migration 001.
+SELECT campaign_id, COUNT(*) AS existing_code_count
+FROM campaign_codes
+GROUP BY campaign_id
+HAVING COUNT(*) > 999999;
+
 -- Legacy draw records that point at a code from a different campaign.
 -- Migration 003 leaves new snapshot columns NULL for legacy records; these
 -- records must be reviewed and must not be silently rewritten.
