@@ -511,3 +511,58 @@ test('MySQL integration: bank cards support CRUD, a single active default, safe 
     if(idB)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[idB]);
   }
 });
+
+
+test('MySQL integration: verifiable campaign draw snapshots eligible codes and reveals a committed seed',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  assert.match(String(process.env.DRAW_SEED_ENCRYPTION_KEY||''),/^[a-f0-9]{64}$/i);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {prepareCampaignDraw,completeCampaignDraw}=await import('../../src/modules/draw/draw.service.js');
+  const suffix=String(Date.now());const telegramIds=[1,2].map(n=>String(660000000000n+BigInt(n)*10000000000n+(BigInt(Date.now())%1000000000n)));
+  const participantIds=[];const entryIds=[];const codeIds=[];let campaignId,drawId;
+  try{
+    await migrate();
+    for(let i=0;i<2;i++){
+      const [p]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[telegramIds[i],'Draw Test '+i,'+98912166666'+i,'draw_test_'+i]);
+      participantIds.push(p.insertId);
+    }
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type) VALUES(?,?,'closed','free')",['draw-it-'+suffix,'Draw integration']);
+    campaignId=campaign.insertId;
+    for(const participantId of participantIds){
+      const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('test',true),'eligible')",[campaignId,participantId]);
+      entryIds.push(entry.insertId);
+    }
+    const codeRows=[
+      [entryIds[0],'P'+campaignId+'-A10001-X0',10001],
+      [entryIds[0],'P'+campaignId+'-B10002-Y0',10002],
+      [entryIds[1],'P'+campaignId+'-C10003-Z0',10003]
+    ];
+    for(const [entryId,code,sequence] of codeRows){
+      const [created]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?, ?,2,'active')",[entryId,campaignId,code,sequence]);
+      codeIds.push(created.insertId);
+    }
+    const prepared=await prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:2});
+    drawId=prepared.drawId;
+    assert.equal(prepared.status,'prepared');assert.equal(prepared.candidateCount,3);assert.equal(prepared.winnerCount,2);
+    assert.match(prepared.seedHash,/^[a-f0-9]{64}$/);
+    const [[before]]=await pool.execute('SELECT status,revealed_seed,seed_ciphertext,candidate_snapshot_hash FROM campaign_draws WHERE id=?',[drawId]);
+    assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
+    await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
+    const completed=await completeCampaignDraw({drawId,completedBy:telegramIds[0]});
+    assert.equal(completed.status,'completed');assert.equal(completed.winners.length,2);
+    assert.equal(require('node:crypto').createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
+    assert.equal(new Set(completed.winners.map(x=>String(x.participantId))).size,2,'A participant must not win twice in one draw.');
+    assert.equal(new Set(completed.winners.map(x=>x.code)).size,2);
+    const [[drawState]]=await pool.execute('SELECT status,revealed_seed FROM campaign_draws WHERE id=?',[drawId]);
+    assert.equal(drawState.status,'completed');assert.equal(drawState.revealed_seed,completed.revealedSeed);
+    const [[campaignState]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);assert.equal(campaignState.status,'drawn');
+    await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/فقط قرعه‌کشی آماده/);
+  }finally{
+    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign_draw' AND entity_id=?",[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(codeIds.length)await pool.execute('DELETE FROM campaign_codes WHERE id IN ('+codeIds.map(()=>'?').join(',')+')',codeIds);
+    if(entryIds.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entryIds.map(()=>'?').join(',')+')',entryIds);
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participantIds.length)await pool.execute('DELETE FROM participants WHERE id IN ('+participantIds.map(()=>'?').join(',')+')',participantIds);
+  }
+});
