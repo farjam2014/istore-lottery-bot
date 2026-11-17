@@ -46,6 +46,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let drawId;
   let restored;
   let restoreCreated=false;
+  let primaryError;
   try{
     await migrateWithDeadlockRetry();
     const [campaign]=await pool.execute(
@@ -100,10 +101,15 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       DRAW_SEED_ACTIVE_KEY_ID:'key-b'
     });
     assert.throws(()=>decryptDrawSeed(restoredDraw,keyWithoutHistorical),/not available/);
+  }catch(error){
+    primaryError=error;
+    throw error;
   }finally{
-    if(restored) await restored.end();
-    if(drawId) await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]).catch(()=>{});
-    if(campaignId) await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]).catch(()=>{});
-    if(restoreCreated) execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:childEnv,stdio:'pipe'});
+    const cleanupErrors=[];
+    if(restored){try{await restored.end();}catch(error){cleanupErrors.push(error);}}
+    if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
+    if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
+    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:childEnv,stdio:'pipe'});}catch(error){cleanupErrors.push(error);}}
+    if(cleanupErrors.length) throw new AggregateError(primaryError?[primaryError,...cleanupErrors]:cleanupErrors,'Backup/restore integration fixture cleanup failed.');
   }
 });
