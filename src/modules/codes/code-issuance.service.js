@@ -1,7 +1,7 @@
 import {randomInt} from 'node:crypto';
 
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
-export const CODE_FINAL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+export const CODE_FINAL_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const MIN_SEQUENCE_NUMBER = 1;
 export const MAX_SEQUENCE_NUMBER = 999999;
 
@@ -46,7 +46,7 @@ export function buildSequencePart(sequenceNumber, prefix) {
   if (expectedPrefixLength < 0 || normalizedPrefix.length !== expectedPrefixLength) {
     throw new Error('Random prefix length does not match the six-character code segment.');
   }
-  if (normalizedPrefix && !/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[A-Z0]$/.test(normalizedPrefix)) {
+  if (normalizedPrefix && !/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(normalizedPrefix)) {
     throw new Error('Random prefix contains disallowed characters or an invalid final random character.');
   }
   return normalizedPrefix + digits;
@@ -55,7 +55,7 @@ export function buildSequencePart(sequenceNumber, prefix) {
 export function formatCampaignCode({campaignId, sequenceNumber, randomPrefix, randomSuffix: suffix}) {
   const id = Number(campaignId);
   if (!Number.isSafeInteger(id) || id < 1) throw new RangeError('Campaign ID must be a positive integer.');
-  if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][A-Z0]$/.test(String(suffix))) {
+  if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(String(suffix))) {
     throw new Error('Random suffix must contain two allowed characters and end with an uppercase letter or 0.');
   }
   const middle = buildSequencePart(sequenceNumber, randomPrefix);
