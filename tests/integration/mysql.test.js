@@ -18,7 +18,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
-    for(const statement of baseSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
+    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
     const [[recoveryIndex]]=await pool.execute(
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
     );
@@ -299,7 +299,7 @@ test('MySQL integration: failure after the first code insert rolls back all code
     let codeInsertAttempts=0;
     const failingConnection={
       execute:async(sql,params)=>{
-        if(/^\\s*INSERT INTO campaign_codes/i.test(sql) && ++codeInsertAttempts===2){
+        if(/^\s*INSERT INTO campaign_codes/i.test(sql) && ++codeInsertAttempts===2){
           throw new Error('injected second-code insert failure');
         }
         return connection.execute(sql,params);
