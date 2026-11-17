@@ -573,7 +573,16 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
       const [created]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?, ?,2,'active')",[entryId,campaignId,code,sequence]);
       codeIds.push(created.insertId);
     }
-    const prepared=await prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:2});
+    const preparationAttempts=await Promise.allSettled([
+      prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:2}),
+      prepareCampaignDraw({campaignId,createdBy:telegramIds[1],winnerCount:2})
+    ]);
+    const preparedResults=preparationAttempts.filter(result=>result.status==='fulfilled');
+    const rejectedPreparations=preparationAttempts.filter(result=>result.status==='rejected');
+    assert.equal(preparedResults.length,1,'Concurrent preparation must create exactly one draw.');
+    assert.equal(rejectedPreparations.length,1);
+    assert.match(String(rejectedPreparations[0].reason?.message||''),/قبلاً/);
+    const prepared=preparedResults[0].value;
     drawId=prepared.drawId;
     assert.equal(prepared.status,'prepared');assert.equal(prepared.candidateCount,3);assert.equal(prepared.winnerCount,2);
     assert.match(prepared.seedHash,/^[a-f0-9]{64}$/);
@@ -589,7 +598,16 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=?",[tamperTarget.campaign_code_id]);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/وضعیت یکی از کدها/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE id=?",[tamperTarget.campaign_code_id]);
-    const completed=await completeCampaignDraw({drawId,completedBy:telegramIds[0]});
+    const completionAttempts=await Promise.allSettled([
+      completeCampaignDraw({drawId,completedBy:telegramIds[0]}),
+      completeCampaignDraw({drawId,completedBy:telegramIds[1]})
+    ]);
+    const completedResults=completionAttempts.filter(result=>result.status==='fulfilled');
+    const rejectedCompletions=completionAttempts.filter(result=>result.status==='rejected');
+    assert.equal(completedResults.length,1,'Concurrent completion must commit exactly one winner set.');
+    assert.equal(rejectedCompletions.length,1);
+    assert.match(String(rejectedCompletions[0].reason?.message||''),/فقط قرعه‌کشی آماده/);
+    const completed=completedResults[0].value;
     assert.equal(completed.status,'completed');assert.equal(completed.winners.length,2);
     assert.equal(createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
     assert.equal(new Set(completed.winners.map(x=>String(x.participantId))).size,2,'A participant must not win twice in one draw.');
