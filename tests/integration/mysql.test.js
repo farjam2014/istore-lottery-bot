@@ -257,6 +257,46 @@ test('MySQL integration: concurrent free entries receive unique sequential campa
     for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
   }
 });
+test('MySQL integration: failed code issuance rolls back code rows and sequence counter',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
+  const suffix=String(Date.now());
+  let campaignId;
+  try{
+    await migrate();
+    const [campaign]=await pool.execute(
+      "INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'open','free',1)",
+      ['code-rollback-'+suffix,'Code rollback']
+    );
+    campaignId=campaign.insertId;
+    const [[before]]=await pool.execute(
+      'SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]
+    );
+    assert.equal(Number(before.last_sequence),10000);
+    const connection=await pool.getConnection();
+    try{
+      await connection.beginTransaction();
+      await assert.rejects(
+        issueCampaignCodes(connection,999999999,campaignId,1),
+        /foreign key constraint fails/i
+      );
+      await connection.rollback();
+    }finally{connection.release();}
+    const [[counter]]=await pool.execute(
+      'SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]
+    );
+    const [[codes]]=await pool.execute(
+      'SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaignId]
+    );
+    assert.equal(Number(counter.last_sequence),10000);
+    assert.equal(Number(codes.total),0);
+  }finally{
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+  }
+});
+
 test('MySQL integration: update guard and profile change workflow schema are available',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
