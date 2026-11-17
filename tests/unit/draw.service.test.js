@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rankDrawCandidates,DRAW_ALGORITHM} from '../../src/modules/draw/draw.service.js';
+import {createHash} from 'node:crypto';
+import {rankDrawCandidates,verifyCampaignDraw,DRAW_ALGORITHM} from '../../src/modules/draw/draw.service.js';
 
 const candidates=[
   {id:3,draw_id:9,campaign_code_id:103,participant_id:33,code_snapshot:'P13-AB1234-X0'},
@@ -26,4 +27,24 @@ test('different committed seeds produce independently derived rankings',()=>{
 
 test('draw ranking rejects malformed seed material',()=>{
   assert.throws(()=>rankDrawCandidates('not-a-seed',candidates),/64 hexadecimal/);
+});
+
+test('public verifier checks seed commitment and reproducible unique-participant winners',()=>{
+  const seed='c'.repeat(64);
+  const snapshot=candidates.map(candidate=>({...candidate,candidate_hash:String(candidate.id).padStart(64,'0')}));
+  const ranked=rankDrawCandidates(seed,snapshot);
+  const chosen=[];const participants=new Set();
+  for(const candidate of ranked){
+    if(participants.has(String(candidate.participant_id))) continue;
+    participants.add(String(candidate.participant_id));
+    chosen.push({...candidate,rank_position:chosen.length+1});
+    if(chosen.length===2) break;
+  }
+  const commitment=createHash('sha256').update(seed).digest('hex');
+  const result=verifyCampaignDraw({seed,seedHash:commitment,candidates:snapshot,winners:chosen});
+  assert.equal(result.valid,true);
+  assert.match(result.snapshotHash,/^[a-f0-9]{64}$/);
+  const altered=verifyCampaignDraw({seed:'d'.repeat(64),seedHash:commitment,candidates:snapshot,winners:chosen});
+  assert.equal(altered.valid,false);
+  assert.equal(altered.reason,'seed_commitment_mismatch');
 });
