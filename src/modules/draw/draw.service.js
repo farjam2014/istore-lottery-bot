@@ -26,7 +26,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     const [[existing]]=await connection.execute("SELECT id FROM campaign_draws WHERE campaign_id=? AND status IN ('prepared','completed') LIMIT 1 FOR UPDATE",[campaignId]);
     if(existing) throw new Error('برای این کمپین قبلاً قرعه‌کشی آماده یا تکمیل شده است.');
     const [candidates]=await connection.execute(
-      "SELECT cc.id AS campaign_code_id,cc.code,e.participant_id FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=cc.campaign_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND cc.status='active' AND e.status='eligible' AND p.status='active' ORDER BY cc.id FOR UPDATE",
+      "SELECT cc.id AS campaign_code_id,cc.campaign_entry_id,cc.code,e.participant_id FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=cc.campaign_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND cc.status='active' AND e.status='eligible' AND p.status='active' ORDER BY cc.id FOR UPDATE",
       [campaignId]
     );
     if(candidates.length<count) throw new Error('تعداد کدهای واجد شرایط از تعداد برندگان کمتر است.');
@@ -41,8 +41,8 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
       const candidateHash=sha256(drawId+':'+campaignId+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code);
       candidateHashes.push(candidateHash);
       await connection.execute(
-        'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?)',
-        [drawId,campaignId,candidate.campaign_code_id,candidate.participant_id,candidate.code,candidateHash]
+        'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
+        [drawId,campaignId,candidate.campaign_code_id,candidate.campaign_entry_id,candidate.participant_id,candidate.code,candidateHash]
       );
     }
     const snapshotHash=sha256(candidateHashes.sort().join(''));
@@ -73,7 +73,7 @@ export async function completeCampaignDraw({drawId,completedBy}){
     if(draw.algorithm!==DRAW_ALGORITHM) throw new Error('نسخه الگوریتم این قرعه‌کشی با نسخه فعال سازگار نیست؛ اجرای آن متوقف شد تا قرعه‌کشی با نسخه صحیح بازبینی شود.');
     if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
     const [candidates]=await connection.execute(
-      'SELECT dc.id,dc.draw_id,dc.campaign_id,dc.campaign_code_id,dc.participant_id,dc.code_snapshot,dc.candidate_hash,cc.code AS current_code,cc.status AS code_status,e.status AS entry_status,p.status AS participant_status FROM draw_candidates dc LEFT JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id LEFT JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=dc.campaign_id AND e.participant_id=dc.participant_id LEFT JOIN participants p ON p.id=e.participant_id WHERE dc.draw_id=? ORDER BY dc.id FOR UPDATE',
+      'SELECT dc.id,dc.draw_id,dc.campaign_id,dc.campaign_code_id,dc.campaign_entry_id,dc.participant_id,dc.code_snapshot,dc.candidate_hash,cc.code AS current_code,cc.status AS code_status,e.status AS entry_status,p.status AS participant_status FROM draw_candidates dc LEFT JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id AND cc.campaign_entry_id=dc.campaign_entry_id LEFT JOIN campaign_entries e ON e.id=dc.campaign_entry_id AND e.campaign_id=dc.campaign_id AND e.participant_id=dc.participant_id LEFT JOIN participants p ON p.id=e.participant_id WHERE dc.draw_id=? ORDER BY dc.id FOR UPDATE',
       [drawId]
     );
     if(candidates.length!==Number(draw.candidate_count)||!candidates.length) throw new Error('Snapshot نامزدهای قرعه‌کشی ناقص یا دستکاری شده است.');
