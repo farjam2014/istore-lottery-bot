@@ -20,7 +20,7 @@ npm start
 - Inline Telegram menus and campaign operations.
 - Free campaign entry with capacity enforcement, profile snapshots and unique entry codes.
 - Paid-order, receipt-review and code-issuance services are present in this code line; do not enable paid campaigns in production until the end-to-end customer/admin flow has been verified against the target database and bot.
-- Campaign draw execution and winner selection remain deferred.
+- Campaign draws use a committed random seed, an immutable candidate snapshot, deterministic HMAC-SHA256 ranking, encrypted seed storage before execution, and a revealed seed after completion. Draw actions require the dedicated `campaign.draw` permission (super-admin by default).
 - Live payment-gateway integration remains deferred; bank-transfer receipt review is manual.
 - Administration is inside Telegram. There is no web-panel password.
 
