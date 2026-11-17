@@ -279,7 +279,7 @@ export function registerAdminHandlers(bot){
       return ctx.answerCbQuery(error.message||'اجرای قرعه‌کشی ناموفق بود.',{show_alert:true});
     }
   });
-  bot.action(/^admin:campaign:draw:proof:(\\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:draw:proof:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);
     try{
@@ -290,7 +290,7 @@ export function registerAdminHandlers(bot){
       await ctx.answerCbQuery('پرونده اثبات آماده شد.');
       await ctx.replyWithDocument(
         {source:compressed,filename:'campaign-draw-'+drawId+'-proof.json.gz'},
-        {caption:'پرونده اثبات نسخه ۱ قرعه‌کشی #'+drawId+'\\nبرای راستی‌آزمایی آفلاین: gunzip -c campaign-draw-'+drawId+'-proof.json.gz > proof.json سپس node scripts/verify-draw-proof.js proof.json\\nاین پرونده شامل شناسه‌های عددی داخلی شرکت‌کنندگان است؛ فاقد نام، شماره تماس و شناسه تلگرام است.'}
+        {caption:'پرونده اثبات نسخه ۱ قرعه‌کشی #'+drawId+'\nبرای راستی‌آزمایی آفلاین: gunzip -c campaign-draw-'+drawId+'-proof.json.gz > proof.json سپس node scripts/verify-draw-proof.js proof.json\nاین پرونده شامل شناسه‌های عددی داخلی شرکت‌کنندگان است؛ فاقد نام، شماره تماس و شناسه تلگرام است.'}
       );
       await audit(ctx.from.id,'draw.proof_exported','campaign_draw',drawId,{candidateCount:proof.candidates.length,winnerCount:proof.winners.length,compressedBytes:compressed.length});
     }catch(error){
