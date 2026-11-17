@@ -287,15 +287,15 @@ export function registerAdminHandlers(bot){
       const compressed=gzipSync(Buffer.from(JSON.stringify(proof)));
       const maxBytes=45*1024*1024;
       if(compressed.length>maxBytes)return ctx.answerCbQuery('پرونده فشرده از سقف امن ارسال تلگرام بزرگ‌تر است؛ خروجی چندبخشی هنوز فعال نشده است.',{show_alert:true});
+      await audit(ctx.from.id,'draw.proof_export_requested','campaign_draw',drawId,{candidateCount:proof.candidates.length,winnerCount:proof.winners.length,compressedBytes:compressed.length});
       await ctx.answerCbQuery('پرونده اثبات آماده شد.');
       await ctx.replyWithDocument(
         {source:compressed,filename:'campaign-draw-'+drawId+'-proof.json.gz'},
         {caption:'پرونده اثبات نسخه ۱ قرعه‌کشی #'+drawId+'\nبرای راستی‌آزمایی آفلاین: gunzip -c campaign-draw-'+drawId+'-proof.json.gz > proof.json سپس node scripts/verify-draw-proof.js proof.json\nاین پرونده شامل شناسه‌های عددی داخلی شرکت‌کنندگان است؛ فاقد نام، شماره تماس و شناسه تلگرام است.'}
       );
-      await audit(ctx.from.id,'draw.proof_exported','campaign_draw',drawId,{candidateCount:proof.candidates.length,winnerCount:proof.winners.length,compressedBytes:compressed.length});
     }catch(error){
       logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw proof export failed');
-      return ctx.answerCbQuery(error.message||'ساخت پرونده اثبات ناموفق بود.',{show_alert:true});
+      return ctx.reply('ساخت یا ارسال پرونده اثبات ناموفق بود: '+(error.message||'خطای ناشناخته'));
     }
   });
   bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
