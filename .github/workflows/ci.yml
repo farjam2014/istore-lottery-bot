@@ -39,6 +39,7 @@ jobs:
       RUN_MYSQL_TESTS: '1'
       ALLOW_DATABASE_MIGRATIONS: '1'
       ALLOW_TEST_DATABASE_MIGRATIONS: '1'
+      DRAW_SEED_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
