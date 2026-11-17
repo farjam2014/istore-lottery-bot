@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import {encryptDrawSeed,decryptDrawSeed} from './draw-keyring.js';
 import {pool} from '../../database/pool.js';
 
