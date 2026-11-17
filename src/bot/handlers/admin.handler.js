@@ -1,4 +1,5 @@
 import {randomBytes} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
 import {logger} from '../../shared/logger.js';
 import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
@@ -16,6 +17,7 @@ import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setD
 import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
 import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../shared/datetime.js';
 import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
+import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -23,6 +25,7 @@ async function isAdmin(ctx){
   if(ctx.callbackQuery){
     const data=ctx.callbackQuery.data||'';
     if(data.startsWith('admin:roles'))return false;
+    if(data.startsWith('admin:campaign:draw:'))return hasPermission(id,'campaign.draw');
     if(data.startsWith('admin:campaign'))return hasPermission(id,'campaign.write');
     if(data.startsWith('admin:participants:export')||data==='admin:participants:search')return hasPermission(id,'participant.read');
     if(data.startsWith('admin:participant:'))return hasPermission(id,data.includes(':block:')||data.includes(':unblock:')?'participant.manage':'participant.read');
@@ -270,10 +273,29 @@ export function registerAdminHandlers(bot){
       const result=await completeCampaignDraw({drawId,completedBy:ctx.from.id});
       await ctx.answerCbQuery('قرعه‌کشی تکمیل شد.');
       const winners=result.winners.map(w=>'رتبه '+w.rank+': '+w.code+' | شناسه شرکت‌کننده: '+w.participantId).join('\n');
-      return respond(ctx,'🏆 نتیجه قرعه‌کشی کمپین #'+result.campaignId+'\n\nتعداد نامزدها: '+result.candidateCount+'\nالگوریتم: '+result.algorithm+'\nتعهد Seed:\n'+result.seedHash+'\nSeed افشاشده:\n'+result.revealedSeed+'\nHash Snapshot:\n'+result.candidateSnapshotHash+'\n\nبرندگان:\n'+winners,Markup.inlineKeyboard([[Markup.button.callback('مشاهده کمپین','admin:campaign:detail:'+result.campaignId)],[Markup.button.callback('بازگشت به مدیریت','admin:home')]]));
+      return respond(ctx,'🏆 نتیجه قرعه‌کشی کمپین #'+result.campaignId+'\n\nتعداد نامزدها: '+result.candidateCount+'\nالگوریتم: '+result.algorithm+'\nتعهد Seed:\n'+result.seedHash+'\nSeed افشاشده:\n'+result.revealedSeed+'\nHash Snapshot:\n'+result.candidateSnapshotHash+'\n\nبرندگان:\n'+winners+'\n\nبرای دریافت پرونده کامل و راستی‌آزمایی آفلاین، دکمه زیر را بزنید.',Markup.inlineKeyboard([[Markup.button.callback('📦 دریافت پرونده اثبات قرعه‌کشی','admin:campaign:draw:proof:'+drawId)],[Markup.button.callback('مشاهده کمپین','admin:campaign:detail:'+result.campaignId)],[Markup.button.callback('بازگشت به مدیریت','admin:home')]]));
     }catch(error){
       logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw completion failed');
       return ctx.answerCbQuery(error.message||'اجرای قرعه‌کشی ناموفق بود.',{show_alert:true});
+    }
+  });
+  bot.action(/^admin:campaign:draw:proof:(\\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    try{
+      const proof=await getCampaignDrawProof(drawId);
+      const compressed=gzipSync(Buffer.from(JSON.stringify(proof)));
+      const maxBytes=45*1024*1024;
+      if(compressed.length>maxBytes)return ctx.answerCbQuery('پرونده فشرده از سقف امن ارسال تلگرام بزرگ‌تر است؛ خروجی چندبخشی هنوز فعال نشده است.',{show_alert:true});
+      await ctx.answerCbQuery('پرونده اثبات آماده شد.');
+      await ctx.replyWithDocument(
+        {source:compressed,filename:'campaign-draw-'+drawId+'-proof.json.gz'},
+        {caption:'پرونده اثبات نسخه ۱ قرعه‌کشی #'+drawId+'\\nبرای راستی‌آزمایی آفلاین: gunzip -c campaign-draw-'+drawId+'-proof.json.gz > proof.json سپس node scripts/verify-draw-proof.js proof.json\\nاین پرونده شامل شناسه‌های عددی داخلی شرکت‌کنندگان است؛ فاقد نام، شماره تماس و شناسه تلگرام است.'}
+      );
+      await audit(ctx.from.id,'draw.proof_exported','campaign_draw',drawId,{candidateCount:proof.candidates.length,winnerCount:proof.winners.length,compressedBytes:compressed.length});
+    }catch(error){
+      logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw proof export failed');
+      return ctx.answerCbQuery(error.message||'ساخت پرونده اثبات ناموفق بود.',{show_alert:true});
     }
   });
   bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
