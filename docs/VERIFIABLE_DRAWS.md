@@ -6,16 +6,28 @@
 
 Keep an encrypted, access-controlled backup of the exact key. Losing it while a draw is in `prepared` state makes the stored seed ciphertext unrecoverable and prevents completion of that draw. The seed commitment remains visible, but it cannot reconstruct the seed.
 
-## Rotation
+## Keyring and rotation
 
-The current schema does not store a key identifier and the service expects one active key. Therefore, do not rotate the key while any draw is in `prepared` state. Before rotation:
+New draws store the selected key ID in `campaign_draws.seed_key_id`. The migration assigns existing rows the ID `legacy-env`, preserving compatibility with ciphertext created using `DRAW_SEED_ENCRYPTION_KEY`.
 
-1. Confirm there are no `campaign_draws` rows with `status='prepared'`.
-2. Back up the database and the current key securely.
-3. Change the key through the production secret-management process.
-4. Verify a controlled test draw in a disposable database using the new key.
+Preferred configuration:
 
-If a prepared draw exists, retain the old key until that draw is completed or implement and test a key-versioned re-encryption migration. Do not overwrite the only copy of the old key.
+- `DRAW_SEED_ENCRYPTION_KEYS`: JSON object mapping stable key IDs to 64-character hexadecimal keys (32 random bytes each).
+- `DRAW_SEED_ACTIVE_KEY_ID`: ID used for newly prepared draws.
+- `DRAW_SEED_ENCRYPTION_KEY`: legacy fallback for the `legacy-env` key. Keep it configured while any prepared draw references that ID.
+
+Generate each key with a cryptographically secure random generator, for example `openssl rand -hex 32`. Do not reuse a key ID for different key material. Do not put real key values in source control, tickets, logs, Telegram, or proof files.
+
+Safe rotation procedure:
+
+1. Back up the database and all currently configured draw keys using separate, access-controlled, encrypted backup paths. Record the key IDs in the backup inventory.
+2. Add a new key ID and key value to `DRAW_SEED_ENCRYPTION_KEYS`, while retaining every old key ID still referenced by a prepared draw.
+3. Set `DRAW_SEED_ACTIVE_KEY_ID` to the new ID. New draws will use it; existing prepared draws continue to decrypt with their stored `seed_key_id`.
+4. Validate the new key and old-key compatibility in a disposable database using the same keyring configuration. Verify a draw encrypted with the old key can still be decrypted after rotation, and a newly prepared draw uses the new ID.
+5. Deploy the configuration through the approved secret-management process only after backup and restore checks. Do not edit production environment files or restart production as part of this development change.
+6. Retire an old key only after a read-only production inventory confirms no prepared draw references it, and the recovery/backup retention policy no longer requires it. Keep a recoverable encrypted archive for the required retention period.
+
+If a key is missing, the service fails closed and refuses to complete the affected draw. Never replace a missing historical key with a new value under the same key ID. Losing the key for a prepared draw makes its seed unrecoverable.
 
 ## Ranking algorithm
 
