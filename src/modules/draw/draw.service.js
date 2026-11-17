@@ -28,7 +28,7 @@ export function rankDrawCandidates(seed,candidates){
   return [...candidates].map(candidate=>({
     ...candidate,
     ranking_hash:createHmac('sha256',key).update('draw:'+candidate.draw_id+':candidate:'+candidate.id).digest('hex')
-  })).sort((a,b)=>a.ranking_hash.localeCompare(b.ranking_hash)||(BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0));
+  })).sort((a,b)=>a.ranking_hash<b.ranking_hash?-1:a.ranking_hash>b.ranking_hash?1:(BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0));
 }
 
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
@@ -47,7 +47,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     const [[existing]]=await connection.execute("SELECT id FROM campaign_draws WHERE campaign_id=? AND status IN ('prepared','completed') LIMIT 1 FOR UPDATE",[campaignId]);
     if(existing) throw new Error('برای این کمپین قبلاً قرعه‌کشی آماده یا تکمیل شده است.');
     const [candidates]=await connection.execute(
-      "SELECT cc.id AS campaign_code_id,cc.code,e.participant_id FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=cc.campaign_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND cc.status='active' AND e.status='eligible' AND p.status='active' ORDER BY cc.id",
+      "SELECT cc.id AS campaign_code_id,cc.code,e.participant_id FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=cc.campaign_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND cc.status='active' AND e.status='eligible' AND p.status='active' ORDER BY cc.id FOR UPDATE",
       [campaignId]
     );
     if(candidates.length<count) throw new Error('تعداد کدهای واجد شرایط از تعداد برندگان کمتر است.');
