@@ -31,16 +31,20 @@ export function buildSequencePart(sequenceNumber, prefix) {
   }
   const digits = String(sequence);
   const expectedPrefixLength = 6 - digits.length;
-  if (expectedPrefixLength < 0 || String(prefix).length !== expectedPrefixLength) {
+  const normalizedPrefix = String(prefix);
+  if (expectedPrefixLength < 0 || normalizedPrefix.length !== expectedPrefixLength) {
     throw new Error('Random prefix length does not match the six-character code segment.');
   }
-  return String(prefix) + digits;
+  if (normalizedPrefix && !/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(normalizedPrefix)) {
+    throw new Error('Random prefix contains disallowed characters or an invalid final random character.');
+  }
+  return normalizedPrefix + digits;
 }
 
 export function formatCampaignCode({campaignId, sequenceNumber, randomPrefix, randomSuffix: suffix}) {
   const id = Number(campaignId);
   if (!Number.isSafeInteger(id) || id < 1) throw new RangeError('Campaign ID must be a positive integer.');
-  if (!/^[A-Z0-9]{2}$/.test(String(suffix)) || !/[A-Z0]$/.test(String(suffix))) {
+  if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(String(suffix))) {
     throw new Error('Random suffix must contain two allowed characters and end with an uppercase letter or 0.');
   }
   const middle = buildSequencePart(sequenceNumber, randomPrefix);
