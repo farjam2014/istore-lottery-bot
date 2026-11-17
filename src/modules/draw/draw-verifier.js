@@ -10,10 +10,13 @@ export function isValidPublicationReference(value){
   try{
     const url=new URL(value);
     const hostname=url.hostname.replace(/^\[|\]$/g,'').replace(/\.$/,'');
-    const validIp=isIP(hostname)!==0;
+    // Publication references are intended to be public web locations. Reject
+    // IP literals and special-use/internal host suffixes; syntax validation
+    // cannot prove that a DNS name is actually reachable from the public internet.
     const labels=hostname.split('.');
-    const validDomain=hostname.length<=253&&labels.length>=2&&labels.every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
-    return url.protocol==='https:'&&Boolean(hostname)&&(validIp||validDomain)&&!url.username&&!url.password;
+    const reservedSuffixes=new Set(['localhost','local','internal','test','example','invalid']);
+    const validDomain=hostname.length<=253&&labels.length>=2&&!reservedSuffixes.has(labels.at(-1).toLowerCase())&&labels.every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
+    return url.protocol==='https:'&&Boolean(hostname)&&isIP(hostname)===0&&validDomain&&!url.username&&!url.password;
   }catch{return false;}
 }
 
