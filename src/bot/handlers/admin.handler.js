@@ -97,8 +97,7 @@ const rolePermissionsForMenu={
 };
 
 const campaignMenu=()=>Markup.inlineKeyboard([
-  [Markup.button.callback('➕ افزودن کمپین','admin:campaign:add')],
-  [Markup.button.callback('📋 فهرست کمپین‌ها','admin:campaign:list')],
+  [Markup.button.callback('➕ افزودن کمپین','admin:campaign:add'),Markup.button.callback('📋 فهرست کمپین‌ها','admin:campaign:list')],
   [Markup.button.callback('↩️ بازگشت به مدیریت','admin:home')]
 ]);
 const typeMenu=(selected=null)=>Markup.inlineKeyboard([
@@ -681,8 +680,9 @@ async function showParticipants(ctx,page=0,query=''){
   if(pagination.page>0)nav.push(Markup.button.callback('صفحه قبل','admin:participants:page:'+(pagination.page-1)));
   if(pagination.page+1<pagination.pages)nav.push(Markup.button.callback('صفحه بعد','admin:participants:page:'+(pagination.page+1)));
   if(nav.length)buttons.push(nav);
-  buttons.push([Markup.button.callback('🔎 جست‌وجوی مشتری','admin:participants:search')]);
-  if(await hasPermission(ctx.from?.id,'participant.export'))buttons.push([Markup.button.callback('📥 خروجی CSV','admin:participants:export')]);
+  const participantActions=[Markup.button.callback('🔎 جست‌وجوی مشتری','admin:participants:search')];
+  if(await hasPermission(ctx.from?.id,'participant.export'))participantActions.push(Markup.button.callback('📥 خروجی CSV','admin:participants:export'));
+  buttons.push(participantActions);
   buttons.push([Markup.button.callback('بازگشت','admin:home')]);
   const summary=rows.map(p=>'#'+p.id+' | '+(p.full_name||'بدون نام')+' | '+p.status+' | '+p.entry_count+' شرکت | '+p.code_count+' کد').join('\n');
   return respond(ctx,'👥 مدیریت مشتریان\nتعداد: '+pagination.total+' | صفحه '+(pagination.page+1)+' از '+pagination.pages+(terms?'\nجست‌وجو: '+terms.query:'')+'\n\n'+(summary||'مشتری‌ای پیدا نشد.'),Markup.inlineKeyboard(buttons));
