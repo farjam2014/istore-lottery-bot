@@ -112,6 +112,22 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       hasForeignKey(connection,'draw_winners','fk_winner_participant')
     ],'Partial DDL detected in verifiable campaign draw migration (draw_winners). Inspect schema before repair.');
   }
+  if(file==='20261117_004_draw_commitment_publication.sql'){
+    if(index===0) return allSchemaChecks(connection,[
+      hasColumn(connection,'campaign_draws','commitment_publication_reference'),
+      hasColumn(connection,'campaign_draws','commitment_published_at'),
+      hasColumn(connection,'campaign_draws','commitment_published_by')
+    ],'Partial DDL detected in draw commitment publication migration. Inspect campaign_draws before repair.');
+    if(index===1){
+      const [[step]]=await connection.execute(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'"
+      );
+      const ready=Boolean(step?.COLUMN_TYPE?.includes("'draw_publication_reference'")&&step?.COLUMN_TYPE?.includes("'draw_publication_confirm'"));
+      if(ready) return true;
+      if(step?.COLUMN_TYPE?.includes("'draw_publication_reference'")||step?.COLUMN_TYPE?.includes("'draw_publication_confirm'")) throw new Error('Partial DDL detected in admin_wizards publication workflow enum. Inspect schema before repair.');
+      return false;
+    }
+  }
   if(file==='20261117_002_admin_campaign_code_search.sql' && index===0){
     const checks=await Promise.all([
       hasColumn(connection,'admin_search_sessions','campaign_id'),
