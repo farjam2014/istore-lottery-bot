@@ -18,6 +18,7 @@ Target runtime: Ubuntu 24.04, Node.js 22+, MySQL 8+, systemd service `ustore-tel
 - [ ] Confirm there are no prepared draws with missing ciphertext, nonce, tag, unknown key IDs, or unsupported algorithms.
 - [ ] Confirm no legacy campaign-code ownership mismatch and no campaign exceeds the 999999 sequence limit.
 - [ ] Confirm no old prepared draw requires manual recovery before applying the draw migrations.
+- [ ] Run `scripts/production-migration-preflight.sql` against the exact target database using a read-only MySQL account; retain its output with the release evidence.
 
 ## 2. Backup requirements
 
