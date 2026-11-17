@@ -4,12 +4,13 @@ import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed} from '../../src/modules
 
 const oldKey='11'.repeat(32);
 const newKey='22'.repeat(32);
+const row=encrypted=>({seed_ciphertext:encrypted.ciphertext,seed_nonce:encrypted.nonce,seed_tag:encrypted.tag,seed_key_id:encrypted.keyId});
 
 test('legacy single-key environment remains compatible with legacy prepared draws',()=>{
   const keyring=loadDrawKeyring({DRAW_SEED_ENCRYPTION_KEY:oldKey});
   const encrypted=encryptDrawSeed('a'.repeat(64),keyring);
   assert.equal(encrypted.keyId,'legacy-env');
-  assert.equal(decryptDrawSeed({...encrypted,seed_key_id:'legacy-env'},keyring),'a'.repeat(64));
+  assert.equal(decryptDrawSeed(row(encrypted),keyring),'a'.repeat(64));
 });
 
 test('keyring rotation keeps old prepared draws decryptable while new draws use active key',()=>{
@@ -21,8 +22,8 @@ test('keyring rotation keeps old prepared draws decryptable while new draws use 
   });
   const newCiphertext=encryptDrawSeed('c'.repeat(64),rotated);
   assert.equal(newCiphertext.keyId,'2026-11');
-  assert.equal(decryptDrawSeed({...oldCiphertext,seed_key_id:'legacy-env'},rotated),'b'.repeat(64));
-  assert.equal(decryptDrawSeed({...newCiphertext,seed_key_id:'2026-11'},rotated),'c'.repeat(64));
+  assert.equal(decryptDrawSeed(row(oldCiphertext),rotated),'b'.repeat(64));
+  assert.equal(decryptDrawSeed(row(newCiphertext),rotated),'c'.repeat(64));
 });
 
 test('keyring rejects missing active keys, malformed key material and unknown historical key IDs',()=>{
@@ -43,6 +44,6 @@ test('keyring rejects conflicting legacy and keyring definitions',()=>{
 test('authenticated encryption rejects tampered ciphertext',()=>{
   const keyring=loadDrawKeyring({DRAW_SEED_ENCRYPTION_KEY:oldKey});
   const encrypted=encryptDrawSeed('d'.repeat(64),keyring);
-  encrypted.seed_ciphertext=Buffer.from('tampered').toString('base64');
-  assert.throws(()=>decryptDrawSeed({...encrypted,seed_key_id:encrypted.keyId},keyring),/decryption failed/);
+  const tampered={...row(encrypted),seed_ciphertext:Buffer.from('tampered').toString('base64')};
+  assert.throws(()=>decryptDrawSeed(tampered,keyring),/decryption failed/);
 });
