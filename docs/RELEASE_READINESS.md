@@ -72,6 +72,7 @@ Run production migrations only after explicit approval, a verified backup, and a
 10. Observe logs and service health before re-enabling registration and payment workflows.
 
 The Ubuntu installer does not create a database backup. Its approval flags authorize schema/database changes; they do not replace backup verification or production approval.
+The installer validates the environment first, then stops an active service before updating the source checkout or applying migrations. If it fails after stopping the service, it deliberately leaves the service stopped; inspect the code and schema state before any manual start.
 
 ## 5. Post-deployment checks
 
