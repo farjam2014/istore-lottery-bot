@@ -1,4 +1,5 @@
 import {createHash,createHmac} from 'node:crypto';
+import {isIP} from 'node:net';
 
 export const DRAW_ALGORITHM='HMAC-SHA256 candidate-commitment-rank-v2';
 export const DRAW_PROOF_VERSION=1;
@@ -8,7 +9,11 @@ export function isValidPublicationReference(value){
   if(typeof value!=='string'||value.length<1||value.length>500||value.trim()!==value) return false;
   try{
     const url=new URL(value);
-    return url.protocol==='https:'&&Boolean(url.hostname)&&!url.username&&!url.password;
+    const hostname=url.hostname.replace(/^\\[|\\]$/g,'').replace(/\\.$/,'');
+    const validIp=isIP(hostname)!==0;
+    const labels=hostname.split('.');
+    const validDomain=hostname.length<=253&&labels.length>=2&&labels.every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
+    return url.protocol==='https:'&&Boolean(hostname)&&(validIp||validDomain)&&!url.username&&!url.password;
   }catch{return false;}
 }
 
