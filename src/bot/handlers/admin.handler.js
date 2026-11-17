@@ -1,4 +1,5 @@
 import {randomBytes} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
 import {logger} from '../../shared/logger.js';
 import {config} from '../../config/env.js';
 import {pool} from '../../database/pool.js';
@@ -15,6 +16,10 @@ import {getCorrelationId} from '../../shared/request-context.js';
 import {listPaymentCards,getPaymentCard,createPaymentCard,updatePaymentCard,setDefaultPaymentCard,setPaymentCardActive,normalizeCardNumber} from '../../modules/payments/bank-card.service.js';
 import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
 import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../shared/datetime.js';
+import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
+import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
+import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
+import {archiveCampaign} from '../../modules/campaigns/campaign-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -22,6 +27,7 @@ async function isAdmin(ctx){
   if(ctx.callbackQuery){
     const data=ctx.callbackQuery.data||'';
     if(data.startsWith('admin:roles'))return false;
+    if(data.startsWith('admin:campaign:draw:'))return hasPermission(id,'campaign.draw');
     if(data.startsWith('admin:campaign'))return hasPermission(id,'campaign.write');
     if(data.startsWith('admin:participants:export')||data==='admin:participants:search')return hasPermission(id,'participant.read');
     if(data.startsWith('admin:participant:'))return hasPermission(id,data.includes(':block:')||data.includes(':unblock:')?'participant.manage':'participant.read');
@@ -38,12 +44,13 @@ async function isAdmin(ctx){
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
     const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
-    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');
+    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
     const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);
     if(wizard?.step==='payment_settings')return hasPermission(id,'payment.settings');
+    if(['draw_publication_reference','draw_publication_confirm'].includes(wizard?.step))return hasPermission(id,'campaign.draw');
     if(wizard?.step==='payment_reject')return hasPermission(id,'payment.review');
     return hasPermission(id,'campaign.write');
   }
@@ -149,13 +156,18 @@ async function showCampaignList(ctx,page=0){
   return respond(ctx,message,Markup.inlineKeyboard(buttons));
 }
 async function showCampaignDetail(ctx,id){
-  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count FROM campaigns WHERE id=?",[id]);
+  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
+  const canDraw=await hasPermission(ctx.from?.id,'campaign.draw');
   if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
-  if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
+  actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
+  if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&!c.commitment_published_at)actions.push([Markup.button.callback('🔗 ثبت انتشار Commitment','admin:campaign:draw:publish:'+c.prepared_draw_id)]);
+  else if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&c.commitment_published_at)actions.push([Markup.button.callback('▶️ اجرای قرعه‌کشی آماده‌شده','admin:campaign:draw:complete:'+c.prepared_draw_id)]);
+  else if(canDraw&&c.status==='closed')actions.push([Markup.button.callback('🎲 آماده‌سازی قرعه‌کشی','admin:campaign:draw:prepare:'+c.id)]);
+  if(['draft','paused','closed'].includes(c.status)&&!c.prepared_draw_id)actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
   actions.push([Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]);
   const message='🎯 کمپین #'+c.id+' — '+c.title+
     '\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+
@@ -193,7 +205,7 @@ export function registerAdminHandlers(bot){
   bot.action('admin:campaign:add',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{});await ctx.answerCbQuery();return respond(ctx,'نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
   bot.action(/^admin:campaign:type:(free|paid)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const current=await getWizard(ctx.from.id);if(!current||current.step!=='select_type')return ctx.answerCbQuery('ابتدا از افزودن کمپین شروع کنید.',{show_alert:true});const type=ctx.match[1];await saveWizard(ctx.from.id,'select_type',{type});await ctx.answerCbQuery(type==='free'?'رایگان انتخاب شد.':'پولی انتخاب شد.');return ctx.editMessageReplyMarkup(typeMenu(type).reply_markup);
+    const current=await getWizard(ctx.from.id);if(!current||current.step!=='select_type')return ctx.answerCbQuery('ابتدا از افزودن کمپین شروع کنید.',{show_alert:true});const type=ctx.match[1];await saveWizard(ctx.from.id,'select_type',{type});await ctx.answerCbQuery(type==='free'?'رایگان انتخاب شد.':'پولی انتخاب شد.');try{return await ctx.editMessageReplyMarkup(typeMenu(type).reply_markup);}catch(error){if(/message is not modified/i.test(String(error?.message||'')))return;throw error;}
   });
   bot.action('admin:campaign:continue',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const current=await getWizard(ctx.from.id);if(!current||current.step!=='select_type'||!['free','paid'].includes(current.payload?.type))return ctx.answerCbQuery('ابتدا رایگان یا پولی را انتخاب کنید.',{show_alert:true});await saveWizard(ctx.from.id,'title',current.payload);await ctx.answerCbQuery('ادامه ساخت کمپین');return respond(ctx,current.payload.type==='free'?'نوع رایگان انتخاب شد. عنوان کمپین را ارسال کنید.':'نوع پولی انتخاب شد. عنوان کمپین را ارسال کنید.');});
   bot.action('admin:campaign:cancel',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await clearWizard(ctx.from.id);await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ساخت کمپین لغو شد.',campaignMenu());});
@@ -216,6 +228,77 @@ export function registerAdminHandlers(bot){
     }catch(error){
       logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Admin campaign detail could not be opened');
       return ctx.reply('نمایش جزئیات کمپین با خطا مواجه شد. خطا در گزارش سامانه ثبت شد؛ دوباره تلاش کنید.');
+    }
+  });
+  bot.action(/^admin:campaign:draw:prepare:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const campaignId=Number(ctx.match[1]);
+    try{
+      const draw=await prepareCampaignDraw({campaignId,createdBy:ctx.from.id,winnerCount:1});
+      await ctx.answerCbQuery('Snapshot قرعه‌کشی ثبت شد.');
+      return respond(ctx,'🎲 قرعه‌کشی آماده شد؛ هنوز اجرا نشده است.\n\nشناسه قرعه‌کشی: '+draw.drawId+'\nتعداد کدهای واجد شرایط: '+draw.candidateCount+'\nالگوریتم: '+draw.algorithm+'\nتعهد Seed (SHA-256):\n'+draw.seedHash+'\nHash فهرست نامزدها:\n'+draw.candidateSnapshotHash+'\n\nاین مقادیر را پیش از اجرا ثبت و منتشر کنید. پس از اجرا Seed افشا می‌شود و نتیجه قابل بازبینی خواهد بود.',Markup.inlineKeyboard([[Markup.button.callback('🔗 ثبت انتشار عمومی Commitment','admin:campaign:draw:publish:'+draw.drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+campaignId)]]));
+    }catch(error){
+      logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Campaign draw preparation failed');
+      return ctx.answerCbQuery(error.message||'آماده‌سازی قرعه‌کشی ناموفق بود.',{show_alert:true});
+    }
+  });
+  bot.action(/^admin:campaign:draw:publish:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[drawId]);
+    if(!draw||draw.status!=='prepared')return ctx.answerCbQuery('قرعه‌کشی آماده پیدا نشد.',{show_alert:true});
+    if(draw.commitment_published_at)return ctx.answerCbQuery('انتشار Commitment قبلاً ثبت شده است.',{show_alert:true});
+    await saveWizard(ctx.from.id,'draw_publication_reference',{drawId});
+    await ctx.answerCbQuery();
+    return respond(ctx,'لینک عمومی محل انتشار Seed Commitment و Hash نامزدها را ارسال کنید. فقط لینک HTTPS پذیرفته می‌شود. ثبت لینک، خوداظهاری مدیر است و سامانه محتوای آن را مستقلاً تأیید نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+drawId)]]));
+  });
+  bot.action(/^admin:campaign:draw:publication-cancel:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
+    if(wizard&&['draw_publication_reference','draw_publication_confirm'].includes(wizard.step)&&Number(wizard.payload?.drawId)===drawId)await clearWizard(ctx.from.id);
+    await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ثبت انتشار لغو شد.');
+  });
+  bot.action(/^admin:campaign:draw:publication-confirm:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
+    if(!wizard||wizard.step!=='draw_publication_confirm'||Number(wizard.payload?.drawId)!==drawId||!wizard.payload?.reference)return ctx.answerCbQuery('مرحله ثبت انتشار منقضی شده است.',{show_alert:true});
+    const [updated]=await pool.execute("UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=? AND status='prepared' AND commitment_published_at IS NULL",[wizard.payload.reference,String(ctx.from.id),drawId]);
+    if(!updated.affectedRows)return ctx.answerCbQuery('قرعه‌کشی تغییر کرده یا انتشار قبلاً ثبت شده است.',{show_alert:true});
+    await audit(ctx.from.id,'draw.commitment_published','campaign_draw',drawId,{reference:wizard.payload.reference});
+    await clearWizard(ctx.from.id);await ctx.answerCbQuery('انتشار ثبت شد.');
+    const [[draw]]=await pool.execute('SELECT campaign_id FROM campaign_draws WHERE id=?',[drawId]);
+    return respond(ctx,'لینک انتشار ثبت شد. این ثبت به معنی تأیید مستقل محتوای لینک نیست. اکنون اجرای قرعه‌کشی فعال است.',Markup.inlineKeyboard([[Markup.button.callback('▶️ اجرای قرعه‌کشی','admin:campaign:draw:complete:'+drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+draw.campaign_id)]]));
+  });
+  bot.action(/^admin:campaign:draw:complete:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    try{
+      const result=await completeCampaignDraw({drawId,completedBy:ctx.from.id});
+      await ctx.answerCbQuery('قرعه‌کشی تکمیل شد.');
+      const winners=result.winners.map(w=>'رتبه '+w.rank+': '+w.code+' | شناسه شرکت‌کننده: '+w.participantId).join('\n');
+      return respond(ctx,'🏆 نتیجه قرعه‌کشی کمپین #'+result.campaignId+'\n\nتعداد نامزدها: '+result.candidateCount+'\nالگوریتم: '+result.algorithm+'\nتعهد Seed:\n'+result.seedHash+'\nSeed افشاشده:\n'+result.revealedSeed+'\nHash Snapshot:\n'+result.candidateSnapshotHash+'\n\nبرندگان:\n'+winners+'\n\nبرای دریافت پرونده کامل و راستی‌آزمایی آفلاین، دکمه زیر را بزنید.',Markup.inlineKeyboard([[Markup.button.callback('📦 دریافت پرونده اثبات قرعه‌کشی','admin:campaign:draw:proof:'+drawId)],[Markup.button.callback('مشاهده کمپین','admin:campaign:detail:'+result.campaignId)],[Markup.button.callback('بازگشت به مدیریت','admin:home')]]));
+    }catch(error){
+      logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw completion failed');
+      return ctx.answerCbQuery(error.message||'اجرای قرعه‌کشی ناموفق بود.',{show_alert:true});
+    }
+  });
+  bot.action(/^admin:campaign:draw:proof:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    try{
+      const proof=await getCampaignDrawProof(drawId);
+      const compressed=gzipSync(Buffer.from(JSON.stringify(proof)));
+      const maxBytes=45*1024*1024;
+      if(compressed.length>maxBytes)return ctx.answerCbQuery('پرونده فشرده از سقف امن ارسال تلگرام بزرگ‌تر است؛ خروجی چندبخشی هنوز فعال نشده است.',{show_alert:true});
+      await audit(ctx.from.id,'draw.proof_export_requested','campaign_draw',drawId,{candidateCount:proof.candidates.length,winnerCount:proof.winners.length,compressedBytes:compressed.length});
+      await ctx.answerCbQuery('پرونده اثبات آماده شد.');
+      await ctx.replyWithDocument(
+        {source:compressed,filename:'campaign-draw-'+drawId+'-proof.json.gz'},
+        {caption:'پرونده اثبات نسخه ۱ قرعه‌کشی #'+drawId+'\nبرای راستی‌آزمایی آفلاین: gunzip -c campaign-draw-'+drawId+'-proof.json.gz > proof.json سپس node scripts/verify-draw-proof.js proof.json\nاین پرونده شامل شناسه‌های عددی داخلی شرکت‌کنندگان است؛ فاقد نام، شماره تماس و شناسه تلگرام است.'}
+      );
+    }catch(error){
+      logger.error({err:error,drawId,adminTelegramId:ctx.from?.id},'Campaign draw proof export failed');
+      return ctx.reply('ساخت یا ارسال پرونده اثبات ناموفق بود: '+(error.message||'خطای ناشناخته'));
     }
   });
   bot.action(/^admin:campaign:edit-menu:(\d+)$/,async ctx=>{
@@ -253,18 +336,9 @@ export function registerAdminHandlers(bot){
   });
   bot.action(/^admin:campaign:archive:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
-    const id=Number(ctx.match[1]);const c=await pool.getConnection();let from;
-    try{
-      await c.beginTransaction();
-      const [[row]]=await c.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[id]);
-      if(!row)throw new Error('کمپین پیدا نشد.');
-      if(!['draft','paused','closed'].includes(row.status))throw new Error('فقط کمپین پیش‌نویس، متوقف یا بسته قابل بایگانی است.');
-      const [[pending]]=await c.execute("SELECT COUNT(*) total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND o.status IN ('awaiting_receipt','under_review','rejected')",[id]);
-      if(Number(pending.total)>0)throw new Error('تا تعیین تکلیف سفارش‌های باز، بایگانی مجاز نیست.');
-      from=row.status;await c.execute("UPDATE campaigns SET status='archived' WHERE id=?",[id]);
-      await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'campaign.archived','campaign',id,JSON.stringify({from,to:'archived'})]);
-      await c.commit();
-    }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}finally{c.release();}
+    const id=Number(ctx.match[1]);
+    try{await archiveCampaign({campaignId:id,actorId:String(ctx.from.id)});}
+    catch(error){return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}
     await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
@@ -279,6 +353,35 @@ export function registerAdminHandlers(bot){
     return showCampaignDetail(ctx,id);
   });
 
+  bot.action(/^admin:campaign:codes:search:(\d+)$/,async ctx=>{
+    if(!hasPermission(ctx.from.id,'campaign.write')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    const campaignId=Number(ctx.match[1]);
+    const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
+    if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'campaign_code',?) ON DUPLICATE KEY UPDATE step=VALUES(step),campaign_id=VALUES(campaign_id)",[String(ctx.from.id),campaignId]);
+    await ctx.answerCbQuery();
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
+  });
+  bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const campaignId=Number(ctx.match[1]);
+    await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND campaign_id=?",[String(ctx.from.id),campaignId]);
+    await ctx.answerCbQuery('جست‌وجو لغو شد.');
+    return showCampaignDetail(ctx,campaignId);
+  });
+
+  bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
+    if(!hasPermission(ctx.from.id,'campaign.write')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    const campaignId=Number(ctx.match[1]);
+    const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
+    if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    await ctx.answerCbQuery('در حال آماده‌سازی خروجی...');
+    const [rows]=await pool.execute("SELECT cc.id code_id,cc.code,cc.sequence_number,cc.random_prefix,cc.random_suffix,cc.format_version,cc.status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle,cc.created_at FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 50000",[campaignId]);
+    const columns=['code_id','code','sequence_number','random_prefix','random_suffix','format_version','status','entry_id','entry_status','telegram_user_id','full_name','phone','instagram_handle','created_at'];
+    const csv=toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at)})),columns);
+    await audit(ctx.from.id,'campaign.codes_exported','campaign',campaignId,{count:rows.length,limit:50000});
+    return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-'+campaignId+'-codes.csv'},{caption:'خروجی کدهای کمپین «'+campaign.title+'»: '+rows.length+' کد (حداکثر ۵۰٬۰۰۰ رکورد).'});
+  });
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,0);});
   bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]));});
   bot.action(/^admin:participant:view:(\d+)$/,async ctx=>{
@@ -425,6 +528,17 @@ export function registerAdminHandlers(bot){
     if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');const c=await pool.getConnection();try{await c.beginTransaction();const [[old]]=await c.execute('SELECT role FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[target]);await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE role=VALUES(role),is_active=1,added_by=VALUES(added_by)',[target,pending[0].role,String(ctx.from.id)]);await c.execute("INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?, ?,?)",[target,String(ctx.from.id),old?'role_changed':'assigned',old?.role||null,pending[0].role]);await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'دسترسی مدیر ثبت شد: '+target+' | '+pending[0].role,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
     const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant'",[String(ctx.from.id)]);
     if(participantSearch){const query=ctx.message.text.trim();await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);return showParticipants(ctx,0,query);}
+    const [[codeSearch]]=await pool.execute("SELECT step,campaign_id FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code'",[String(ctx.from.id)]);
+    if(codeSearch){
+      const query=ctx.message.text.trim().slice(0,100);
+      await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+      if(!query||query.startsWith('/'))return respond(ctx,'عبارت جست‌وجو معتبر نیست.');
+      const like='%'+query.split('!').join('!!').split('%').join('!%').split('_').join('!_')+'%';
+      const [rows]=await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND (cc.code LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!') ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like,query,like]);
+      if(!rows.length)return respond(ctx,'کدی با این مشخصات در این کمپین پیدا نشد.');
+      const message=rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\n');
+      return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
+    }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
     if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const [[cardSession]]=await pool.execute('SELECT step,card_id,payload FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
@@ -470,6 +584,14 @@ export function registerAdminHandlers(bot){
     const [supportRows]=await pool.execute("SELECT step,ticket_id FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     if(supportRows[0]){const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return respond(ctx,'متن پاسخ را ارسال کنید.');if(body.length>4000)return respond(ctx,'پاسخ حداکثر ۴۰۰۰ نویسه باشد.');const ticketId=supportRows[0].ticket_id;const c=await pool.getConnection();let chatId;try{await c.beginTransaction();const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');chatId=String(t.telegram_user_id);await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await enqueueTelegramNotification({chatId,text:'پاسخ پشتیبانی برای تیکت شما:\n'+body,executor:c});await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));}
     if(!wizard)return next();
+    if(wizard.step==='draw_publication_reference'){
+      const reference=ctx.message.text.trim();
+      if(!isValidPublicationReference(reference))return respond(ctx,'لینک معتبر HTTPS بدون نام کاربری یا رمز و حداکثر ۵۰۰ نویسه ارسال کنید.');
+      const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[wizard.payload.drawId]);
+      if(!draw||draw.status!=='prepared'||draw.commitment_published_at){await clearWizard(ctx.from.id);return respond(ctx,'قرعه‌کشی دیگر در وضعیت ثبت انتشار نیست.');}
+      await saveWizard(ctx.from.id,'draw_publication_confirm',{drawId:Number(draw.id),reference});
+      return respond(ctx,'لطفاً تأیید کنید که این لینک، محل انتشار عمومی Commitment و Hash نامزدهاست. سامانه صحت یا عمومی‌بودن محتوای لینک را مستقلاً بررسی نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('تأیید ثبت لینک انتشار','admin:campaign:draw:publication-confirm:'+draw.id)],[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+draw.id)]]));
+    }
     const value=ctx.message.text.trim();const p=wizard.payload;
     if(wizard.step==='campaign_edit_value'){
       const fields={title:'title',description:'description',prize_title:'prize_title',prize_description:'prize_description',terms:'terms',entry_price:'entry_price',capacity:'capacity',codes_per_entry:'codes_per_entry',starts_at:'starts_at',ends_at:'ends_at',draw_at:'draw_at'};

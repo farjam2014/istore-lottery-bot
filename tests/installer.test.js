@@ -26,4 +26,8 @@ test('installer preserves existing application state and requires production aut
   assert.ok(script.indexOf('ALLOW_DATABASE_MIGRATIONS') < script.indexOf('CREATE DATABASE IF NOT EXISTS'),'Installer must authorize database changes before provisioning MySQL.');
   assert.doesNotMatch(script,/DROP DATABASE/i);
   assert.doesNotMatch(script,/rm -rf/);
+  const stopService=script.indexOf('systemctl stop "$SERVICE"');
+  const updateCheckout=script.indexOf('git -C "$APP_DIR" fetch');
+  const migrateDatabase=script.indexOf('npm run db:migrate');
+  assert.ok(stopService>=0&&stopService<updateCheckout&&stopService<migrateDatabase,'An active service must stop before source checkout updates and production migrations.');
 });

@@ -40,6 +40,7 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$APP_DIR" --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 fi
 
+UPDATE_EXISTING=0
 if [[ ! -e "$APP_DIR" ]]; then
   git clone --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$APP_DIR"
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -51,9 +52,8 @@ else
   [[ "$remote" == "$REPO" ]] || fail "Existing checkout has an unexpected origin remote: $remote"
   tracked_changes="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" status --porcelain --untracked-files=no)"
   [[ -z "$tracked_changes" ]] || fail "Tracked source files have local modifications. Commit or inspect them before updating."
-  log "Updating the existing checkout without deleting untracked files."
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout -B "$BRANCH" FETCH_HEAD
+  UPDATE_EXISTING=1
+  log "Existing checkout validated; source update is deferred until after service-stop authorization checks."
 fi
 
 [[ -f "$APP_DIR/package.json" && -f "$APP_DIR/src/index.js" ]] || fail "Application source is incomplete."
@@ -72,6 +72,7 @@ if [[ ! -e "$ENV_FILE" ]]; then
   DB_NAME="ustore_bot_${suffix}"
   DB_USER="ustore_app_${suffix}"
   DB_PASSWORD="$(openssl rand -hex 32)"
+  DRAW_SEED_KEY="$(openssl rand -hex 32)"
   umask 077
   tmp_env="$(mktemp "$APP_DIR/.env.XXXXXX")"
   cat > "$tmp_env" <<ENV
@@ -85,11 +86,12 @@ MYSQL_USER=$DB_USER
 MYSQL_PASSWORD=$DB_PASSWORD
 MYSQL_POOL_SIZE=5
 LOG_LEVEL=info
+DRAW_SEED_ENCRYPTION_KEY=$DRAW_SEED_KEY
 ENV
   chown "$APP_USER:$APP_USER" "$tmp_env"
   chmod 600 "$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
-  unset BOT_TOKEN DB_PASSWORD
+  unset BOT_TOKEN DB_PASSWORD DRAW_SEED_KEY
 else
   log "Existing .env found; preserving it and not prompting for or printing secrets."
   [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail ".env must be a regular file, not a symlink."
@@ -103,6 +105,8 @@ DB_PASSWORD="$(read_env MYSQL_PASSWORD)"
 DB_HOST="$(read_env MYSQL_HOST)"
 BOT_TOKEN="$(read_env BOT_TOKEN)"
 ADMIN_ID="$(read_env BOT_ADMIN_IDS)"
+DRAW_SEED_ENCRYPTION_KEY="$(read_env DRAW_SEED_ENCRYPTION_KEY)"
+DRAW_SEED_ENCRYPTION_KEYS="$(read_env DRAW_SEED_ENCRYPTION_KEYS)"
 NODE_ENV_VALUE="$(read_env NODE_ENV)"
 NODE_ENV_VALUE="${NODE_ENV_VALUE:-production}"
 [[ "$NODE_ENV_VALUE" == "production" ]] || fail "Production installer requires NODE_ENV=production; refusing non-production configuration."
@@ -111,16 +115,31 @@ NODE_ENV_VALUE="${NODE_ENV_VALUE:-production}"
 # target-bound authorization before any database or MySQL-account operation.
 [[ "${ALLOW_DATABASE_MIGRATIONS:-}" == "1" ]] || fail "Database provisioning and migrations are disabled by default. Set ALLOW_DATABASE_MIGRATIONS=1 only after explicit approval."
 [[ "${ALLOW_PRODUCTION_MIGRATIONS:-}" == "1" ]] || fail "Production database changes additionally require ALLOW_PRODUCTION_MIGRATIONS=1."
-[[ "${MIGRATION_TARGET_DATABASE:-}" == "$DB_NAME" ]] || fail "MIGRATION_TARGET_DATABASE must exactly match MYSQL_DATABASE."
+requested_migration_target="${MIGRATION_TARGET_DATABASE:-$DB_NAME}"
+[[ "$requested_migration_target" == "$DB_NAME" ]] || fail "MIGRATION_TARGET_DATABASE must exactly match MYSQL_DATABASE."
+MIGRATION_TARGET_DATABASE="$DB_NAME"
 [[ "$DB_NAME" =~ ^ustore_bot_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_DATABASE in .env is not a generated UStore database name."
 [[ "$DB_USER" =~ ^ustore_app_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_USER in .env is not a generated UStore database user."
 [[ "$DB_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || fail "MYSQL_PASSWORD in .env must be the generated 64-character hex password."
 [[ "$DB_HOST" == 127.0.0.1 ]] || fail "This installer expects MYSQL_HOST=127.0.0.1."
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
+[[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
+
+if systemctl is-active --quiet "$SERVICE"; then
+  log "Stopping the active application service before changing source files or database schema."
+  systemctl stop "$SERVICE"
+fi
+if [[ "$UPDATE_EXISTING" == "1" ]]; then
+  log "Updating the existing checkout after the service has stopped."
+  runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
+  runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout -B "$BRANCH" FETCH_HEAD
+fi
 
 log "Installing production dependencies and running automated tests."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && node --input-type=module -e \"import \\\"dotenv/config\\\"; import {loadDrawKeyring} from \\\"./src/modules/draw/draw-keyring.js\\\"; loadDrawKeyring();\""
+unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js' -print0 | xargs -0 -n1 node --check"
 
