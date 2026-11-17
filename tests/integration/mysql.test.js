@@ -519,7 +519,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
   assert.match(String(process.env.DRAW_SEED_ENCRYPTION_KEY||''),/^[a-f0-9]{64}$/i);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
-  const {prepareCampaignDraw,completeCampaignDraw}=await import('../../src/modules/draw/draw.service.js');
+  const {prepareCampaignDraw,completeCampaignDraw,verifyCampaignDraw}=await import('../../src/modules/draw/draw.service.js');
   const suffix=String(Date.now());const telegramIds=[1,2].map(n=>String(660000000000n+BigInt(n)*10000000000n+(BigInt(Date.now())%1000000000n)));
   const participantIds=[];const entryIds=[];const codeIds=[];let campaignId,drawId;
   try{
@@ -555,6 +555,10 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.equal(createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
     assert.equal(new Set(completed.winners.map(x=>String(x.participantId))).size,2,'A participant must not win twice in one draw.');
     assert.equal(new Set(completed.winners.map(x=>x.code)).size,2);
+    const [candidateProof]=await pool.execute('SELECT id,draw_id,campaign_id,campaign_code_id,participant_id,code_snapshot,candidate_hash FROM draw_candidates WHERE draw_id=?',[drawId]);
+    const [winnerProof]=await pool.execute('SELECT campaign_code_id,participant_id,code_snapshot,rank_position FROM draw_winners WHERE draw_id=? ORDER BY rank_position',[drawId]);
+    const proof=verifyCampaignDraw({seed:completed.revealedSeed,seedHash:completed.seedHash,candidateSnapshotHash:completed.candidateSnapshotHash,candidates:candidateProof,winners:winnerProof});
+    assert.equal(proof.valid,true,proof.reason||'Draw proof verification failed.');
     const [[drawState]]=await pool.execute('SELECT status,revealed_seed FROM campaign_draws WHERE id=?',[drawId]);
     assert.equal(drawState.status,'completed');assert.equal(drawState.revealed_seed,completed.revealedSeed);
     const [[campaignState]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);assert.equal(campaignState.status,'drawn');
