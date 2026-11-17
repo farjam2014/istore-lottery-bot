@@ -22,7 +22,8 @@ function decryptSeed(row){
 }
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
-export function verifyCampaignDraw({drawId,seed,seedHash,candidateSnapshotHash,candidates,winners}){
+export function verifyCampaignDraw({drawId,algorithm,seed,seedHash,candidateSnapshotHash,candidates,winners}){
+  if(algorithm!==DRAW_ALGORITHM) return {valid:false,reason:'unsupported_draw_algorithm'};
   const id=Number(drawId);
   if(!Number.isSafeInteger(id)||id<1) return {valid:false,reason:'invalid_draw_id'};
   if(!/^[a-f0-9]{64}$/i.test(String(seed??''))||sha256(String(seed))!==String(seedHash)) return {valid:false,reason:'seed_commitment_mismatch'};
@@ -31,7 +32,7 @@ export function verifyCampaignDraw({drawId,seed,seedHash,candidateSnapshotHash,c
   const candidateIntegrity=candidates.every(candidate=>{
     if(!candidate||String(candidate.draw_id)!==String(id)) return false;
     const candidateId=String(candidate.id??'');const codeId=String(candidate.campaign_code_id??'');
-    if(!/^\\d+$/.test(candidateId)||!/^\\d+$/.test(codeId)||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
+    if(!/^\d+$/.test(candidateId)||!/^\d+$/.test(codeId)||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
     candidateIds.add(candidateId);codeIds.add(codeId);
     return sha256(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===String(candidate.candidate_hash);
   });
@@ -110,6 +111,7 @@ export async function completeCampaignDraw({drawId,completedBy}){
     const [[draw]]=await connection.execute('SELECT * FROM campaign_draws WHERE id=? AND campaign_id=? FOR UPDATE',[drawId,drawReference.campaign_id]);
     if(!draw) throw new Error('قرعه‌کشی پیدا نشد.');
     if(draw.status!=='prepared') throw new Error('فقط قرعه‌کشی آماده قابل اجرا است.');
+    if(draw.algorithm!==DRAW_ALGORITHM) throw new Error('نسخه الگوریتم این قرعه‌کشی با نسخه فعال سازگار نیست؛ اجرای آن متوقف شد تا قرعه‌کشی با نسخه صحیح بازبینی شود.');
     if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
     const [candidates]=await connection.execute(
       'SELECT dc.id,dc.draw_id,dc.campaign_id,dc.campaign_code_id,dc.participant_id,dc.code_snapshot,dc.candidate_hash,cc.code AS current_code,cc.status AS code_status,e.status AS entry_status,p.status AS participant_status FROM draw_candidates dc LEFT JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id LEFT JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=dc.campaign_id AND e.participant_id=dc.participant_id LEFT JOIN participants p ON p.id=e.participant_id WHERE dc.draw_id=? ORDER BY dc.id FOR UPDATE',
