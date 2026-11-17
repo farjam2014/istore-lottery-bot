@@ -18,6 +18,7 @@ import {isTelegramCommandText} from '../../modules/admin/admin-role-session.js';
 import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../shared/datetime.js';
 import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
+import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -592,7 +593,7 @@ export function registerAdminHandlers(bot){
     if(!wizard)return next();
     if(wizard.step==='draw_publication_reference'){
       const reference=ctx.message.text.trim();
-      if(!/^https:\/\/[^\s]{8,480}$/i.test(reference))return respond(ctx,'لینک معتبر HTTPS با حداکثر ۵۰۰ نویسه ارسال کنید.');
+      if(!isValidPublicationReference(reference))return respond(ctx,'لینک معتبر HTTPS بدون نام کاربری یا رمز و حداکثر ۵۰۰ نویسه ارسال کنید.');
       const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[wizard.payload.drawId]);
       if(!draw||draw.status!=='prepared'||draw.commitment_published_at){await clearWizard(ctx.from.id);return respond(ctx,'قرعه‌کشی دیگر در وضعیت ثبت انتشار نیست.');}
       await saveWizard(ctx.from.id,'draw_publication_confirm',{drawId:Number(draw.id),reference});
