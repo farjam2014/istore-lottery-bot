@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEnvironment } from '../../src/config/env.js';
+import { parseEnvironment } from '../../src/config/env-schema.js';
 
 const validEnvironment = {
   BOT_TOKEN:'x'.repeat(40),
