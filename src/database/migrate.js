@@ -50,7 +50,13 @@ async function allSchemaChecks(connection,checks,message){
 
 async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261117_001_campaign_code_sequence.sql'){
-    if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_id_campaign');
+    if(index===0){
+      const [[legacyOverflow]]=await connection.execute(
+        'SELECT campaign_id,COUNT(*) AS total FROM campaign_codes GROUP BY campaign_id HAVING COUNT(*)>999999 LIMIT 1'
+      );
+      if(legacyOverflow) throw new Error('Legacy campaign has more than 999999 issued codes; stop migration and reconcile sequence capacity before applying campaign code migration.');
+      return hasIndex(connection,'campaign_entries','uq_entry_id_campaign');
+    }
     if(index===1){
       const checks=await Promise.all([
         hasColumn(connection,'campaign_codes','sequence_number'),
@@ -67,7 +73,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       return false;
     }
     if(index===2) return hasTable(connection,'campaign_code_counters');
-    // INSERT ... SELECT is intentionally replayable only after the table exists.
+    // Legacy sequence backfill and counter seeding are idempotent and safe to replay.
     return false;
   }
   if(file==='20261117_003_verifiable_campaign_draws.sql'){
