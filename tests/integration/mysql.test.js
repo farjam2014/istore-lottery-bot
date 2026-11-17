@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 test('MySQL integration: clean schema, unique profile, multiple campaigns, frozen snapshot and idempotent codes',{skip:!enabled},async()=>{
@@ -551,7 +552,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
     const completed=await completeCampaignDraw({drawId,completedBy:telegramIds[0]});
     assert.equal(completed.status,'completed');assert.equal(completed.winners.length,2);
-    assert.equal(require('node:crypto').createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
+    assert.equal(createHash('sha256').update(completed.revealedSeed).digest('hex'),prepared.seedHash);
     assert.equal(new Set(completed.winners.map(x=>String(x.participantId))).size,2,'A participant must not win twice in one draw.');
     assert.equal(new Set(completed.winners.map(x=>x.code)).size,2);
     const [[drawState]]=await pool.execute('SELECT status,revealed_seed FROM campaign_draws WHERE id=?',[drawId]);
