@@ -4,7 +4,7 @@ const KEY_ID_PATTERN=/^[A-Za-z0-9._-]{1,64}$/;
 const KEY_PATTERN=/^[a-f0-9]{64}$/i;
 
 export function loadDrawKeyring(env=process.env){
-  const keys={};
+  const keys=Object.create(null);
   const raw=String(env.DRAW_SEED_ENCRYPTION_KEYS??'').trim();
   if(raw){
     let parsed;
