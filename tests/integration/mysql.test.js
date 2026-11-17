@@ -738,3 +738,20 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
     for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
   }
 });
+
+
+test('MySQL integration: production migration preflight contains only executable SELECT statements',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {readFile}=await import('node:fs/promises');
+  await migrate();
+  const source=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+  const statements=source.replace(/^\\s*--.*$/gm,'').split(';').map(statement=>statement.trim()).filter(Boolean);
+  assert.ok(statements.length>=8,'Preflight must contain the expected inventory and integrity queries.');
+  for(const statement of statements){
+    assert.match(statement,/^SELECT\\b/i,'Production preflight must remain read-only.');
+    await pool.query(statement);
+  }
+});
