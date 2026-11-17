@@ -646,9 +646,10 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.seed_key_id,'legacy-env');assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
     await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
     const [[tamperTarget]]=await pool.execute('SELECT id,campaign_code_id,code_snapshot FROM draw_candidates WHERE draw_id=? ORDER BY id LIMIT 1',[drawId]);
-    await pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]);
-    await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/دستکاری شده/);
-    await pool.execute('UPDATE draw_candidates SET code_snapshot=? WHERE id=?',[tamperTarget.code_snapshot,tamperTarget.id]);
+    await assert.rejects(
+      pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]),
+      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+    ); // The database now prevents mutation of the code snapshot itself.
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=?",[tamperTarget.campaign_code_id]);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/وضعیت یکی از کدها/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE id=?",[tamperTarget.campaign_code_id]);
@@ -896,7 +897,7 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
     await assert.rejects(
       pool.execute(
         'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
-        [drawId,campaignId,codes[0],entries[0],participants[1],codeValues[0],'c'.repeat(64)]
+        [drawId,campaignId,codes[1],entries[1],participants[0],codeValues[1],'c'.repeat(64)]
       ),
       error=>error.code==='ER_NO_REFERENCED_ROW_2'
     );
