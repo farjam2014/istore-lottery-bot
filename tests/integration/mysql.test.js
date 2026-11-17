@@ -630,6 +630,8 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.equal(offlineResult.valid,true,offlineResult.reason||'Exported offline proof verification failed.');
     assert.equal(exportedProof.candidates.length,3);
     assert.equal(exportedProof.winners.length,2);
+    assert.equal(exportedProof.draw.publication.publishedBy,'admin');
+    assert.equal(JSON.stringify(exportedProof).includes(telegramIds[0]),false,'Proof must not disclose the publishing administrator or participant Telegram ID.');
     assert.equal(Object.hasOwn(exportedProof.candidates[0],'phone'),false,'Proof must not contain participant contact data.');
     const [[drawState]]=await pool.execute('SELECT status,revealed_seed FROM campaign_draws WHERE id=?',[drawId]);
     assert.equal(drawState.status,'completed');assert.equal(drawState.revealed_seed,completed.revealedSeed);
