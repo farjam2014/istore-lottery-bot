@@ -223,7 +223,7 @@ export function registerAdminHandlers(bot){
     }
   });
   bot.action(/^admin:campaign:draw:prepare:(\d+)$/,async ctx=>{
-    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     try{
       const draw=await prepareCampaignDraw({campaignId,createdBy:ctx.from.id,winnerCount:1});
@@ -235,7 +235,7 @@ export function registerAdminHandlers(bot){
     }
   });
   bot.action(/^admin:campaign:draw:complete:(\d+)$/,async ctx=>{
-    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);
     try{
       const result=await completeCampaignDraw({drawId,completedBy:ctx.from.id});
