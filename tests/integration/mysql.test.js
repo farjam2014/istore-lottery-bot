@@ -36,6 +36,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
     );
     if(Number(recoveryIndex.total)===0) await pool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
+    const [[migrationHistoryTable]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migrations'");
+    if(Number(migrationHistoryTable.total)>0){
+      await pool.execute("DELETE FROM schema_migrations WHERE version=?",["20261117_001_campaign_code_sequence.sql"]);
+    }
     await migrate();
 
     // Verify all five new migrations and the complete legacy admin wizard contract.

@@ -35,7 +35,9 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const port=String(process.env.MYSQL_PORT||'3306');
   const user=String(process.env.MYSQL_USER||'');
   assert.ok(user,'MYSQL_USER is required.');
-  const restoreDatabase='draw_restore_'+randomBytes(8).toString('hex')+'_ci';
+  const restoreDatabase=process.env.MYSQL_RESTORE_DATABASE||('draw_restore_'+randomBytes(8).toString('hex')+'_ci');
+  assert.match(restoreDatabase,/^draw_restore_[a-f0-9]{16}_ci$/,'Invalid isolated restore database name.');
+  assert.notEqual(restoreDatabase,database,'Restore database must differ from source database.');
   assert.ok(restoreDatabase.length<=64);
   const childEnv={...process.env,MYSQL_PWD:String(process.env.MYSQL_PASSWORD||'')};
   const oldKeyring=loadDrawKeyring({
@@ -62,8 +64,14 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     );
     drawId=draw.insertId;
 
-    execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:childEnv,stdio:'pipe'});
-    restoreCreated=true;
+    if(!process.env.MYSQL_RESTORE_DATABASE){
+      execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:childEnv,stdio:'pipe'});
+      restoreCreated=true;
+    }
+    if(process.env.MYSQL_RESTORE_DATABASE){
+      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:childEnv,encoding:'utf8'}).trim();
+      assert.equal(existingObjects,'0','Restore database must be empty.');
+    }
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',user,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
