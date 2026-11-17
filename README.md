@@ -18,7 +18,7 @@ npm start
 
 - Persistent participant profile (name, Telegram-shared phone contact, Instagram handle).
 - Inline Telegram menus and campaign operations.
-- Free campaign entry with capacity enforcement, profile snapshots and unique entry codes.
+- Free campaign entry with capacity enforcement, profile snapshots and unique entry codes. New campaign codes use `P{campaignId}-{six-character-middle}-{two-character-suffix}`; the middle segment's rightmost digits are a per-campaign sequence beginning at `1` and ending at `999999`.
 - Paid-order, receipt-review and code-issuance services are present in this code line; do not enable paid campaigns in production until the end-to-end customer/admin flow has been verified against the target database and bot.
 - Campaign draws use a committed random seed, an immutable candidate snapshot, deterministic HMAC-SHA256 ranking, encrypted seed storage before execution, and a revealed seed after completion. Draw actions require the dedicated `campaign.draw` permission (super-admin by default).
 - Live payment-gateway integration remains deferred; bank-transfer receipt review is manual.
