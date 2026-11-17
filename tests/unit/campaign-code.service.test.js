@@ -17,7 +17,7 @@ test('production generator starts at 1 and emits the exact allowed random alphab
   for(let sequence=1;sequence<=500;sequence++){
     const generated=generateCampaignCode({campaignId:13,sequenceNumber:sequence});
     assert.match(generated.code,/^P13-[A-Z0-9]{6}-[A-Z0-9][A-Z0]$/);
-    assert.equal(generated.randomPrefix.length,5);
+    assert.equal(generated.randomPrefix.length,6-String(sequence).length);
     assert.match(generated.randomPrefix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789]*[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/);
     assert.match(generated.randomSuffix,/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/);
   }
