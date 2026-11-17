@@ -18,7 +18,7 @@ const ranked=rankDrawCandidates(seed,candidates);
 const winners=ranked.slice(0,2).map((x,index)=>({campaign_code_id:x.campaign_code_id,participant_id:x.participant_id,code_snapshot:x.code_snapshot,rank_position:index+1}));
 const proof={
   proofVersion:DRAW_PROOF_VERSION,
-  draw:{id:9,campaignId:13,status:'completed',algorithm:DRAW_ALGORITHM,seedHash:createHash('sha256').update(seed).digest('hex'),revealedSeed:seed,candidateSnapshotHash:snapshotHash,candidateCount:3,winnerCount:2,publication:{reference:'https://example.com/draw/9',publishedAt:'2026-11-17T10:00:00.000Z',publishedBy:'12345'},completedAt:'2026-11-17T10:01:00.000Z'},
+  draw:{id:9,campaignId:13,status:'completed',algorithm:DRAW_ALGORITHM,seedHash:createHash('sha256').update(seed).digest('hex'),revealedSeed:seed,candidateSnapshotHash:snapshotHash,candidateCount:3,winnerCount:2,publication:{reference:'https://example.com/draw/9',publishedAt:'2026-11-17T10:00:00.000Z',publishedBy:'admin'},completedAt:'2026-11-17T10:01:00.000Z'},
   candidates,winners
 };
 
