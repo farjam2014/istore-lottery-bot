@@ -38,13 +38,14 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The six new migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
 3. `20261117_003_verifiable_campaign_draws.sql` — adds draw snapshot, participant, candidate, winner, and seed fields and constraints.
 4. `20261117_004_draw_commitment_publication.sql` — adds publication attestation fields and admin workflow states.
 5. `20261117_005_draw_seed_keyring.sql` — adds `seed_key_id`, defaulting existing rows to `legacy-env`.
+6. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
 
 Important migration properties:
 
@@ -52,7 +53,7 @@ Important migration properties:
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
 - Applied migration checksums must not change.
 - Migration 001 now checks for legacy campaign-code rows whose `campaign_id` disagrees with their entry's campaign before adding the composite foreign key.
-- Legacy draw candidate/winner rows are not automatically reconstructed into the new snapshot format. New nullable fields can remain NULL for old rows.
+- Migration 006 fails closed if any legacy `draw_candidates` or `draw_winners` rows exist. It does not infer historical candidate snapshots or participant ownership. Existing draw evidence must be reviewed and reconciled explicitly before this migration can be applied.
 - Assigning `legacy-env` does not create missing ciphertext. A legacy prepared draw without ciphertext/nonce/tag cannot be recovered from its seed hash.
 - Never automatically cancel, re-prepare, or replace a prepared draw to work around a missing key or unsupported algorithm.
 
