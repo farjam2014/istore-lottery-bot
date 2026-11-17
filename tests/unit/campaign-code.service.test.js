@@ -8,7 +8,7 @@ test('six-character middle segment places sequence digits at the right edge',()=
 });
 
 test('complete format uses campaign ID, six-character middle, and two-character suffix',()=>{
-  assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),'P13-ABCG14-M8');
+  assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'MZ'}),'P13-ABCG14-MZ');
   assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:100000,randomPrefix:'',randomSuffix:'X0'}),'P13-100000-X0');
 });
 
@@ -26,5 +26,5 @@ test('production generator starts at 10001 and emits allowed random characters',
 
 test('prefix and suffix validators reject malformed structures',()=>{
   assert.throws(()=>buildSequencePart(14,'ABC'),/does not match/);
-  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),/end with/ === false ? /end with/ : /never/);
+  assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:14,randomPrefix:'ABCG',randomSuffix:'M8'}),/end with/);
 });
