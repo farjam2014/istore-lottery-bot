@@ -836,3 +836,77 @@ test('MySQL integration: campaign archive is blocked while a prepared draw exist
     }
   }
 });
+
+
+test('MySQL integration: draw winner cannot reference a candidate with mismatched participant or entry',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const suffix=String(Date.now());
+  const participants=[],entries=[],codes=[];
+  let campaignId,drawId,candidateId;
+  try{
+    await migrate();
+    for(let i=0;i<2;i++){
+      const [p]=await pool.execute(
+        'INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',
+        [String(640000000000n+BigInt(i)*10000000000n+(BigInt(Date.now())%1000000000n)),'Integrity '+i,'+9891218888'+i,'draw_integrity_'+suffix+'_'+i]
+      );
+      participants.push(p.insertId);
+    }
+    const [campaign]=await pool.execute(
+      "INSERT INTO campaigns(slug,title,status,participation_type) VALUES(?,?,'closed','free')",
+      ['draw-integrity-'+suffix,'Draw integrity FK']
+    );
+    campaignId=campaign.insertId;
+    for(const participantId of participants){
+      const [entry]=await pool.execute(
+        "INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('test',true),'eligible')",
+        [campaignId,participantId]
+      );
+      entries.push(entry.insertId);
+    }
+    const codeValues=[];
+    for(let i=0;i<2;i++){
+      const [code]=await pool.execute(
+        "INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?, ?,2,'active')",
+        [entries[i],campaignId,'FK-'+suffix+'-'+i,i+1]
+      );
+      codes.push(code.insertId);codeValues.push('FK-'+suffix+'-'+i);
+    }
+    const [draw]=await pool.execute(
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','test',?,2,'9001')",
+      [campaignId,'a'.repeat(64)]
+    );
+    drawId=draw.insertId;
+    const [candidate]=await pool.execute(
+      'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
+      [drawId,campaignId,codes[0],entries[0],participants[0],codeValues[0],'b'.repeat(64)]
+    );
+    candidateId=candidate.insertId;
+    await assert.rejects(
+      pool.execute(
+        'INSERT INTO draw_winners(draw_id,campaign_id,campaign_code_id,participant_id,candidate_id,campaign_entry_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,?,1)',
+        [drawId,campaignId,codes[0],participants[1],candidateId,entries[0],codeValues[0]]
+      ),
+      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+    );
+    await assert.rejects(
+      pool.execute(
+        'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
+        [drawId,campaignId,codes[0],entries[0],participants[1],codeValues[0],'c'.repeat(64)]
+      ),
+      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+    );
+  }finally{
+    if(drawId){
+      await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);
+      await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);
+      await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    }
+    if(codes.length)await pool.execute('DELETE FROM campaign_codes WHERE id IN ('+codes.map(()=>'?').join(',')+')',codes);
+    if(entries.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entries.map(()=>'?').join(',')+')',entries);
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participants.length)await pool.execute('DELETE FROM participants WHERE id IN ('+participants.map(()=>'?').join(',')+')',participants);
+  }
+});
