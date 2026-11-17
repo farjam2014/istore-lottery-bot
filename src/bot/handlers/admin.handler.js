@@ -45,6 +45,7 @@ async function isAdmin(ctx){
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
     const [[wizard]]=await pool.execute('SELECT step FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);
     if(wizard?.step==='payment_settings')return hasPermission(id,'payment.settings');
+    if(['draw_publication_reference','draw_publication_confirm'].includes(wizard?.step))return hasPermission(id,'campaign.draw');
     if(wizard?.step==='payment_reject')return hasPermission(id,'payment.review');
     return hasPermission(id,'campaign.write');
   }
