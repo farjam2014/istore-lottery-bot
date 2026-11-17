@@ -3,7 +3,7 @@ import {pool} from '../../database/pool.js';
 export async function archiveCampaign({campaignId,actorId}={}){
   const id=Number(campaignId);
   if(!Number.isSafeInteger(id)||id<1) throw new TypeError('Campaign ID must be a positive safe integer.');
-  if(!/^\\d+$/.test(String(actorId??''))) throw new TypeError('Archive actor must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(actorId??''))) throw new TypeError('Archive actor must be a numeric Telegram user ID.');
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
