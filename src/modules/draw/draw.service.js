@@ -3,6 +3,7 @@ import {pool} from '../../database/pool.js';
 
 export {DRAW_ALGORITHM,rankDrawCandidates,verifyCampaignDraw} from './draw-verifier.js';
 import {DRAW_ALGORITHM,rankDrawCandidates} from './draw-verifier.js';
+const MAX_WINNERS=100;
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
