@@ -7,7 +7,6 @@ APP_DIR="/opt/ustore-telegram-bot"
 APP_USER="ustorebot"
 SERVICE="ustore-telegram-bot"
 ENV_FILE="$APP_DIR/.env"
-CREATED_ENV=0
 
 log(){ printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -93,7 +92,6 @@ ENV
   chmod 600 "$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
   unset BOT_TOKEN DB_PASSWORD DRAW_SEED_KEY
-  CREATED_ENV=1
 else
   log "Existing .env found; preserving it and not prompting for or printing secrets."
   [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail ".env must be a regular file, not a symlink."
