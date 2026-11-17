@@ -5,6 +5,14 @@ export const CODE_FINAL_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const MIN_SEQUENCE_NUMBER = 10001;
 export const MAX_SEQUENCE_NUMBER = 999999;
 
+export function normalizeRequestedCodeCount(value) {
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+    throw new RangeError('Requested code count must be an integer between 1 and 100.');
+  }
+  return count;
+}
+
 function randomCharacters(length) {
   if (!Number.isInteger(length) || length < 0 || length > 5) {
     throw new RangeError('Random prefix length must be between 0 and 5.');
@@ -67,7 +75,7 @@ export function generateCampaignCode({campaignId, sequenceNumber}) {
 
 // The caller must execute this function inside its existing MySQL transaction.
 export async function issueCampaignCodes(connection, entryId, campaignId, requestedCount) {
-  const count = Math.max(1, Math.min(100, Number(requestedCount) || 1));
+  const count = normalizeRequestedCodeCount(requestedCount);
   await connection.execute(
     'INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',
     [campaignId]
