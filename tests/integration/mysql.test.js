@@ -19,7 +19,6 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
-    for(const statement of baseSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
     // Seed a pre-migration legacy record to prove sequence backfill preserves issuance history.
     const legacyUid=String(690000000000n+(BigInt(Date.now())%100000000000n));
     const [legacyP]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[legacyUid,'Legacy Migration Tester','+989121234560','legacy_migration']);
