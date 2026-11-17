@@ -6,13 +6,15 @@ Requires Node.js 22+, MySQL 8+, and a Telegram bot token.
 
 ## Install manually
 
-Copy `.env.example` to `.env`, configure credentials, then run:
+Copy `.env.example` to `.env`, configure credentials, and take a verified database backup before the first production migration. Then run:
 
 ```bash
 npm install
-npm run db:migrate
+ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 MIGRATION_TARGET_DATABASE=your_database_name npm run db:migrate
 npm start
 ```
+
+Replace `your_database_name` with the exact `MYSQL_DATABASE` value in `.env`. The migration guard intentionally refuses production schema changes unless both approval flags are present and the target name matches exactly. Do not run this command against production until the backup and target have been independently checked.
 
 ## Current product scope
 
