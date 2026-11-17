@@ -3,7 +3,7 @@ import {encryptDrawSeed,decryptDrawSeed} from './draw-keyring.js';
 import {pool} from '../../database/pool.js';
 
 export {DRAW_ALGORITHM,rankDrawCandidates,verifyCampaignDraw} from './draw-verifier.js';
-import {DRAW_ALGORITHM,rankDrawCandidates} from './draw-verifier.js';
+import {DRAW_ALGORITHM,rankDrawCandidates,isValidPublicationReference} from './draw-verifier.js';
 const MAX_WINNERS=100;
 
 const sha256=value=>createHash('sha256').update(value).digest('hex');
@@ -69,7 +69,7 @@ export async function completeCampaignDraw({drawId,completedBy}){
     const [[draw]]=await connection.execute('SELECT * FROM campaign_draws WHERE id=? AND campaign_id=? FOR UPDATE',[drawId,drawReference.campaign_id]);
     if(!draw) throw new Error('قرعه‌کشی پیدا نشد.');
     if(draw.status!=='prepared') throw new Error('فقط قرعه‌کشی آماده قابل اجرا است.');
-    if(!draw.commitment_published_at||!/^https:\/\//i.test(String(draw.commitment_publication_reference||''))||!draw.commitment_published_by) throw new Error('پیش از اجرای قرعه‌کشی باید انتشار عمومی Commitment با لینک HTTPS ثبت شود.');
+    if(!draw.commitment_published_at||!isValidPublicationReference(draw.commitment_publication_reference)||!draw.commitment_published_by) throw new Error('پیش از اجرای قرعه‌کشی باید انتشار عمومی Commitment با لینک HTTPS ثبت شود.');
     if(draw.algorithm!==DRAW_ALGORITHM) throw new Error('نسخه الگوریتم این قرعه‌کشی با نسخه فعال سازگار نیست؛ اجرای آن متوقف شد تا قرعه‌کشی با نسخه صحیح بازبینی شود.');
     if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
     const [candidates]=await connection.execute(
