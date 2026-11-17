@@ -1,4 +1,4 @@
-import test,{after} from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -8,8 +8,6 @@ import {migrate} from '../../src/database/migrate.js';
 import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed} from '../../src/modules/draw/draw-keyring.js';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
-
-after(async()=>{await pool.end();});
 const oldKey='31'.repeat(32);
 const newKey='42'.repeat(32);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
