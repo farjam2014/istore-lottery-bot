@@ -1,4 +1,4 @@
-import {createHash,createHmac,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
+import {createHash,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
 import {pool} from '../../database/pool.js';
 
 export {DRAW_ALGORITHM,rankDrawCandidates,verifyCampaignDraw} from './draw-verifier.js';
