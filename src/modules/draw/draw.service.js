@@ -99,8 +99,8 @@ export async function completeCampaignDraw({drawId,completedBy}){
     for(let index=0;index<winners.length;index++){
       const winner=winners[index];
       await connection.execute(
-        'INSERT INTO draw_winners(draw_id,campaign_id,campaign_code_id,participant_id,candidate_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,?)',
-        [drawId,draw.campaign_id,winner.campaign_code_id,winner.participant_id,winner.id,winner.code_snapshot,index+1]
+        'INSERT INTO draw_winners(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,candidate_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,?,?)',
+        [drawId,draw.campaign_id,winner.campaign_code_id,winner.campaign_entry_id,winner.participant_id,winner.id,winner.code_snapshot,index+1]
       );
     }
     await connection.execute(
