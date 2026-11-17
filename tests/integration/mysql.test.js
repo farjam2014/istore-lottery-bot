@@ -11,7 +11,21 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
   let participantId;const campaignIds=[];let telegramId;
   try{
+    // Simulate a process crash after the first DDL statement of migration 001:
+    // the index exists, but schema_migrations has not recorded the migration yet.
+    const {readFile}=await import('node:fs/promises');
+    const {fileURLToPath}=await import('node:url');
+    const {dirname,resolve}=await import('node:path');
+    const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
+    const baseSql=await readFile(schemaPath,'utf8');
+    for(const statement of baseSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
+    const [[recoveryIndex]]=await pool.execute(
+      "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
+    );
+    if(Number(recoveryIndex.total)===0) await pool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
     await migrate();
+    const [[recoveredMigration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_001_campaign_code_sequence.sql'");
+    assert.match(recoveredMigration.checksum,/^[a-f0-9]{64}$/);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
@@ -257,46 +271,55 @@ test('MySQL integration: concurrent free entries receive unique sequential campa
     for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
   }
 });
-test('MySQL integration: failed code issuance rolls back code rows and sequence counter',{skip:!enabled},async()=>{
+test('MySQL integration: failure after the first code insert rolls back all codes and the counter',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
-  const suffix=String(Date.now());
-  let campaignId;
+  const suffix=String(Date.now());let campaignId,participantId,entryId;
   try{
     await migrate();
+    const [participant]=await pool.execute(
+      "INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",
+      [String(990000000000n+(BigInt(Date.now())%10000000000n)),'Rollback Integration','+989121555555','rollback_integration']
+    );
+    participantId=participant.insertId;
     const [campaign]=await pool.execute(
-      "INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'open','free',1)",
+      "INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'open','free',3)",
       ['code-rollback-'+suffix,'Code rollback']
     );
     campaignId=campaign.insertId;
-    await pool.execute(
-      'INSERT INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',[campaignId]
+    const [entry]=await pool.execute(
+      "INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('full_name','Rollback Integration'),'eligible')",
+      [campaignId,participantId]
     );
-    const [[before]]=await pool.execute(
-      'SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]
-    );
-    assert.equal(Number(before.last_sequence),10000);
+    entryId=entry.insertId;
+    await pool.execute('INSERT INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',[campaignId]);
     const connection=await pool.getConnection();
+    let codeInsertAttempts=0;
+    const failingConnection={
+      execute:async(sql,params)=>{
+        if(/^\\s*INSERT INTO campaign_codes/i.test(sql) && ++codeInsertAttempts===2){
+          throw new Error('injected second-code insert failure');
+        }
+        return connection.execute(sql,params);
+      }
+    };
     try{
       await connection.beginTransaction();
-      await assert.rejects(
-        issueCampaignCodes(connection,999999999,campaignId,1),
-        /foreign key constraint fails/i
-      );
+      await assert.rejects(issueCampaignCodes(failingConnection,entryId,campaignId,3),/injected second-code insert failure/);
+      assert.equal(codeInsertAttempts,2,'The failure must occur after one successful code insert.');
       await connection.rollback();
     }finally{connection.release();}
-    const [[counter]]=await pool.execute(
-      'SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]
-    );
-    const [[codes]]=await pool.execute(
-      'SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaignId]
-    );
+    const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);
+    const [[codes]]=await pool.execute('SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaignId]);
     assert.equal(Number(counter.last_sequence),10000);
     assert.equal(Number(codes.total),0);
   }finally{
+    if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
+    if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
   }
 });
 
