@@ -150,14 +150,15 @@ async function showCampaignList(ctx,page=0){
   return respond(ctx,message,Markup.inlineKeyboard(buttons));
 }
 async function showCampaignDetail(ctx,id){
-  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id FROM campaigns WHERE id=?",[id]);
+  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
   if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
   actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
-  if(c.status==='closed'&&c.prepared_draw_id)actions.push([Markup.button.callback('▶️ ادامه قرعه‌کشی آماده‌شده','admin:campaign:draw:complete:'+c.prepared_draw_id)]);
+  if(c.status==='closed'&&c.prepared_draw_id&&!c.commitment_published_at)actions.push([Markup.button.callback('🔗 ثبت انتشار Commitment','admin:campaign:draw:publish:'+c.prepared_draw_id)]);
+  else if(c.status==='closed'&&c.prepared_draw_id&&c.commitment_published_at)actions.push([Markup.button.callback('▶️ اجرای قرعه‌کشی آماده‌شده','admin:campaign:draw:complete:'+c.prepared_draw_id)]);
   else if(c.status==='closed')actions.push([Markup.button.callback('🎲 آماده‌سازی قرعه‌کشی','admin:campaign:draw:prepare:'+c.id)]);
   if(['draft','paused','closed'].includes(c.status))actions.push([Markup.button.callback('🗄 بایگانی کمپین','admin:campaign:archive:'+c.id)]);
   actions.push([Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]);
@@ -228,11 +229,38 @@ export function registerAdminHandlers(bot){
     try{
       const draw=await prepareCampaignDraw({campaignId,createdBy:ctx.from.id,winnerCount:1});
       await ctx.answerCbQuery('Snapshot قرعه‌کشی ثبت شد.');
-      return respond(ctx,'🎲 قرعه‌کشی آماده شد؛ هنوز اجرا نشده است.\n\nشناسه قرعه‌کشی: '+draw.drawId+'\nتعداد کدهای واجد شرایط: '+draw.candidateCount+'\nالگوریتم: '+draw.algorithm+'\nتعهد Seed (SHA-256):\n'+draw.seedHash+'\nHash فهرست نامزدها:\n'+draw.candidateSnapshotHash+'\n\nاین مقادیر را پیش از اجرا ثبت و منتشر کنید. پس از اجرا Seed افشا می‌شود و نتیجه قابل بازبینی خواهد بود.',Markup.inlineKeyboard([[Markup.button.callback('⚠️ اجرای قرعه‌کشی و اعلام برنده','admin:campaign:draw:complete:'+draw.drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+campaignId)]]));
+      return respond(ctx,'🎲 قرعه‌کشی آماده شد؛ هنوز اجرا نشده است.\n\nشناسه قرعه‌کشی: '+draw.drawId+'\nتعداد کدهای واجد شرایط: '+draw.candidateCount+'\nالگوریتم: '+draw.algorithm+'\nتعهد Seed (SHA-256):\n'+draw.seedHash+'\nHash فهرست نامزدها:\n'+draw.candidateSnapshotHash+'\n\nاین مقادیر را پیش از اجرا ثبت و منتشر کنید. پس از اجرا Seed افشا می‌شود و نتیجه قابل بازبینی خواهد بود.',Markup.inlineKeyboard([[Markup.button.callback('🔗 ثبت انتشار عمومی Commitment','admin:campaign:draw:publish:'+draw.drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+campaignId)]]));
     }catch(error){
       logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Campaign draw preparation failed');
       return ctx.answerCbQuery(error.message||'آماده‌سازی قرعه‌کشی ناموفق بود.',{show_alert:true});
     }
+  });
+  bot.action(/^admin:campaign:draw:publish:(\\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);
+    const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[drawId]);
+    if(!draw||draw.status!=='prepared')return ctx.answerCbQuery('قرعه‌کشی آماده پیدا نشد.',{show_alert:true});
+    if(draw.commitment_published_at)return ctx.answerCbQuery('انتشار Commitment قبلاً ثبت شده است.',{show_alert:true});
+    await saveWizard(ctx.from.id,'draw_publication_reference',{drawId});
+    await ctx.answerCbQuery();
+    return respond(ctx,'لینک عمومی محل انتشار Seed Commitment و Hash نامزدها را ارسال کنید. فقط لینک HTTPS پذیرفته می‌شود. ثبت لینک، خوداظهاری مدیر است و سامانه محتوای آن را مستقلاً تأیید نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+drawId)]]));
+  });
+  bot.action(/^admin:campaign:draw:publication-cancel:(\\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
+    if(wizard&&['draw_publication_reference','draw_publication_confirm'].includes(wizard.step)&&Number(wizard.payload?.drawId)===drawId)await clearWizard(ctx.from.id);
+    await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ثبت انتشار لغو شد.');
+  });
+  bot.action(/^admin:campaign:draw:publication-confirm:(\\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
+    const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
+    if(!wizard||wizard.step!=='draw_publication_confirm'||Number(wizard.payload?.drawId)!==drawId||!wizard.payload?.reference)return ctx.answerCbQuery('مرحله ثبت انتشار منقضی شده است.',{show_alert:true});
+    const [updated]=await pool.execute("UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=? AND status='prepared' AND commitment_published_at IS NULL",[wizard.payload.reference,String(ctx.from.id),drawId]);
+    if(!updated.affectedRows)return ctx.answerCbQuery('قرعه‌کشی تغییر کرده یا انتشار قبلاً ثبت شده است.',{show_alert:true});
+    await audit(ctx.from.id,'draw.commitment_published','campaign_draw',drawId,{reference:wizard.payload.reference});
+    await clearWizard(ctx.from.id);await ctx.answerCbQuery('انتشار ثبت شد.');
+    const [[draw]]=await pool.execute('SELECT campaign_id FROM campaign_draws WHERE id=?',[drawId]);
+    return respond(ctx,'لینک انتشار ثبت شد. این ثبت به معنی تأیید مستقل محتوای لینک نیست. اکنون اجرای قرعه‌کشی فعال است.',Markup.inlineKeyboard([[Markup.button.callback('▶️ اجرای قرعه‌کشی','admin:campaign:draw:complete:'+drawId)],[Markup.button.callback('بازگشت به کمپین','admin:campaign:detail:'+draw.campaign_id)]]));
   });
   bot.action(/^admin:campaign:draw:complete:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
@@ -538,6 +566,14 @@ export function registerAdminHandlers(bot){
     const [supportRows]=await pool.execute("SELECT step,ticket_id FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     if(supportRows[0]){const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return respond(ctx,'متن پاسخ را ارسال کنید.');if(body.length>4000)return respond(ctx,'پاسخ حداکثر ۴۰۰۰ نویسه باشد.');const ticketId=supportRows[0].ticket_id;const c=await pool.getConnection();let chatId;try{await c.beginTransaction();const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');chatId=String(t.telegram_user_id);await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await enqueueTelegramNotification({chatId,text:'پاسخ پشتیبانی برای تیکت شما:\n'+body,executor:c});await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));}
     if(!wizard)return next();
+    if(wizard.step==='draw_publication_reference'){
+      const reference=ctx.message.text.trim();
+      if(!/^https:\/\/[^\s]{8,480}$/i.test(reference))return respond(ctx,'لینک معتبر HTTPS با حداکثر ۵۰۰ نویسه ارسال کنید.');
+      const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[wizard.payload.drawId]);
+      if(!draw||draw.status!=='prepared'||draw.commitment_published_at){await clearWizard(ctx.from.id);return respond(ctx,'قرعه‌کشی دیگر در وضعیت ثبت انتشار نیست.');}
+      await saveWizard(ctx.from.id,'draw_publication_confirm',{drawId:Number(draw.id),reference});
+      return respond(ctx,'لطفاً تأیید کنید که این لینک، محل انتشار عمومی Commitment و Hash نامزدهاست. سامانه صحت یا عمومی‌بودن محتوای لینک را مستقلاً بررسی نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('تأیید ثبت لینک انتشار','admin:campaign:draw:publication-confirm:'+draw.id)],[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+draw.id)]]));
+    }
     const value=ctx.message.text.trim();const p=wizard.payload;
     if(wizard.step==='campaign_edit_value'){
       const fields={title:'title',description:'description',prize_title:'prize_title',prize_description:'prize_description',terms:'terms',entry_price:'entry_price',capacity:'capacity',codes_per_entry:'codes_per_entry',starts_at:'starts_at',ends_at:'ends_at',draw_at:'draw_at'};
