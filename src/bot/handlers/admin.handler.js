@@ -398,7 +398,7 @@ export function registerAdminHandlers(bot){
     return showParticipants(ctx,0);
   });
   bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const [[searchState]]=await pool.execute("SELECT query_text FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant_results'",[String(ctx.from.id)]);await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]),searchState?.query_text||'');});
-  bot.action(/^admin:participant:view:(\d+)$/,async ctx=>{
+  bot.action(/^admin:participant:view:(\d+)(?::(\d+))?$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery();const id=Number(ctx.match[1]);
     const [[p]] = await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants WHERE id=?',[id]);
@@ -410,7 +410,7 @@ export function registerAdminHandlers(bot){
     message+='\n'+(entries.length?entries.map(x=>'#'+x.campaign_id+' '+x.title+' | '+x.entry_status+' | '+formatTehranDateTime(x.created_at)+' | '+x.code_count+' کد'+(x.codes?'\n'+x.codes:'')).join('\n'):'بدون سابقه');
     message+='\n\n🧾 سفارش‌ها:';
     message+='\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+formatTehranDateTime(x.created_at)+' | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\n'):'بدون سفارش');
-    const buttons=[];if(await hasPermission(ctx.from.id,'participant.manage')){const action=p.status==='active'?'block':'unblock';buttons.push([Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)]);}buttons.push([Markup.button.callback('↩️ فهرست شرکت‌کنندگان','admin:participants')]);
+    const buttons=[];if(await hasPermission(ctx.from.id,'participant.manage')){const action=p.status==='active'?'block':'unblock';buttons.push([Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)]);}buttons.push([Markup.button.callback('↩️ بازگشت به فهرست شرکت‌کنندگان','admin:participants:page:'+(Number(ctx.match[2])||0))]);
     return respond(ctx,message,Markup.inlineKeyboard(buttons));
   });
   bot.action(/^admin:participant:(block|unblock):(\d+)$/,async ctx=>{
@@ -673,7 +673,7 @@ async function showParticipants(ctx,page=0,query=''){
     "SELECT p.id,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle,p.status,p.created_at,(SELECT COUNT(*) FROM campaign_entries e WHERE e.participant_id=p.id) entry_count,(SELECT COUNT(*) FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.participant_id=p.id) code_count FROM participants p "+where+" ORDER BY p.id DESC LIMIT ? OFFSET ?",params);
   const participantButtons=rows.map(p=>Markup.button.callback(
     (p.status==='blocked'?'🔴 ':'🟢 ')+String(p.full_name||'بدون نام').slice(0,18)+' · #'+p.id,
-    'admin:participant:view:'+p.id
+    'admin:participant:view:'+p.id+':'+pagination.page
   ));
   const buttons=[];
   for(let i=0;i<participantButtons.length;i+=2)buttons.push(participantButtons.slice(i,i+2));
