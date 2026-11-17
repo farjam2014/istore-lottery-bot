@@ -112,8 +112,16 @@ export async function completeCampaignDraw({drawId,completedBy}){
     if(draw.status!=='prepared') throw new Error('فقط قرعه‌کشی آماده قابل اجرا است.');
     const [[campaign]]=await connection.execute('SELECT id,status FROM campaigns WHERE id=? FOR UPDATE',[draw.campaign_id]);
     if(!campaign||campaign.status!=='closed') throw new Error('وضعیت کمپین برای تکمیل قرعه‌کشی معتبر نیست.');
-    const [candidates]=await connection.execute('SELECT id,draw_id,campaign_code_id,participant_id,code_snapshot,candidate_hash FROM draw_candidates WHERE draw_id=? ORDER BY id FOR UPDATE',[drawId]);
+    const [candidates]=await connection.execute(
+      'SELECT dc.id,dc.draw_id,dc.campaign_id,dc.campaign_code_id,dc.participant_id,dc.code_snapshot,dc.candidate_hash,cc.code AS current_code,cc.status AS code_status,e.status AS entry_status,p.status AS participant_status FROM draw_candidates dc LEFT JOIN campaign_codes cc ON cc.id=dc.campaign_code_id AND cc.campaign_id=dc.campaign_id LEFT JOIN campaign_entries e ON e.id=cc.campaign_entry_id AND e.campaign_id=dc.campaign_id AND e.participant_id=dc.participant_id LEFT JOIN participants p ON p.id=e.participant_id WHERE dc.draw_id=? ORDER BY dc.id FOR UPDATE',
+      [drawId]
+    );
     if(candidates.length!==Number(draw.candidate_count)||!candidates.length) throw new Error('Snapshot نامزدهای قرعه‌کشی ناقص یا دستکاری شده است.');
+    for(const candidate of candidates){
+      const expectedHash=sha256(draw.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot);
+      if(String(candidate.campaign_id)!==String(draw.campaign_id)||expectedHash!==candidate.candidate_hash) throw new Error('اطلاعات یکی از نامزدهای Snapshot دستکاری شده است.');
+      if(candidate.code_status!=='active'||candidate.entry_status!=='eligible'||candidate.participant_status!=='active'||candidate.current_code!==candidate.code_snapshot) throw new Error('وضعیت یکی از کدها یا شرکت‌کنندگان پس از آماده‌سازی قرعه‌کشی تغییر کرده است؛ قرعه‌کشی متوقف شد.');
+    }
     const actualSnapshot=sha256(candidates.map(x=>x.candidate_hash).sort().join(''));
     if(actualSnapshot!==draw.candidate_snapshot_hash) throw new Error('Hash فهرست نامزدها با Snapshot ثبت‌شده مطابقت ندارد.');
     const seed=decryptSeed(draw);
