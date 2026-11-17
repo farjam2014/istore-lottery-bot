@@ -21,7 +21,7 @@ export function verifyCampaignDraw({drawId,algorithm,seed,seedHash,candidateSnap
   const candidateIntegrity=candidates.every(candidate=>{
     if(!candidate||String(candidate.draw_id)!==String(id)) return false;
     const candidateId=String(candidate.id??'');const codeId=String(candidate.campaign_code_id??'');
-    if(!/^\\d+$/.test(candidateId)||!/^\\d+$/.test(codeId)||!/^\\d+$/.test(String(candidate.campaign_id??''))||!/^\\d+$/.test(String(candidate.participant_id??''))||typeof candidate.code_snapshot!=='string'||!candidate.code_snapshot||! /^[a-f0-9]{64}$/i.test(String(candidate.candidate_hash??''))||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
+    if(!/^\d+$/.test(candidateId)||!/^\d+$/.test(codeId)||!/^\d+$/.test(String(candidate.campaign_id??''))||!/^\d+$/.test(String(candidate.participant_id??''))||typeof candidate.code_snapshot!=='string'||!candidate.code_snapshot||! /^[a-f0-9]{64}$/i.test(String(candidate.candidate_hash??''))||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
     candidateIds.add(candidateId);codeIds.add(codeId);
     return sha256(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===String(candidate.candidate_hash);
   });
@@ -43,6 +43,6 @@ export function verifyDrawProof(proof){
   if(draw.status!=='completed') return {valid:false,reason:'draw_not_completed'};
   if(!Number.isSafeInteger(Number(draw.candidateCount))||Number(draw.candidateCount)<1||!Number.isSafeInteger(Number(draw.winnerCount))||Number(draw.winnerCount)<1) return {valid:false,reason:'invalid_draw_counts'};
   if(!Array.isArray(proof.candidates)||proof.candidates.length!==Number(draw.candidateCount)||!Array.isArray(proof.winners)||proof.winners.length!==Number(draw.winnerCount)) return {valid:false,reason:'proof_count_mismatch'};
-  if(!draw.publication||typeof draw.publication.reference!=='string'||!/^https:\\/\\//i.test(draw.publication.reference)||!draw.publication.publishedAt||!draw.publication.publishedBy) return {valid:false,reason:'publication_metadata_missing'};
+  if(!draw.publication||typeof draw.publication.reference!=='string'||!/^https:\/\/i.test(draw.publication.reference)||!draw.publication.publishedAt||!draw.publication.publishedBy) return {valid:false,reason:'publication_metadata_missing'};
   return verifyCampaignDraw({drawId:draw.id,algorithm:draw.algorithm,seed:draw.revealedSeed,seedHash:draw.seedHash,candidateSnapshotHash:draw.candidateSnapshotHash,candidates:proof.candidates,winners:proof.winners});
 }
