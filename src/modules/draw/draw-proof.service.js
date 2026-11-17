@@ -26,7 +26,7 @@ export async function getCampaignDrawProof(drawId){
       id:Number(draw.id),campaignId:Number(draw.campaign_id),status:draw.status,algorithm:draw.algorithm,
       seedHash:draw.seed_hash,revealedSeed:draw.revealed_seed,candidateSnapshotHash:draw.candidate_snapshot_hash,
       candidateCount:Number(draw.candidate_count),winnerCount:Number(draw.winner_count),
-      publication:{reference:draw.commitment_publication_reference,publishedAt:draw.commitment_published_at?new Date(draw.commitment_published_at).toISOString():null,publishedBy:draw.commitment_published_by?String(draw.commitment_published_by):null},
+      publication:{reference:draw.commitment_publication_reference,publishedAt:draw.commitment_published_at?new Date(draw.commitment_published_at).toISOString():null,publishedBy:draw.commitment_published_by?'admin':null},
       completedAt:draw.completed_at?new Date(draw.completed_at).toISOString():null
     },
     candidates:candidates.map(row=>({
