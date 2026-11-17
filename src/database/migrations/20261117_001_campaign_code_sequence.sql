@@ -15,11 +15,11 @@ ALTER TABLE campaign_codes
 
 CREATE TABLE campaign_code_counters (
   campaign_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
-  last_sequence INT UNSIGNED NOT NULL DEFAULT 10000,
+  last_sequence INT UNSIGNED NOT NULL DEFAULT 0,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_code_counter_campaign FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-  CONSTRAINT chk_code_counter_range CHECK(last_sequence BETWEEN 10000 AND 999999)
+  CONSTRAINT chk_code_counter_range CHECK(last_sequence BETWEEN 0 AND 999999)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO campaign_code_counters(campaign_id,last_sequence)
-SELECT id,10000 FROM campaigns;
+SELECT id,0 FROM campaigns;
