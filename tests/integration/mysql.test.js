@@ -305,12 +305,18 @@ test('MySQL integration: failure after the first code insert rolls back all code
         return connection.execute(sql,params);
       }
     };
+    let transactionOpen=false;
     try{
       await connection.beginTransaction();
+      transactionOpen=true;
       await assert.rejects(issueCampaignCodes(failingConnection,entryId,campaignId,3),/injected second-code insert failure/);
       assert.equal(codeInsertAttempts,2,'The failure must occur after one successful code insert.');
       await connection.rollback();
-    }finally{connection.release();}
+      transactionOpen=false;
+    }finally{
+      if(transactionOpen) await connection.rollback();
+      connection.release();
+    }
     const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);
     const [[codes]]=await pool.execute('SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaignId]);
     assert.equal(Number(counter.last_sequence),10000);
