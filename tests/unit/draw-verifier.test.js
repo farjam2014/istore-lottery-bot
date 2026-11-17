@@ -29,6 +29,7 @@ test('publication references require a real HTTPS URL without embedded credentia
   assert.equal(isValidPublicationReference('https://!!!!!!!!'),false);
   assert.equal(isValidPublicationReference('https://-bad.example/draw/9'),false);
   assert.equal(isValidPublicationReference('https://127.0.0.1/draw/9'),true);
+  assert.equal(isValidPublicationReference('https://[::1]/draw/9'),true);
   assert.equal(isValidPublicationReference('https://user:secret@example.com/draw/9'),false);
   assert.equal(isValidPublicationReference(' https://example.com/draw/9'),false);
   assert.equal(isValidPublicationReference('https://example.com/'+('a'.repeat(490))),false);
