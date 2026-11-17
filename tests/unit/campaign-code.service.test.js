@@ -39,7 +39,6 @@ test('prefix and suffix validators reject malformed structures and forbidden fin
   assert.throws(()=>buildSequencePart(10,'ABC'),/does not match/);
   assert.equal(buildSequencePart(10,'ABCI'),'ABCI10');
   assert.throws(()=>buildSequencePart(10,'ABC5'),/disallowed characters/);
-  assert.throws(()=>buildSequencePart(10,'ABC5'),/disallowed characters/);
   assert.throws(()=>formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'M8'}),/Random suffix/);
   assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCD',randomSuffix:'O0'}),'P13-ABCD10-O0');
   assert.equal(formatCampaignCode({campaignId:13,sequenceNumber:10,randomPrefix:'ABCI',randomSuffix:'I0'}),'P13-ABCI10-I0');
