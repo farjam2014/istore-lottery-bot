@@ -7,7 +7,7 @@ const candidates=[
   {id:3,draw_id:9,campaign_id:13,campaign_code_id:103,participant_id:33,code_snapshot:'P13-AB1234-X0'},
   {id:1,draw_id:9,campaign_id:13,campaign_code_id:101,participant_id:11,code_snapshot:'P13-AB1235-X0'},
   {id:2,draw_id:9,campaign_id:13,campaign_code_id:102,participant_id:22,code_snapshot:'P13-AB1236-X0'}
-];
+].map(candidate=>({...candidate,candidate_hash:createHash('sha256').update(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot).digest('hex')}));
 
 test('draw ranking is deterministic, independent of input ordering, and verifiable',()=>{
   const seed='a'.repeat(64);
