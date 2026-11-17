@@ -46,6 +46,8 @@ export function verifyDrawProof(proof){
   if(proof.candidates.some(candidate=>String(candidate?.campaign_id)!==String(draw.campaignId))) return {valid:false,reason:'candidate_campaign_mismatch'};
   let publicationUrl;
   try{publicationUrl=new URL(draw.publication?.reference);}catch{return {valid:false,reason:'publication_metadata_missing'};}
-  if(publicationUrl.protocol!=='https:'||!publicationUrl.hostname||!/^[0-9]+$/.test(String(draw.publication.publishedBy??''))||!Number.isFinite(Date.parse(draw.publication.publishedAt))||!Number.isFinite(Date.parse(draw.completedAt))) return {valid:false,reason:'publication_metadata_missing'};
+  const publishedAt=Date.parse(draw.publication.publishedAt);
+  const completedAt=Date.parse(draw.completedAt);
+  if(publicationUrl.protocol!=='https:'||!publicationUrl.hostname||publicationUrl.username||publicationUrl.password||!/^[0-9]+$/.test(String(draw.publication.publishedBy??''))||!Number.isFinite(publishedAt)||!Number.isFinite(completedAt)||publishedAt>completedAt) return {valid:false,reason:'publication_metadata_missing'};
   return verifyCampaignDraw({drawId:draw.id,algorithm:draw.algorithm,seed:draw.revealedSeed,seedHash:draw.seedHash,candidateSnapshotHash:draw.candidateSnapshotHash,candidates:proof.candidates,winners:proof.winners});
 }
