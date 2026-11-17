@@ -16,7 +16,7 @@ export async function getCampaignById(id){
 }
 export async function listParticipantCodes(telegramUserId){
   const [rows]=await pool.execute(
-    "SELECT c.id AS campaign_id,c.title AS campaign_title,cc.code,cc.created_at FROM participants p JOIN campaign_entries e ON e.participant_id=p.id JOIN campaigns c ON c.id=e.campaign_id JOIN campaign_codes cc ON cc.campaign_entry_id=e.id WHERE p.telegram_user_id=? ORDER BY cc.created_at DESC",
+    "SELECT c.id AS campaign_id,c.title AS campaign_title,cc.code,cc.created_at FROM participants p JOIN campaign_entries e ON e.participant_id=p.id JOIN campaigns c ON c.id=e.campaign_id JOIN campaign_codes cc ON cc.campaign_entry_id=e.id WHERE p.telegram_user_id=? AND e.status='eligible' AND cc.status='active' ORDER BY cc.created_at DESC",
     [String(telegramUserId)]
   );
   return rows;
