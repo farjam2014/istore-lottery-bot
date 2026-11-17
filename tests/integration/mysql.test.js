@@ -564,7 +564,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.equal(new Set(completed.winners.map(x=>x.code)).size,2);
     const [candidateProof]=await pool.execute('SELECT id,draw_id,campaign_id,campaign_code_id,participant_id,code_snapshot,candidate_hash FROM draw_candidates WHERE draw_id=?',[drawId]);
     const [winnerProof]=await pool.execute('SELECT campaign_code_id,participant_id,code_snapshot,rank_position FROM draw_winners WHERE draw_id=? ORDER BY rank_position',[drawId]);
-    const proof=verifyCampaignDraw({seed:completed.revealedSeed,seedHash:completed.seedHash,candidateSnapshotHash:completed.candidateSnapshotHash,candidates:candidateProof,winners:winnerProof});
+    const proof=verifyCampaignDraw({drawId,seed:completed.revealedSeed,seedHash:completed.seedHash,candidateSnapshotHash:completed.candidateSnapshotHash,candidates:candidateProof,winners:winnerProof});
     assert.equal(proof.valid,true,proof.reason||'Draw proof verification failed.');
     const [[drawState]]=await pool.execute('SELECT status,revealed_seed FROM campaign_draws WHERE id=?',[drawId]);
     assert.equal(drawState.status,'completed');assert.equal(drawState.revealed_seed,completed.revealedSeed);
