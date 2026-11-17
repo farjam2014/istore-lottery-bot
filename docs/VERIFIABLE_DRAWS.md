@@ -8,7 +8,7 @@ Keep an encrypted, access-controlled backup of every configured key. Losing the 
 
 ## Keyring and rotation
 
-New draws store the selected key ID in `campaign_draws.seed_key_id`. The migration assigns existing rows the ID `legacy-env`, preserving compatibility with ciphertext created using `DRAW_SEED_ENCRYPTION_KEY`.
+New draws store the selected key ID in `campaign_draws.seed_key_id`. The migration assigns existing rows the ID `legacy-env`. This preserves compatibility only when a row already contains valid seed ciphertext, nonce, and authentication tag encrypted with `DRAW_SEED_ENCRYPTION_KEY`; assigning a key ID does not reconstruct missing ciphertext or recover a seed from its hash. Rows with NULL encryption fields, or a prepared draw using an unsupported historical algorithm, remain blocked and must not be automatically re-prepared. Inventory these rows before applying migrations or rotating keys, and agree on a manual recovery decision for each one.
 
 Preferred configuration:
 
@@ -28,6 +28,8 @@ Safe rotation procedure:
 6. Retire an old key only after a read-only production inventory confirms no prepared draw references it, and the recovery/backup retention policy no longer requires it. Keep a recoverable encrypted archive for the required retention period.
 
 If a key is missing, the service fails closed and refuses to complete the affected draw. Never replace a missing historical key with a new value under the same key ID. Losing the key for a prepared draw makes its seed unrecoverable.
+
+The integration test performs a real `mysqldump` and MySQL restore into a separate disposable database. Its keyring recovery and rotation portion uses in-memory fixture keys; it does not prove restoration from the production Secret Manager or an independent key-backup vault. That recovery drill remains a separate release prerequisite.
 
 ## Ranking algorithm
 
