@@ -40,6 +40,7 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$APP_DIR" --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 fi
 
+UPDATE_EXISTING=0
 if [[ ! -e "$APP_DIR" ]]; then
   git clone --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$APP_DIR"
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -51,9 +52,8 @@ else
   [[ "$remote" == "$REPO" ]] || fail "Existing checkout has an unexpected origin remote: $remote"
   tracked_changes="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" status --porcelain --untracked-files=no)"
   [[ -z "$tracked_changes" ]] || fail "Tracked source files have local modifications. Commit or inspect them before updating."
-  log "Updating the existing checkout without deleting untracked files."
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout -B "$BRANCH" FETCH_HEAD
+  UPDATE_EXISTING=1
+  log "Existing checkout validated; source update is deferred until after service-stop authorization checks."
 fi
 
 [[ -f "$APP_DIR/package.json" && -f "$APP_DIR/src/index.js" ]] || fail "Application source is incomplete."
@@ -125,6 +125,16 @@ MIGRATION_TARGET_DATABASE="$DB_NAME"
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
 [[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
+
+if systemctl is-active --quiet "$SERVICE"; then
+  log "Stopping the active application service before changing source files or database schema."
+  systemctl stop "$SERVICE"
+fi
+if [[ "$UPDATE_EXISTING" == "1" ]]; then
+  log "Updating the existing checkout after the service has stopped."
+  runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
+  runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout -B "$BRANCH" FETCH_HEAD
+fi
 
 log "Installing production dependencies and running automated tests."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
