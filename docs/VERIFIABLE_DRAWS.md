@@ -25,12 +25,13 @@ The current algorithm is `HMAC-SHA256 candidate-commitment-rank-v2`. Each candid
 
 1. Close the campaign and verify its eligible entries and active codes.
 2. Prepare the draw. Record and publish the SHA-256 seed commitment and candidate snapshot hash before execution.
-3. Complete the draw only after reviewing those published commitments.
-4. Publish the revealed seed and winner result.
-5. Verify the result independently using the candidate snapshot, seed, commitment, and winner rows.
+3. Submit the public HTTPS publication URL in the admin workflow and explicitly confirm it. The service records the URL, timestamp, and admin ID and blocks completion until this record exists. This is an auditable admin attestation, not independent verification that the URL is public or that it contains the correct values.
+4. Complete the draw only after reviewing those published commitments.
+5. Publish the revealed seed and winner result.
+6. Verify the result independently using the candidate snapshot, seed, commitment, and winner rows.
 
 The service refuses completion if a candidate's stored snapshot integrity fails or its current code, entry, or participant eligibility has changed since preparation.
 
 ## Operational boundary
 
-The migration adding verifiable draw columns is versioned and must be reviewed and backed up before production application. A green CI run does not apply migrations or deploy code. Never run integration tests against a production database.
+The campaign-code migration assigns legacy codes stable per-campaign sequence numbers in original code-ID order, keeps them at format version 1, and seeds each counter to the highest migrated sequence. Campaigns with more than 999999 legacy codes are rejected before migration. The draw-publication migration adds the publication reference and audit fields. These migrations are versioned and must be reviewed and backed up before production application. A green CI run does not apply migrations or deploy code. Never run integration tests against a production database.
