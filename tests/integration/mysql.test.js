@@ -771,8 +771,8 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
   }finally{
     if(drawId){
       await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);
-      await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);
-      await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+      await pool.execute('DELETE FROM draw_candidates WHERE draw_id IN (?,?)',[drawId,secondDrawId||0]);
+      await pool.execute('DELETE FROM campaign_draws WHERE id IN (?,?)',[drawId,secondDrawId||0]);
     }
     if(orderId){
       await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);
@@ -847,7 +847,7 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
   const {migrate}=await import('../../src/database/migrate.js');
   const suffix=String(Date.now());
   const participants=[],entries=[],codes=[];
-  let campaignId,drawId,candidateId;
+  let campaignId,drawId,secondDrawId,candidateId;
   try{
     await migrate();
     for(let i=0;i<2;i++){
@@ -894,10 +894,15 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
       ),
       error=>error.code==='ER_NO_REFERENCED_ROW_2'
     );
+    const [secondDraw]=await pool.execute(
+      "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','test',?,1,'9001')",
+      [campaignId,'d'.repeat(64)]
+    );
+    secondDrawId=secondDraw.insertId;
     await assert.rejects(
       pool.execute(
         'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
-        [drawId,campaignId,codes[1],entries[1],participants[0],codeValues[1],'c'.repeat(64)]
+        [secondDrawId,campaignId,codes[1],entries[1],participants[0],codeValues[1],'c'.repeat(64)]
       ),
       error=>error.code==='ER_NO_REFERENCED_ROW_2'
     );
