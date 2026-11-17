@@ -4,6 +4,23 @@ import {pool} from '../../database/pool.js';
 export {DRAW_ALGORITHM,rankDrawCandidates,verifyCampaignDraw} from './draw-verifier.js';
 import {DRAW_ALGORITHM,rankDrawCandidates} from './draw-verifier.js';
 const MAX_WINNERS=100;
+
+function encryptionKey(){
+  const value=String(process.env.DRAW_SEED_ENCRYPTION_KEY??'').trim();
+  if(!/^[a-f0-9]{64}$/i.test(value)) throw new Error('DRAW_SEED_ENCRYPTION_KEY must be configured as exactly 32 bytes of hexadecimal data.');
+  return Buffer.from(value,'hex');
+}
+function encryptSeed(seed){
+  const nonce=randomBytes(12);
+  const cipher=createCipheriv('aes-256-gcm',encryptionKey(),nonce);
+  const ciphertext=Buffer.concat([cipher.update(seed,'utf8'),cipher.final()]);
+  return {ciphertext:ciphertext.toString('base64'),nonce:nonce.toString('hex'),tag:cipher.getAuthTag().toString('hex')};
+}
+function decryptSeed(row){
+  const decipher=createDecipheriv('aes-256-gcm',encryptionKey(),Buffer.from(row.seed_nonce,'hex'));
+  decipher.setAuthTag(Buffer.from(row.seed_tag,'hex'));
+  return Buffer.concat([decipher.update(Buffer.from(row.seed_ciphertext,'base64')),decipher.final()]).toString('utf8');
+}
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
