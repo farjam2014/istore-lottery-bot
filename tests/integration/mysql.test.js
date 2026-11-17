@@ -47,7 +47,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(second.codes.length,2);assert.notDeepEqual(second.codes,first.codes);
     for(const campaignId of campaignIds){
       const [issued]=await pool.execute('SELECT sequence_number,random_prefix,random_suffix,format_version,status,code FROM campaign_codes WHERE campaign_id=? ORDER BY sequence_number',[campaignId]);
-      assert.deepEqual(issued.map(x=>Number(x.sequence_number)),[10001,10002]);
+      assert.deepEqual(issued.map(x=>Number(x.sequence_number)),[1,2]);
       assert.ok(issued.every(x=>Number(x.format_version)===2&&x.status==='active'&&x.code.length>0));
       assert.ok(issued.every(x=>String(x.random_prefix).length===1&&/^[ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_prefix)));
       assert.ok(issued.every(x=>/^[ABCDEFGHJKLMNPQRSTUVWXYZ0123456789][ABCDEFGHJKLMNPQRSTUVWXYZ0]$/.test(x.random_suffix)));
@@ -103,7 +103,7 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     assert.match(approvalPayload.text,/پرداخت سفارش/);assert.match(approvalPayload.text,/کدهای شرکت شما/);
     const [codes]=await pool.execute('SELECT cc.code,cc.sequence_number,cc.random_prefix,cc.random_suffix,cc.format_version FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.campaign_id=? ORDER BY cc.sequence_number',[campaignId]);
     assert.equal(codes.length,2);
-    assert.deepEqual(codes.map(x=>Number(x.sequence_number)),[10001,10002]);
+    assert.deepEqual(codes.map(x=>Number(x.sequence_number)),[1,2]);
     assert.ok(codes.every(x=>Number(x.format_version)===2));
     await assert.rejects(reviewReceipt({adminId:'1',receiptId:retry.receiptId,decision:'approve'}),/قبلاً/);
     const [[order]]=await pool.execute('SELECT status FROM payment_orders WHERE id=?',[orderId]);assert.equal(order.status,'approved');
@@ -264,9 +264,9 @@ test('MySQL integration: concurrent free entries receive unique sequential campa
     const outcomes=await Promise.all(ids.map(telegramUserId=>joinFreeCampaign({telegramUserId,campaignId})));
     assert.ok(outcomes.every(x=>x.codes.length===2));
     const [rows]=await pool.execute('SELECT sequence_number,code FROM campaign_codes WHERE campaign_id=? ORDER BY sequence_number',[campaignId]);
-    assert.deepEqual(rows.map(x=>Number(x.sequence_number)),[10001,10002,10003,10004,10005,10006,10007,10008]);
+    assert.deepEqual(rows.map(x=>Number(x.sequence_number)),[1,2,3,4,5,6,7,8]);
     assert.equal(new Set(rows.map(x=>x.code)).size,8);
-    const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);assert.equal(Number(counter.last_sequence),10008);
+    const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);assert.equal(Number(counter.last_sequence),8);
   }finally{
     if(campaignId){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE campaign_id=?',[campaignId]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE campaign_id=?',[campaignId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
     for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
@@ -295,7 +295,7 @@ test('MySQL integration: failure after the first code insert rolls back all code
       [campaignId,participantId]
     );
     entryId=entry.insertId;
-    await pool.execute('INSERT INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,10000)',[campaignId]);
+    await pool.execute('INSERT INTO campaign_code_counters(campaign_id,last_sequence) VALUES(?,0)',[campaignId]);
     const connection=await pool.getConnection();
     let codeInsertAttempts=0;
     const failingConnection={
@@ -320,7 +320,7 @@ test('MySQL integration: failure after the first code insert rolls back all code
     }
     const [[counter]]=await pool.execute('SELECT last_sequence FROM campaign_code_counters WHERE campaign_id=?',[campaignId]);
     const [[codes]]=await pool.execute('SELECT COUNT(*) total FROM campaign_codes WHERE campaign_id=?',[campaignId]);
-    assert.equal(Number(counter.last_sequence),10000);
+    assert.equal(Number(counter.last_sequence),0);
     assert.equal(Number(codes.total),0);
   }finally{
     if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
@@ -535,9 +535,9 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
       entryIds.push(entry.insertId);
     }
     const codeRows=[
-      [entryIds[0],'P'+campaignId+'-A10001-X0',10001],
-      [entryIds[0],'P'+campaignId+'-B10002-Y0',10002],
-      [entryIds[1],'P'+campaignId+'-C10003-Z0',10003]
+      [entryIds[0],'P'+campaignId+'-ABCDE1-X0',1],
+      [entryIds[0],'P'+campaignId+'-ABCD02-Y0',2],
+      [entryIds[1],'P'+campaignId+'-ABCD03-Z0',3]
     ];
     for(const [entryId,code,sequence] of codeRows){
       const [created]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?, ?,2,'active')",[entryId,campaignId,code,sequence]);
