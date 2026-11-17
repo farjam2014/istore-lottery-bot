@@ -32,7 +32,7 @@ export function verifyCampaignDraw({drawId,algorithm,seed,seedHash,candidateSnap
   const candidateIntegrity=candidates.every(candidate=>{
     if(!candidate||String(candidate.draw_id)!==String(id)) return false;
     const candidateId=String(candidate.id??'');const codeId=String(candidate.campaign_code_id??'');
-    if(!/^\d+$/.test(candidateId)||!/^\d+$/.test(codeId)||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
+    if(!/^\d+$/.test(candidateId)||!/^\d+$/.test(codeId)||!/^\d+$/.test(String(candidate.campaign_id??''))||!/^\d+$/.test(String(candidate.participant_id??''))||typeof candidate.code_snapshot!=='string'||!candidate.code_snapshot||! /^[a-f0-9]{64}$/i.test(String(candidate.candidate_hash??''))||candidateIds.has(candidateId)||codeIds.has(codeId)) return false;
     candidateIds.add(candidateId);codeIds.add(codeId);
     return sha256(candidate.draw_id+':'+candidate.campaign_id+':'+candidate.campaign_code_id+':'+candidate.participant_id+':'+candidate.code_snapshot)===String(candidate.candidate_hash);
   });
