@@ -28,7 +28,7 @@ export function rankDrawCandidates(seed,candidates){
   return [...candidates].map(candidate=>({
     ...candidate,
     ranking_hash:createHmac('sha256',key).update('draw:'+candidate.draw_id+':candidate:'+candidate.id).digest('hex')
-  })).sort((a,b)=>a.ranking_hash.localeCompare(b.ranking_hash)||Number(a.id)-Number(b.id));
+  })).sort((a,b)=>a.ranking_hash.localeCompare(b.ranking_hash)||(BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0));
 }
 
 export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
@@ -51,6 +51,7 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
       [campaignId]
     );
     if(candidates.length<count) throw new Error('تعداد کدهای واجد شرایط از تعداد برندگان کمتر است.');
+    if(new Set(candidates.map(x=>String(x.participant_id))).size<count) throw new Error('تعداد شرکت‌کنندگان یکتای واجد شرایط از تعداد برندگان کمتر است.');
     const [drawInsert]=await connection.execute(
       "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,winner_count,seed_ciphertext,seed_nonce,seed_tag) VALUES(?,'prepared',?,?,?,?,?,?,?)",
       [campaignId,DRAW_ALGORITHM,commitment,candidates.length,count,encrypted.ciphertext,encrypted.nonce,encrypted.tag]
