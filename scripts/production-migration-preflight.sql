@@ -54,18 +54,6 @@ FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
 
--- Distribution of legacy codes and draw records. These are identifiers and
--- statuses only; no participant contact data is selected.
-SELECT format_version, COUNT(*) AS code_count
-FROM (
-  SELECT 1 AS format_version FROM campaign_codes
-) legacy_codes
-GROUP BY format_version;
-
-SELECT status, COUNT(*) AS code_count
-FROM campaign_codes
-GROUP BY status;
-
 -- Migration history and presence of the five new migrations.
 SELECT version, checksum, applied_at
 FROM schema_migrations
