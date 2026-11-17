@@ -59,6 +59,6 @@ export function verifyDrawProof(proof){
   if(proof.candidates.some(candidate=>String(candidate?.campaign_id)!==String(draw.campaignId))) return {valid:false,reason:'candidate_campaign_mismatch'};
   const publishedAt=Date.parse(draw.publication?.publishedAt);
   const completedAt=Date.parse(draw.completedAt);
-  if(!isValidPublicationReference(draw.publication?.reference)||!/^[0-9]+$/.test(String(draw.publication?.publishedBy??''))||!Number.isFinite(publishedAt)||!Number.isFinite(completedAt)||publishedAt>completedAt) return {valid:false,reason:'publication_metadata_missing'};
+  if(!isValidPublicationReference(draw.publication?.reference)||draw.publication?.publishedBy!=='admin'||!Number.isFinite(publishedAt)||!Number.isFinite(completedAt)||publishedAt>completedAt) return {valid:false,reason:'publication_metadata_missing'};
   return verifyCampaignDraw({drawId:draw.id,algorithm:draw.algorithm,seed:draw.revealedSeed,seedHash:draw.seedHash,candidateSnapshotHash:draw.candidateSnapshotHash,candidates:proof.candidates,winners:proof.winners});
 }
