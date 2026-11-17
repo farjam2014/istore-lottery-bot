@@ -31,6 +31,13 @@ async function hasForeignKey(connection,table,constraint){
   );
   return Number(row.total)>0;
 }
+async function hasCheckConstraint(connection,table,constraint){
+  const [[row]]=await connection.execute(
+    "SELECT COUNT(*) AS total FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=? AND CONSTRAINT_TYPE='CHECK'",
+    [table,constraint]
+  );
+  return Number(row.total)>0;
+}
 async function hasTable(connection,table){
   const [[row]]=await connection.execute(
     'SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',
@@ -155,6 +162,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     }
     if(index===4) return allSchemaChecks(connection,[
       hasIndex(connection,'draw_candidates','uq_candidate_full_identity'),
+      hasCheckConstraint(connection,'draw_candidates','chk_draw_candidate_identity_complete'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_entry_participant'),
       hasForeignKey(connection,'draw_candidates','fk_candidate_code_entry_value')
     ],'Partial DDL detected in draw candidate relational-integrity constraints. Inspect draw_candidates before repair.');
@@ -164,7 +172,10 @@ async function migrationStatementAlreadyApplied(connection,file,index){
       if(Number(rows.total)>0) throw new Error('Draw winners appeared during migration preflight. Stop and inspect before continuing.');
       return false; // Deterministic no-op backfill; safe to replay after interruption.
     }
-    if(index===7) return hasForeignKey(connection,'draw_winners','fk_winner_exact_candidate');
+    if(index===7) return allSchemaChecks(connection,[
+      hasCheckConstraint(connection,'draw_winners','chk_draw_winner_identity_complete'),
+      hasForeignKey(connection,'draw_winners','fk_winner_exact_candidate')
+    ],'Partial DDL detected in draw winner relational-integrity constraints. Inspect draw_winners before repair.');
   }
   if(file==='20261117_005_draw_seed_keyring.sql' && index===0){
     const [[column]]=await connection.execute(
