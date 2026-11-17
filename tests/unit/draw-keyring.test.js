@@ -34,6 +34,13 @@ test('keyring rejects missing active keys, malformed key material and unknown hi
   assert.throws(()=>decryptDrawSeed({seed_key_id:'removed-key',seed_nonce:'00'.repeat(12),seed_tag:'00'.repeat(16),seed_ciphertext:''},keyring),/not available/);
 });
 
+test('keyring safely supports reserved JavaScript property names as key IDs',()=>{
+  const keyring=loadDrawKeyring({DRAW_SEED_ENCRYPTION_KEYS:'{\"__proto__\":\"'+oldKey+'\"}',DRAW_SEED_ACTIVE_KEY_ID:'__proto__'});
+  const encrypted=encryptDrawSeed('e'.repeat(64),keyring);
+  assert.equal(encrypted.keyId,'__proto__');
+  assert.equal(decryptDrawSeed(row(encrypted),keyring),'e'.repeat(64));
+});
+
 test('keyring rejects conflicting legacy and keyring definitions',()=>{
   assert.throws(()=>loadDrawKeyring({
     DRAW_SEED_ENCRYPTION_KEY:oldKey,
