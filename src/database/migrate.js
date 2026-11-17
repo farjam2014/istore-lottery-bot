@@ -199,6 +199,16 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(checks.some(Boolean) || enumReady) throw new Error('Partial DDL detected in 20261117_002_admin_campaign_code_search.sql. Stop migration and inspect admin_search_sessions schema before repair.');
     return false;
   }
+  if(file==='20261118_001_participant_search_state.sql' && index===0){
+    const hasQueryText=await hasColumn(connection,'admin_search_sessions','query_text');
+    const [[step]]=await connection.execute(
+      "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='step'"
+    );
+    const hasResultsStep=Boolean(step?.COLUMN_TYPE?.includes("'participant_results'"));
+    if(hasQueryText&&hasResultsStep)return true;
+    if(hasQueryText||hasResultsStep)throw new Error('Partial DDL detected in 20261118_001_participant_search_state.sql. Inspect admin_search_sessions before repair.');
+    return false;
+  }
   return false;
 }
 
