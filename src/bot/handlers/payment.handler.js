@@ -35,7 +35,7 @@ async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=2){
   const max=Number(campaign.codes_per_entry);const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});const remaining=Math.min(max,allowance.remaining);
   if(!Number.isInteger(max)||max<1||max>100)return ctx.reply('تنظیم تعداد کد کمپین نامعتبر است؛ با مدیریت تماس بگیرید.');
   if(remaining<minCount)return ctx.reply('با توجه به کدهای صادرشده و سفارش‌های فعال، تعداد کد قابل سفارش شما کافی نیست.');
-  return ctx.reply('کمپین: '+campaign.title+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال\nحداکثر تعداد مجاز: '+max+' کد\nکدهای صادرشده/رزروشده: '+(allowance.issued+allowance.reserved)+'\n\nتعداد کد موردنظر را انتخاب کنید؛ مبلغ بر اساس تعداد انتخابی محاسبه می‌شود:',paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount));
+  return ctx.reply('کمپین: '+campaign.title+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال\nسقف کل هر نفر: '+max+' کد\nکدهای صادرشده/رزروشده: '+(allowance.issued+allowance.reserved)+'\nباقی‌مانده قابل سفارش: '+remaining+' کد\n\nتعداد کد موردنظر را انتخاب کنید؛ مبلغ بر اساس تعداد انتخابی محاسبه می‌شود:',paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount));
 }
 async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   try{
