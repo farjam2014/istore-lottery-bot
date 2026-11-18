@@ -64,6 +64,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.ok(searchStep.COLUMN_TYPE.includes("'participant_results'"));
     const [[searchQueryColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='query_text'");
     assert.equal(Number(searchQueryColumn.total),1,'Participant search query must persist for result pagination.');
+    const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
+    assert.equal(Number(requestedCodeCountColumn.total),1,'Paid order quantity snapshot column must exist.');
     const searchAdminId=String(680000000000000000n+(BigInt(Date.now())%1000000000n));
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text) VALUES(?,'participant_results',NULL,?)",[searchAdminId,'09121234567']);
     const [[storedSearch]]=await pool.execute('SELECT step,query_text FROM admin_search_sessions WHERE telegram_user_id=?',[searchAdminId]);
