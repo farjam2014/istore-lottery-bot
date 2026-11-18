@@ -3,6 +3,7 @@ ALTER TABLE payment_orders
 
 UPDATE payment_orders o
 JOIN campaign_entries e ON e.id=o.campaign_entry_id
+JOIN campaigns ca ON ca.id=e.campaign_id
 LEFT JOIN (
   SELECT campaign_entry_id,COUNT(*) AS issued_count
   FROM campaign_codes
@@ -10,5 +11,5 @@ LEFT JOIN (
 ) cc ON cc.campaign_entry_id=e.id
 SET o.requested_code_count=CASE
   WHEN o.status='approved' AND cc.issued_count>0 THEN cc.issued_count
-  ELSE 1
+  ELSE COALESCE(ca.codes_per_entry,1)
 END;
