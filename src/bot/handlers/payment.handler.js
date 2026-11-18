@@ -4,7 +4,7 @@ import {logger} from '../../shared/logger.js';
 import {hasPermission} from '../../modules/admin/admin-role.service.js';
 import {pool} from '../../database/pool.js';
 import {paymentApproveAction,paymentRejectAction} from '../../modules/payments/payment-callbacks.js';
-import {createOrGetOrder,submitReceipt,listUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings,recordPaymentCardDelivery} from '../../modules/payments/payment.service.js';
+import {createOrGetOrder,getUserCampaignCodeAllowance,submitReceipt,listUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings,recordPaymentCardDelivery} from '../../modules/payments/payment.service.js';
 import {formatTehranDateTime} from '../../shared/datetime.js';
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const money=n=>Number(n||0).toLocaleString('fa-IR');
@@ -29,12 +29,13 @@ function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0){
   rows.push([Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]);
   return Markup.inlineKeyboard(rows);
 }
-async function showPaymentQuantityPrompt(ctx,campaignId,page=0){
+async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=2){
   const [[campaign]]=await pool.execute("SELECT id,title,status,participation_type,entry_price,codes_per_entry FROM campaigns WHERE id=?",[campaignId]);
   if(!campaign||campaign.status!=='open'||campaign.participation_type!=='paid')return ctx.reply('این کمپین برای سفارش پولی در دسترس نیست.');
-  const max=Number(campaign.codes_per_entry);
+  const max=Number(campaign.codes_per_entry);const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});const remaining=Math.min(max,allowance.remaining);
   if(!Number.isInteger(max)||max<1||max>100)return ctx.reply('تنظیم تعداد کد کمپین نامعتبر است؛ با مدیریت تماس بگیرید.');
-  return ctx.reply('کمپین: '+campaign.title+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال\nحداکثر تعداد مجاز: '+max+' کد\n\nتعداد کد موردنظر را انتخاب کنید؛ مبلغ بر اساس تعداد انتخابی محاسبه می‌شود:',paymentQuantityKeyboard(campaign.id,max,Number(campaign.entry_price),page));
+  if(remaining<minCount)return ctx.reply('با توجه به کدهای صادرشده و سفارش‌های فعال، تعداد کد قابل سفارش شما کافی نیست.');
+  return ctx.reply('کمپین: '+campaign.title+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال\nحداکثر تعداد مجاز: '+max+' کد\nکدهای صادرشده/رزروشده: '+(allowance.issued+allowance.reserved)+'\n\nتعداد کد موردنظر را انتخاب کنید؛ مبلغ بر اساس تعداد انتخابی محاسبه می‌شود:',paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount));
 }
 async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   try{
@@ -48,7 +49,8 @@ async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   }catch(e){return ctx.reply(e.message||'ایجاد سفارش ناموفق بود.');}
 }
 export function registerPaymentHandlers(bot){
- bot.action(/^payment:start:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const campaignId=Number(ctx.match[1]);const [[campaign]]=await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);if(!campaign)return ctx.reply('کمپین پیدا نشد.');if(Number(campaign.codes_per_entry)===1)return sendPaymentOrder(ctx,campaignId,1);return showPaymentQuantityPrompt(ctx,campaignId,0);});
+ bot.action(/^payment:start:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const campaignId=Number(ctx.match[1]);const [[campaign]]=await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);if(!campaign)return ctx.reply('کمپین پیدا نشد.');const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});if(allowance.remaining<1)return ctx.reply('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.');if(Number(campaign.codes_per_entry)===1||allowance.remaining===1)return sendPaymentOrder(ctx,campaignId,1);return ctx.reply('چند کد می‌خواهید؟',Markup.inlineKeyboard([[Markup.button.callback('۱ کد','payment:quantity:'+campaignId+':1),Markup.button.callback('کدهای بیشتر','payment:more:'+campaignId)],[Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]]));});
+ bot.action(/^payment:more:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);});
  bot.action(/^payment:quantity-page:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action(/^payment:quantity:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return sendPaymentOrder(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action('payment:cancel',async ctx=>{await pool.execute("DELETE FROM telegram_user_sessions WHERE telegram_user_id=? AND step='awaiting_payment_receipt'",[String(ctx.from.id)]);await ctx.answerCbQuery('لغو شد.');return ctx.reply('ارسال رسید لغو شد؛ سفارش تا پایان مهلت باقی می‌ماند.');});
