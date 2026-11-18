@@ -9,7 +9,7 @@ import {formatTehranDateTime} from '../../shared/datetime.js';
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const money=n=>Number(n||0).toLocaleString('fa-IR');
 const QUANTITY_PAGE_SIZE=10;
-function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,minCount=2){
+export function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,minCount=2){
   const pages=Math.max(1,Math.ceil((maxCount-minCount+1)/QUANTITY_PAGE_SIZE));
   const current=Math.max(0,Math.min(pages-1,Number(page)||0));
   const first=minCount+current*QUANTITY_PAGE_SIZE,last=Math.min(maxCount,first+QUANTITY_PAGE_SIZE-1);
@@ -64,7 +64,7 @@ export function registerPaymentHandlers(bot){
  });
  bot.action(/^payment:more:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
-  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,1);
+  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);
  });
  bot.action(/^payment:quantity-page:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action(/^payment:quantity:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return sendPaymentOrder(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
