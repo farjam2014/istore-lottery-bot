@@ -47,7 +47,7 @@ The migration runner sorts SQL files by filename. The eight new migrations are a
 5. `20261117_005_draw_seed_keyring.sql` — adds `seed_key_id`, defaulting existing rows to `legacy-env`.
 6. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
 7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
-8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders and backfills legacy approved orders from actual active codes.
+8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
 
 Important migration properties:
 
