@@ -323,7 +323,7 @@ export function registerAdminHandlers(bot){
     if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
     if(field==='entry_price'&&row.participation_type!=='paid')return ctx.answerCbQuery('کمپین رایگان مبلغ شرکت ندارد.',{show_alert:true});
     await saveWizard(ctx.from.id,'campaign_edit_value',{campaignId:id,field});await ctx.answerCbQuery();
-    return respond(ctx,'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
+    return respond(ctx,field==='entry_price'?'قیمت جدید هر کد را به ریال ارسال کنید.':field==='capacity'?'ظرفیت کل کدهای کمپین را ارسال کنید؛ ۰ یعنی نامحدود.':field==='codes_per_entry'?'حداکثر کد قابل خرید هر نفر را ارسال کنید (۱ تا ۱۰۰).':'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
   });
   bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
@@ -735,6 +735,6 @@ async function showManagedOrderDetail(ctx,id){
 async function showConfirmation(ctx,p){
   await saveWizard(ctx.from.id,'confirm',p);
   const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nقیمت هر کد: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
-  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت: ${p.capacity??'نامحدود'}\nکد برای هر نفر: ${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
+  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت کل کد: ${p.capacity??'نامحدود'}\n${p.type==='paid'?'حداکثر کد قابل خرید هر نفر: ':'کد ثابت هر نفر: '}${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
   return respond(ctx,summary,Markup.inlineKeyboard([[Markup.button.callback('تأیید و ایجاد کمپین','admin:campaign:confirm')],[Markup.button.callback('لغو','admin:campaign:cancel')]]));
 }
