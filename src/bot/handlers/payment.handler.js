@@ -49,8 +49,23 @@ async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   }catch(e){return ctx.reply(e.message||'ایجاد سفارش ناموفق بود.');}
 }
 export function registerPaymentHandlers(bot){
- bot.action(/^payment:start:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const campaignId=Number(ctx.match[1]);const [[campaign]]=await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);if(!campaign)return ctx.reply('کمپین پیدا نشد.');const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});if(allowance.remaining<1)return ctx.reply('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.');if(Number(campaign.codes_per_entry)===1||allowance.remaining===1)return sendPaymentOrder(ctx,campaignId,1);return ctx.reply('چند کد می‌خواهید؟',Markup.inlineKeyboard([[Markup.button.callback('۱ کد','payment:quantity:'+campaignId+':1),Markup.button.callback('کدهای بیشتر','payment:more:'+campaignId)],[Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]]));});
- bot.action(/^payment:more:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);});
+ bot.action(/^payment:start:(\d+)$/,async ctx=>{
+  await ctx.answerCbQuery();
+  const campaignId=Number(ctx.match[1]);
+  const [[campaign]]=await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);
+  if(!campaign)return ctx.reply('کمپین پیدا نشد.');
+  const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});
+  if(allowance.remaining<1)return ctx.reply('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.');
+  if(Number(campaign.codes_per_entry)===1||allowance.remaining===1)return sendPaymentOrder(ctx,campaignId,1);
+  return ctx.reply('چند کد می‌خواهید؟',Markup.inlineKeyboard([
+    [Markup.button.callback('۱ کد','payment:quantity:'+campaignId+':1'),Markup.button.callback('کدهای بیشتر','payment:more:'+campaignId)],
+    [Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]
+  ]));
+ });
+ bot.action(/^payment:more:(\d+)$/,async ctx=>{
+  await ctx.answerCbQuery();
+  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);
+ });
  bot.action(/^payment:quantity-page:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action(/^payment:quantity:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return sendPaymentOrder(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action('payment:cancel',async ctx=>{await pool.execute("DELETE FROM telegram_user_sessions WHERE telegram_user_id=? AND step='awaiting_payment_receipt'",[String(ctx.from.id)]);await ctx.answerCbQuery('لغو شد.');return ctx.reply('ارسال رسید لغو شد؛ سفارش تا پایان مهلت باقی می‌ماند.');});
