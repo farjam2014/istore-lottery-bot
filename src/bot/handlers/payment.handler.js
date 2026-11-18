@@ -9,10 +9,10 @@ import {formatTehranDateTime} from '../../shared/datetime.js';
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const money=n=>Number(n||0).toLocaleString('fa-IR');
 const QUANTITY_PAGE_SIZE=10;
-function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0){
-  const pages=Math.max(1,Math.ceil(maxCount/QUANTITY_PAGE_SIZE));
+function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,minCount=2){
+  const pages=Math.max(1,Math.ceil((maxCount-minCount+1)/QUANTITY_PAGE_SIZE));
   const current=Math.max(0,Math.min(pages-1,Number(page)||0));
-  const first=current*QUANTITY_PAGE_SIZE+1,last=Math.min(maxCount,first+QUANTITY_PAGE_SIZE-1);
+  const first=minCount+current*QUANTITY_PAGE_SIZE,last=Math.min(maxCount,first+QUANTITY_PAGE_SIZE-1);
   const rows=[];
   for(let n=first;n<=last;n+=2){
     const row=[Markup.button.callback(n+' کد | '+money(unitPrice*n)+' ریال','payment:quantity:'+campaignId+':'+n)];
