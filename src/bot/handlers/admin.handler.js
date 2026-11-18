@@ -157,7 +157,7 @@ async function showCampaignList(ctx,page=0){
   return respond(ctx,message,Markup.inlineKeyboard(buttons));
 }
 async function showCampaignDetail(ctx,id){
-  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
+  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT COALESCE(SUM(o.requested_code_count),0) FROM payment_orders o JOIN campaign_entries pe ON pe.id=o.campaign_entry_id WHERE pe.campaign_id=campaigns.id AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))) reserved_code_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
   const canDraw=await hasPermission(ctx.from?.id,'campaign.draw');
@@ -173,13 +173,13 @@ async function showCampaignDetail(ctx,id){
   const message='🎯 کمپین #'+c.id+' — '+c.title+
     '\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+
     '\nوضعیت: '+campaignStatusLabel(c.status)+
-    (c.participation_type==='paid'?'\nمبلغ شرکت: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'')+
+    (c.participation_type==='paid'?'\nقیمت هر کد: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'')+
     '\nجایزه: '+(c.prize_title||'ثبت نشده')+
     '\nتوضیح: '+(c.description||'ثبت نشده')+
     '\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+
-    '\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+
-    '\nظرفیت: '+(c.capacity??'نامحدود')+
-    '\nکد برای هر نفر: '+c.codes_per_entry+
+    '\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nکدهای رزروشده: '+Number(c.reserved_code_count||0)+
+    '\nظرفیت کل کد: '+(c.capacity??'نامحدود')+
+    '\n'+(c.participation_type==='paid'?'حداکثر کد قابل خرید هر نفر: ':'کد ثابت هر نفر: ')+c.codes_per_entry+
     '\nشروع: '+(c.starts_at?formatTehranDateTime(c.starts_at):'تعیین نشده')+
     '\nپایان: '+(c.ends_at?formatTehranDateTime(c.ends_at):'تعیین نشده')+
     '\nقرعه‌کشی: '+(c.draw_at?formatTehranDateTime(c.draw_at):'تعیین نشده');
@@ -641,9 +641,9 @@ export function registerAdminHandlers(bot){
       if(wizard.step==='prize_description'){p.prizeDescription=value==='-'?'':value;if(p.prizeDescription.length>2000)throw new Error('توضیحات جایزه حداکثر ۲۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'prize_value',p);return respond(ctx,'ارزش تقریبی جایزه را به ریال وارد کنید؛ ۰ یعنی ثبت نشده.');}
       if(wizard.step==='prize_value'){if(!/^\d+$/.test(value)||Number(value)>100000000000000)throw new Error('ارزش جایزه باید عدد صحیح نامنفی باشد.');p.prizeValue=Number(value)||null;await saveWizard(ctx.from.id,'starts_at',p);return respond(ctx,'زمان شروع را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
       if(['starts_at','ends_at','draw_at'].includes(wizard.step)){const key=wizard.step;if(value==='-')p[key]=null;else{p[key]=parseJalaliDateTime(value);}const nextStep={starts_at:'ends_at',ends_at:'draw_at',draw_at:'terms'}[key];await saveWizard(ctx.from.id,nextStep,p);return respond(ctx,nextStep==='terms'?'قوانین و شرایط شرکت را وارد کنید؛ برای بدون قانون «-».':nextStep==='ends_at'?'زمان پایان را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.':'زمان قرعه‌کشی را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
-      if(wizard.step==='terms'){p.terms=value==='-'?'':value;if(p.terms.length>8000)throw new Error('قوانین حداکثر ۸۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'capacity',p);return respond(ctx,'ظرفیت کمپین را به عدد وارد کنید. عدد ۰ یعنی نامحدود.');}
-      if(wizard.step==='capacity'){if(!/^\d+$/.test(value)||Number(value)>10000000)throw new Error('ظرفیت باید عدد صحیح باشد؛ ۰ یعنی نامحدود.');p.capacity=Number(value)||null;await saveWizard(ctx.from.id,'codes',p);return respond(ctx,'تعداد کد برای هر شرکت‌کننده را وارد کنید (۱ تا ۱۰۰).');}
-      if(wizard.step==='codes'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>100)throw new Error('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');p.codes=Number(value);if(p.type==='paid'){await saveWizard(ctx.from.id,'price',p);return respond(ctx,'مبلغ شرکت در کمپین را به ریال وارد کنید (عدد صحیح مثبت).');}p.paymentMethods=[];return showConfirmation(ctx,p);}
+      if(wizard.step==='terms'){p.terms=value==='-'?'':value;if(p.terms.length>8000)throw new Error('قوانین حداکثر ۸۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'capacity',p);return respond(ctx,'ظرفیت کل کدهای کمپین را وارد کنید. عدد ۰ یعنی نامحدود.');}
+      if(wizard.step==='capacity'){if(!/^\d+$/.test(value)||Number(value)>10000000)throw new Error('ظرفیت باید عدد صحیح باشد؛ ۰ یعنی نامحدود.');p.capacity=Number(value)||null;await saveWizard(ctx.from.id,'codes',p);return respond(ctx,p.type==='paid'?'حداکثر تعداد کد قابل خرید برای هر شرکت‌کننده را وارد کنید (۱ تا ۱۰۰).':'تعداد کد ثابت هر شرکت‌کننده در کمپین رایگان را وارد کنید (۱ تا ۱۰۰).');}
+      if(wizard.step==='codes'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>100)throw new Error('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');p.codes=Number(value);if(p.type==='paid'){await saveWizard(ctx.from.id,'price',p);return respond(ctx,'قیمت هر کد را به ریال وارد کنید (عدد صحیح مثبت).');}p.paymentMethods=[];return showConfirmation(ctx,p);}
       if(wizard.step==='price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)throw new Error('مبلغ باید عدد صحیح مثبت و به ریال باشد.');p.price=Number(value);p.paymentMethods=['card_transfer'];return showConfirmation(ctx,p);}
     }catch(error){return respond(ctx,error.message||'ورودی نامعتبر است. دوباره تلاش کنید.');}
     return next();
@@ -734,7 +734,7 @@ async function showManagedOrderDetail(ctx,id){
 
 async function showConfirmation(ctx,p){
   await saveWizard(ctx.from.id,'confirm',p);
-  const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nمبلغ: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
+  const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nقیمت هر کد: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
   const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت: ${p.capacity??'نامحدود'}\nکد برای هر نفر: ${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
   return respond(ctx,summary,Markup.inlineKeyboard([[Markup.button.callback('تأیید و ایجاد کمپین','admin:campaign:confirm')],[Markup.button.callback('لغو','admin:campaign:cancel')]]));
 }
