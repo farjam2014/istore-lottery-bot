@@ -209,6 +209,17 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(hasQueryText||hasResultsStep)throw new Error('Partial DDL detected in 20261118_001_participant_search_state.sql. Inspect admin_search_sessions before repair.');
     return false;
   }
+  if(file==='20261118_002_paid_code_quantity.sql'){
+    if(index===0){
+      const [[column]]=await connection.execute(
+        "SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'"
+      );
+      if(!column) return false;
+      if(String(column.COLUMN_TYPE).toLowerCase()==='smallint unsigned'&&column.IS_NULLABLE==='NO'&&String(column.COLUMN_DEFAULT)==='1') return true;
+      throw new Error('Unexpected payment_orders.requested_code_count schema; inspect the table before migration recovery.');
+    }
+    return false; // The legacy-order backfill is deterministic and safe to replay.
+  }
   return false;
 }
 
