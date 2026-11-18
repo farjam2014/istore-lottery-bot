@@ -12,7 +12,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const {migrate}=await import('../../src/database/migrate.js');
   const {createProfile,findByTelegramId}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
-  let participantId;const campaignIds=[];let telegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;
+  let participantId;let secondParticipantId;const campaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;
   try{
     // Simulate a process crash after the first DDL statement of migration 001:
     // the index exists, but schema_migrations has not recorded the migration yet.
@@ -77,7 +77,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_004_draw_commitment_publication.sql',
       '20261117_005_draw_seed_keyring.sql',
       '20261117_006_draw_relational_integrity.sql',
-      '20261118_001_participant_search_state.sql'
+      '20261118_001_participant_search_state.sql',
+      '20261118_002_paid_code_quantity.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -89,7 +90,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
       '20261117_006_draw_relational_integrity.sql',
-      '20261118_001_participant_search_state.sql'
+      '20261118_001_participant_search_state.sql',
+      '20261118_002_paid_code_quantity.sql'
     ]){
       await pool.execute('DELETE FROM schema_migrations WHERE version=?',[version]);
       await migrate();
@@ -121,7 +123,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       e=>e.code==='ER_DUP_ENTRY'
     );
     for(let i=0;i<2;i++){
-      const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'open','free',2)",[`it-${telegramId}-${i}`,`Integration campaign ${i}`]);
+      const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,capacity,codes_per_entry) VALUES(?,?,'open','free',?,2)",[`it-${telegramId}-${i}`,`Integration campaign ${i}`,i===0?2:null]);
       campaignIds.push(c.insertId);
     }
     const first=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]});
@@ -132,6 +134,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=? AND campaign_entry_id=?",[codeToRevoke.id,first.entryId]);
     await assert.rejects(joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]}),/کدهای قبلی شما غیرفعال شده است/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE campaign_entry_id=?",[first.entryId]);
+    secondTelegramId=String(710000000000n+(BigInt(Date.now())%100000000000n));const secondProfile=await createProfile({telegramUserId:secondTelegramId,username:'integration2',fullName:'Capacity Tester',phone:'+989121234568',instagramHandle:'capacity_test'});secondParticipantId=secondProfile.id;
+    await assert.rejects(joinFreeCampaign({telegramUserId:secondTelegramId,campaignId:campaignIds[0]}),/ظرفیت باقی/);
     const second=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[1]});
     assert.equal(second.codes.length,2);assert.notDeepEqual(second.codes,first.codes);
     for(const campaignId of campaignIds){
@@ -148,11 +152,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[count]]=await pool.execute('SELECT COUNT(*) AS total FROM campaign_codes WHERE campaign_id=?',[campaignIds[0]]);
     assert.equal(Number(count.total),2);
   }finally{
-    if(participantId){
-      const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[participantId]);
+    for(const id of [participantId,secondParticipantId].filter(Boolean)){
+      const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[id]);
       for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);
-      await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[participantId]);
-      await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
+      await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[id]);
+      await pool.execute('DELETE FROM participants WHERE id=?',[id]);
     }
     if(campaignIds.length)await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
