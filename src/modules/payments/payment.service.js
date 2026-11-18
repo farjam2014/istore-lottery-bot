@@ -13,6 +13,15 @@ async function getCampaignCodeCapacityUsage(connection,campaignId){
   const [[reserved]]=await connection.execute("SELECT COALESCE(SUM(o.requested_code_count),0) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))",[campaignId]);
   return Number(issued.total)+Number(reserved.total);
 }
+
+export async function getUserCampaignCodeAllowance({telegramUserId,campaignId}){
+  const [[row]]=await pool.execute("SELECT c.codes_per_entry,e.id entry_id FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id JOIN participants p ON p.telegram_user_id=? AND p.status='active' AND (e.participant_id=p.id OR e.id IS NULL) WHERE c.id=? ORDER BY e.id DESC LIMIT 1",[String(telegramUserId),campaignId]);
+  if(!row)return {max:0,issued:0,reserved:0,remaining:0};
+  const max=normalizeRequestedCodeCount(row.codes_per_entry);if(!row.entry_id)return {max,issued:0,reserved:0,remaining:max};
+  const [[issued]]=await pool.execute("SELECT COUNT(*) total FROM campaign_codes WHERE campaign_entry_id=?",[row.entry_id]);
+  const [[reserved]]=await pool.execute("SELECT COALESCE(SUM(requested_code_count),0) total FROM payment_orders WHERE campaign_entry_id=? AND (status='under_review' OR (status IN ('awaiting_receipt','rejected') AND expires_at>UTC_TIMESTAMP()))",[row.entry_id]);
+  const i=Number(issued.total),r=Number(reserved.total);return {max,issued:i,reserved:r,remaining:Math.max(0,max-i-r)};
+}
 export async function createOrGetOrder({telegramUserId,campaignId,requestedCodeCount=1}){
   const requested=normalizeRequestedCodeCount(requestedCodeCount);
   const c=await pool.getConnection();
@@ -29,13 +38,12 @@ export async function createOrGetOrder({telegramUserId,campaignId,requestedCodeC
     const s=await getDefaultPaymentCard(c,{lock:true});
     if(!s)throw Error('اطلاعات واریز هنوز توسط مدیریت ثبت نشده است.');
     const [[e]]=await c.execute('SELECT id,status FROM campaign_entries WHERE campaign_id=? AND participant_id=? FOR UPDATE',[campaignId,p.id]);
-    if(e?.status==='eligible'){await c.commit();return {paid:true};}
     let eid=e?.id;
     if(!e){
       const snapshot={telegram_user_id:String(p.telegram_user_id),telegram_username:p.telegram_username,full_name:p.full_name,phone:p.phone,instagram_handle:p.instagram_handle};
       const [ins]=await c.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,?,'pending_payment')",[campaignId,p.id,JSON.stringify(snapshot)]);
       eid=ins.insertId;
-    }else if(e.status==='cancelled'){
+    }else if(['cancelled','eligible'].includes(e.status)){
       await c.execute("UPDATE campaign_entries SET status='pending_payment' WHERE id=?",[eid]);
     }else if(e.status!=='pending_payment')throw Error('وضعیت شرکت‌کننده اجازه سفارش نمی‌دهد.');
     let [[o]]=await c.execute("SELECT id,payment_reference,amount,currency,status,requested_code_count,expires_at,(expires_at IS NOT NULL AND expires_at<=UTC_TIMESTAMP()) AS is_expired,bank_name,card_number,card_holder,payment_instructions FROM payment_orders WHERE campaign_entry_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE",[eid]);
@@ -45,7 +53,6 @@ export async function createOrGetOrder({telegramUserId,campaignId,requestedCodeC
       o=null;
     }
     if(o?.status==='under_review')throw Error('رسید سفارش قبلی در حال بررسی است؛ تا تعیین نتیجه امکان تغییر تعداد کد وجود ندارد.');
-    if(o?.status==='approved')throw Error('پرداخت قبلاً تأیید شده است؛ کدهای خود را در بخش کدهای من ببینید.');
     if(o&&['awaiting_receipt','rejected'].includes(o.status)&&Number(o.requested_code_count)===requested){
       await c.commit();
       return {paid:false,order:o,campaignTitle:ca.title};
@@ -54,8 +61,12 @@ export async function createOrGetOrder({telegramUserId,campaignId,requestedCodeC
       await c.execute("UPDATE payment_orders SET status='cancelled' WHERE id=?",[o.id]);
       o=null;
     }
-    if(o&&['cancelled','expired'].includes(o.status))o=null;
-    await c.execute("UPDATE campaign_entries SET status='pending_payment' WHERE id=? AND status='cancelled'",[eid]);
+    if(o&&['cancelled','expired','approved'].includes(o.status))o=null;
+    await c.execute("UPDATE campaign_entries SET status='pending_payment' WHERE id=? AND status IN ('cancelled','eligible')",[eid]);
+    const [[personIssued]]=await c.execute("SELECT COUNT(*) total FROM campaign_codes WHERE campaign_entry_id=?",[eid]);
+    const [[personReserved]]=await c.execute("SELECT COALESCE(SUM(requested_code_count),0) total FROM payment_orders WHERE campaign_entry_id=? AND (status='under_review' OR (status IN ('awaiting_receipt','rejected') AND expires_at>UTC_TIMESTAMP()))",[eid]);
+    const remaining=maxCount-Number(personIssued.total)-Number(personReserved.total);
+    if(requested>remaining)throw Error('تعداد کد درخواستی از سقف باقی‌مانده شما بیشتر است. کدهای صادرشده و سفارش‌های فعال در سقف مجاز محاسبه می‌شوند.');
     if(ca.capacity!==null){
       const used=await getCampaignCodeCapacityUsage(c,campaignId);
       if(used+requested>Number(ca.capacity))throw Error('ظرفیت باقی‌مانده کمپین برای این تعداد کد کافی نیست. ظرفیت بر اساس تعداد کد محاسبه می‌شود.');
