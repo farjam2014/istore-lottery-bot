@@ -64,7 +64,7 @@ export function registerPaymentHandlers(bot){
  });
  bot.action(/^payment:more:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
-  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);
+  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,1);
  });
  bot.action(/^payment:quantity-page:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action(/^payment:quantity:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return sendPaymentOrder(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
