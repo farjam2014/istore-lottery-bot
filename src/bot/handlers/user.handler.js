@@ -43,11 +43,11 @@ export function registerUserHandlers(bot){
       campaign.prize_description||null,
       campaign.prize_value?'ارزش تقریبی جایزه: '+Number(campaign.prize_value).toLocaleString('fa-IR')+' ریال':null,
       'نوع شرکت: '+(campaign.participation_type==='free'?'رایگان':'پولی'),
-      campaign.participation_type==='paid'?'هزینه شرکت: '+Number(campaign.entry_price||0).toLocaleString('fa-IR')+' ریال':'شرکت رایگان',
+      campaign.participation_type==='paid'?'قیمت هر کد: '+Number(campaign.entry_price||0).toLocaleString('fa-IR')+' ریال | حداکثر: '+Number(campaign.codes_per_entry||1)+' کد':'شرکت رایگان | تعداد کد هر نفر: '+Number(campaign.codes_per_entry||1),
       campaign.starts_at?'شروع: '+formatTehranDateTime(campaign.starts_at):null,
       campaign.ends_at?'پایان: '+formatTehranDateTime(campaign.ends_at):null,
       campaign.draw_at?'زمان قرعه‌کشی: '+formatTehranDateTime(campaign.draw_at):null,
-      campaign.capacity?'ظرفیت کل: '+campaign.capacity+' | ثبت‌نام/رزرو: '+Number(campaign.participant_count||0):'ظرفیت: نامحدود',
+      campaign.capacity?'ظرفیت کل کد: '+campaign.capacity+' | صادرشده: '+Number(campaign.code_count||0)+' | رزرو سفارش: '+Number(campaign.reserved_code_count||0):'ظرفیت کد: نامحدود',
       campaign.terms?'قوانین و شرایط:\n'+campaign.terms:null
     ].filter(Boolean);
     const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[[Markup.button.callback('ثبت سفارش و پرداخت','payment:start:'+campaign.id)]];
