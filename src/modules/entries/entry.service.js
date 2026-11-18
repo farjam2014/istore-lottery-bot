@@ -2,7 +2,7 @@ import {pool} from '../../database/pool.js';
 import {issueCampaignCodes,normalizeRequestedCodeCount} from '../codes/code-issuance.service.js';
 
 async function getIssuedCodeCount(connection,campaignId){
-  const [[row]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);
+  const [[row]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_codes WHERE campaign_id=?",[campaignId]);
   return Number(row.total);
 }
 
