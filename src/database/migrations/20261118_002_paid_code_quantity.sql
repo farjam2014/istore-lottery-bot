@@ -6,7 +6,6 @@ JOIN campaign_entries e ON e.id=o.campaign_entry_id
 LEFT JOIN (
   SELECT campaign_entry_id,COUNT(*) AS issued_count
   FROM campaign_codes
-  WHERE status='active'
   GROUP BY campaign_entry_id
 ) cc ON cc.campaign_entry_id=e.id
 SET o.requested_code_count=CASE
