@@ -15,11 +15,14 @@ async function getCampaignCodeCapacityUsage(connection,campaignId){
 }
 
 export async function getUserCampaignCodeAllowance({telegramUserId,campaignId}){
-  const [[row]]=await pool.execute("SELECT c.codes_per_entry,e.id entry_id FROM campaigns c LEFT JOIN campaign_entries e ON e.campaign_id=c.id JOIN participants p ON p.telegram_user_id=? AND p.status='active' AND (e.participant_id=p.id OR e.id IS NULL) WHERE c.id=? ORDER BY e.id DESC LIMIT 1",[String(telegramUserId),campaignId]);
-  if(!row)return {max:0,issued:0,reserved:0,remaining:0};
-  const max=normalizeRequestedCodeCount(row.codes_per_entry);if(!row.entry_id)return {max,issued:0,reserved:0,remaining:max};
-  const [[issued]]=await pool.execute("SELECT COUNT(*) total FROM campaign_codes WHERE campaign_entry_id=?",[row.entry_id]);
-  const [[reserved]]=await pool.execute("SELECT COALESCE(SUM(requested_code_count),0) total FROM payment_orders WHERE campaign_entry_id=? AND (status='under_review' OR (status IN ('awaiting_receipt','rejected') AND expires_at>UTC_TIMESTAMP()))",[row.entry_id]);
+  const [[campaign]] = await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);
+  const [[participant]] = await pool.execute("SELECT id FROM participants WHERE telegram_user_id=? AND status='active'",[String(telegramUserId)]);
+  if(!campaign||!participant)return {max:0,issued:0,reserved:0,remaining:0};
+  const max=normalizeRequestedCodeCount(campaign.codes_per_entry);
+  const [[entry]] = await pool.execute("SELECT id FROM campaign_entries WHERE campaign_id=? AND participant_id=?",[campaignId,participant.id]);
+  if(!entry)return {max,issued:0,reserved:0,remaining:max};
+  const [[issued]] = await pool.execute("SELECT COUNT(*) total FROM campaign_codes WHERE campaign_entry_id=?",[entry.id]);
+  const [[reserved]] = await pool.execute("SELECT COALESCE(SUM(requested_code_count),0) total FROM payment_orders WHERE campaign_entry_id=? AND (status='under_review' OR (status IN ('awaiting_receipt','rejected') AND expires_at>UTC_TIMESTAMP()))",[entry.id]);
   const i=Number(issued.total),r=Number(reserved.total);return {max,issued:i,reserved:r,remaining:Math.max(0,max-i-r)};
 }
 export async function createOrGetOrder({telegramUserId,campaignId,requestedCodeCount=1}){
