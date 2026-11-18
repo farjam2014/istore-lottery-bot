@@ -215,12 +215,12 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     await assert.rejects(createOrGetOrder({telegramUserId:secondTelegramId,campaignId,requestedCodeCount:2}),/ظرفیت باقی/);
     const secondOrder=await createOrGetOrder({telegramUserId:secondTelegramId,campaignId,requestedCodeCount:1});secondOrderId=secondOrder.order.id;assert.equal(Number(secondOrder.order.amount),150000);assert.equal(Number(secondOrder.order.requested_code_count),1);
     secondReceiptId=(await submitReceipt({telegramUserId:secondTelegramId,orderId:secondOrderId,fileId:'file-test-3',fileUniqueId:'unique-test-3-'+secondTelegramId})).receiptId;await reviewReceipt({adminId:'1',receiptId:secondReceiptId,decision:'approve'});
-    await pool.execute('UPDATE campaigns SET capacity=5 WHERE id=?',[campaignId]);
+    await pool.execute('UPDATE campaigns SET capacity=6 WHERE id=?',[campaignId]);
     const repeat=await createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:1});repeatOrderId=repeat.order.id;assert.notEqual(repeatOrderId,orderId);assert.equal(Number(repeat.order.requested_code_count),1);assert.equal(Number(repeat.order.amount),150000);
     repeatReceiptId=(await submitReceipt({telegramUserId:telegramId,orderId:repeatOrderId,fileId:'file-test-4',fileUniqueId:'unique-test-4-'+telegramId})).receiptId;await reviewReceipt({adminId:'1',receiptId:repeatReceiptId,decision:'approve'});
     const last=await createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:2});lastOrderId=last.order.id;assert.notEqual(lastOrderId,repeatOrderId);const lastReceipt=(await submitReceipt({telegramUserId:telegramId,orderId:lastOrderId,fileId:'file-test-5',fileUniqueId:'unique-test-5-'+telegramId})).receiptId;lastReceiptId=lastReceipt;await reviewReceipt({adminId:'1',receiptId:lastReceipt,decision:'approve'});
     await assert.rejects(createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:1}),/سقف باقی‌مانده/);
-    const [finalCodes]=await pool.execute("SELECT code FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);assert.equal(finalCodes.length,5);
+    const [finalCodes]=await pool.execute("SELECT code FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);assert.equal(finalCodes.length,6);
   }finally{
     if(telegramId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[telegramId]);if(secondTelegramId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[secondTelegramId]);await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[financeAdminId]);
     for(const id of [orderId,previousOrderId,secondOrderId,repeatOrderId,lastOrderId].filter(Boolean)){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[id]);}
