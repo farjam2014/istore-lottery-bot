@@ -55,6 +55,16 @@ async function allSchemaChecks(connection,checks,message){
   return false;
 }
 
+export async function assertPaidCodeQuantityBackfillSafe(connection){
+  const [[ambiguous]]=await connection.execute(
+    "SELECT e.id,COUNT(o.id) AS order_count FROM campaign_entries e JOIN payment_orders o ON o.campaign_entry_id=e.id GROUP BY e.id HAVING COUNT(o.id)>1 LIMIT 1"
+  );
+  if(ambiguous)throw new Error('Ambiguous legacy payment orders for campaign entry '+ambiguous.id+'; reconcile order-to-code history before paid code quantity migration.');
+  const [[missingCodes]]=await connection.execute(
+    "SELECT o.id FROM payment_orders o WHERE o.status='approved' AND NOT EXISTS (SELECT 1 FROM campaign_codes cc WHERE cc.campaign_entry_id=o.campaign_entry_id) LIMIT 1"
+  );
+  if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
+}
 async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261117_001_campaign_code_sequence.sql'){
     if(index===0){
@@ -209,7 +219,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(hasQueryText||hasResultsStep)throw new Error('Partial DDL detected in 20261118_001_participant_search_state.sql. Inspect admin_search_sessions before repair.');
     return false;
   }
-  if(file==='20261118_002_paid_code_quantity.sql'){
+  if(file==='20261118_002_paid_code_quantity.sql'){\n    if(index===1) await assertPaidCodeQuantityBackfillSafe(connection);
     if(index===0){
       const [[column]]=await connection.execute(
         "SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'"
