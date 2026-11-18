@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assertMigrationAllowed} from '../../src/database/migration-guard.js';
+import {assertPaidCodeQuantityBackfillSafe} from '../../src/database/migrate.js';
 
 test('migrations are denied by default',()=>{
   assert.throws(
@@ -80,4 +81,19 @@ test('unknown environments are rejected',()=>{
     ()=>assertMigrationAllowed({database:'any_db',nodeEnv:'staging',env:{ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_PRODUCTION_MIGRATIONS:'1',MIGRATION_TARGET_DATABASE:'any_db'}}),
     /Unsupported NODE_ENV/
   );
+});
+
+test('paid quantity migration refuses ambiguous legacy orders',async()=>{
+  const connection={execute:async(sql)=>sql.includes('HAVING COUNT(o.id)>1')?[[{id:42,order_count:2}]]:[[]]};
+  await assert.rejects(assertPaidCodeQuantityBackfillSafe(connection),/Ambiguous legacy payment orders.*42/);
+});
+
+test('paid quantity migration refuses approved orders without issued codes',async()=>{
+  const connection={execute:async(sql)=>sql.includes('HAVING COUNT(o.id)>1')?[[]]:[[{id:77}]]};
+  await assert.rejects(assertPaidCodeQuantityBackfillSafe(connection),/Approved legacy payment order 77 has no issued codes/);
+});
+
+test('paid quantity migration accepts unambiguous legacy history',async()=>{
+  const connection={execute:async()=>[[]]};
+  await assert.doesNotReject(assertPaidCodeQuantityBackfillSafe(connection));
 });

@@ -38,7 +38,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The six new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The eight new migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
@@ -46,6 +46,8 @@ The migration runner sorts SQL files by filename. The six new migrations are app
 4. `20261117_004_draw_commitment_publication.sql` — adds publication attestation fields and admin workflow states.
 5. `20261117_005_draw_seed_keyring.sql` — adds `seed_key_id`, defaulting existing rows to `legacy-env`.
 6. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
+7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
+8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
 
 Important migration properties:
 

@@ -7,7 +7,9 @@ This release completes customer registration, campaign operations, participant m
 - Draw model remains code-based; a code is one independent ticket.
 - A participant can win at most one prize per campaign; draw execution itself is deferred.
 - Payments support manual bank-transfer evidence and a provider-neutral online-payment abstraction. Gateway provider selection and live gateway integration are deferred.
-- Capacity is reserved when a paid order is created and released on expiry/cancellation.
+- Paid campaigns price each code individually; participants select a quantity up to the configured per-participant maximum. Order amount and requested quantity are snapshotted, and approved receipts issue exactly that quantity.
+- Campaign capacity is measured in codes, including issued codes and active payment reservations; reservations are released on expiry/cancellation.
+- Free campaigns retain their configured fixed codes-per-participant quantity, and capacity is checked against the number of codes issued.
 - Campaign limits are separately configurable by admins.
 - Support supports tickets and direct chat, but every message is persisted centrally.
 - Admin model is shared permissions across multiple explicitly allowlisted admin accounts; no role hierarchy in this phase.

@@ -157,7 +157,7 @@ async function showCampaignList(ctx,page=0){
   return respond(ctx,message,Markup.inlineKeyboard(buttons));
 }
 async function showCampaignDetail(ctx,id){
-  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
+  const [[c]]=await pool.execute("SELECT id,title,description,status,participation_type,entry_price,prize_title,starts_at,ends_at,draw_at,capacity,codes_per_entry,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id=campaigns.id) code_count,(SELECT COUNT(*) FROM campaign_entries ce WHERE ce.campaign_id=campaigns.id AND ce.status IN ('eligible','pending_payment')) participant_count,(SELECT COALESCE(SUM(o.requested_code_count),0) FROM payment_orders o JOIN campaign_entries pe ON pe.id=o.campaign_entry_id WHERE pe.campaign_id=campaigns.id AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))) reserved_code_count,(SELECT id FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) prepared_draw_id,(SELECT commitment_published_at FROM campaign_draws WHERE campaign_id=campaigns.id AND status='prepared' ORDER BY id DESC LIMIT 1) commitment_published_at FROM campaigns WHERE id=?",[id]);
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
   const canDraw=await hasPermission(ctx.from?.id,'campaign.draw');
@@ -173,13 +173,13 @@ async function showCampaignDetail(ctx,id){
   const message='🎯 کمپین #'+c.id+' — '+c.title+
     '\nنوع: '+(c.participation_type==='free'?'رایگان':'پولی')+
     '\nوضعیت: '+campaignStatusLabel(c.status)+
-    (c.participation_type==='paid'?'\nمبلغ شرکت: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'')+
+    (c.participation_type==='paid'?'\nقیمت هر کد: '+Number(c.entry_price).toLocaleString('fa-IR')+' ریال':'')+
     '\nجایزه: '+(c.prize_title||'ثبت نشده')+
     '\nتوضیح: '+(c.description||'ثبت نشده')+
     '\nکدهای صادرشده: '+Number(c.code_count).toLocaleString('fa-IR')+
-    '\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+
-    '\nظرفیت: '+(c.capacity??'نامحدود')+
-    '\nکد برای هر نفر: '+c.codes_per_entry+
+    '\nشرکت‌کنندگان/رزروها: '+Number(c.participant_count).toLocaleString('fa-IR')+'\nکدهای رزروشده: '+Number(c.reserved_code_count||0)+
+    '\nظرفیت کل کد: '+(c.capacity??'نامحدود')+
+    '\n'+(c.participation_type==='paid'?'حداکثر کد قابل خرید هر نفر: ':'کد ثابت هر نفر: ')+c.codes_per_entry+
     '\nشروع: '+(c.starts_at?formatTehranDateTime(c.starts_at):'تعیین نشده')+
     '\nپایان: '+(c.ends_at?formatTehranDateTime(c.ends_at):'تعیین نشده')+
     '\nقرعه‌کشی: '+(c.draw_at?formatTehranDateTime(c.draw_at):'تعیین نشده');
@@ -323,7 +323,7 @@ export function registerAdminHandlers(bot){
     if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
     if(field==='entry_price'&&row.participation_type!=='paid')return ctx.answerCbQuery('کمپین رایگان مبلغ شرکت ندارد.',{show_alert:true});
     await saveWizard(ctx.from.id,'campaign_edit_value',{campaignId:id,field});await ctx.answerCbQuery();
-    return respond(ctx,'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
+    return respond(ctx,field==='entry_price'?'قیمت جدید هر کد را به ریال ارسال کنید.':field==='capacity'?'ظرفیت کل کدهای کمپین را ارسال کنید؛ ۰ یعنی نامحدود.':field==='codes_per_entry'?(row.participation_type==='paid'?'حداکثر کد قابل خرید هر نفر را ارسال کنید (۱ تا ۱۰۰).':'تعداد کد ثابت هر نفر را ارسال کنید (۱ تا ۱۰۰).'):'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
   });
   bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
@@ -403,12 +403,12 @@ export function registerAdminHandlers(bot){
     const [[p]] = await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants WHERE id=?',[id]);
     if(!p)return respond(ctx,'شرکت‌کننده پیدا نشد.');
     const [entries]=await pool.execute("SELECT c.id campaign_id,c.title,e.status entry_status,e.created_at,(SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) code_count,(SELECT GROUP_CONCAT(cc.code ORDER BY cc.id SEPARATOR ', ') FROM campaign_codes cc WHERE cc.campaign_entry_id=e.id) codes FROM campaign_entries e JOIN campaigns c ON c.id=e.campaign_id WHERE e.participant_id=? ORDER BY e.id DESC LIMIT 30",[id]);
-    const [orders]=await pool.execute("SELECT o.id,o.amount,o.status,o.payment_reference,c.title campaign_title,o.created_at FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id WHERE e.participant_id=? ORDER BY o.id DESC LIMIT 20",[id]);
+    const [orders]=await pool.execute("SELECT o.id,o.amount,o.requested_code_count,o.status,o.payment_reference,c.title campaign_title,o.created_at FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id WHERE e.participant_id=? ORDER BY o.id DESC LIMIT 20",[id]);
     const status=p.status==='active'?'فعال':'مسدود';
     let message='👤 پروفایل شرکت‌کننده\nشناسه: '+p.id+'\nTelegram ID: '+p.telegram_user_id+'\nنام: '+p.full_name+'\nموبایل: '+p.phone+'\nاینستاگرام: @'+p.instagram_handle+'\nنام کاربری تلگرام: '+(p.telegram_username?'@'+p.telegram_username:'ندارد')+'\nوضعیت: '+status+'\nعضویت: '+formatTehranDateTime(p.created_at)+'\n\n🎁 سوابق کمپین:';
     message+='\n'+(entries.length?entries.map(x=>'#'+x.campaign_id+' '+x.title+' | '+x.entry_status+' | '+formatTehranDateTime(x.created_at)+' | '+x.code_count+' کد'+(x.codes?'\n'+x.codes:'')).join('\n'):'بدون سابقه');
     message+='\n\n🧾 سفارش‌ها:';
-    message+='\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+formatTehranDateTime(x.created_at)+' | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\n'):'بدون سفارش');
+    message+='\n'+(orders.length?orders.map(x=>'#'+x.id+' '+x.campaign_title+' | '+formatTehranDateTime(x.created_at)+' | '+Number(x.requested_code_count||1)+' کد | '+Number(x.amount).toLocaleString('fa-IR')+' ریال | '+x.status+' | '+(x.payment_reference||'')).join('\n'):'بدون سفارش');
     const buttons=[];if(await hasPermission(ctx.from.id,'participant.manage')){const action=p.status==='active'?'block':'unblock';buttons.push([Markup.button.callback(p.status==='active'?'🚫 مسدودسازی':'✅ رفع مسدودی',`admin:participant:${action}:${id}`)]);}buttons.push([Markup.button.callback('↩️ بازگشت به فهرست شرکت‌کنندگان','admin:participants:page:'+(Number(ctx.match[2])||0))]);
     return respond(ctx,message,Markup.inlineKeyboard(buttons));
   });
@@ -460,7 +460,7 @@ export function registerAdminHandlers(bot){
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery('در حال ساخت خروجی...');
     const rows=await exportManagedOrders({limit:10000});
-    const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
+    const columns=['id','payment_reference','requested_code_count','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at),expires_at:formatTehranDateTime(row.expires_at),approved_at:formatTehranDateTime(row.approved_at)})),columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
@@ -564,7 +564,7 @@ export function registerAdminHandlers(bot){
       return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
     }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
-    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
+    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const [[cardSession]]=await pool.execute('SELECT step,card_id,payload FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
     if(cardSession){
       const payload=typeof cardSession.payload==='string'?JSON.parse(cardSession.payload):cardSession.payload;
@@ -641,9 +641,9 @@ export function registerAdminHandlers(bot){
       if(wizard.step==='prize_description'){p.prizeDescription=value==='-'?'':value;if(p.prizeDescription.length>2000)throw new Error('توضیحات جایزه حداکثر ۲۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'prize_value',p);return respond(ctx,'ارزش تقریبی جایزه را به ریال وارد کنید؛ ۰ یعنی ثبت نشده.');}
       if(wizard.step==='prize_value'){if(!/^\d+$/.test(value)||Number(value)>100000000000000)throw new Error('ارزش جایزه باید عدد صحیح نامنفی باشد.');p.prizeValue=Number(value)||null;await saveWizard(ctx.from.id,'starts_at',p);return respond(ctx,'زمان شروع را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
       if(['starts_at','ends_at','draw_at'].includes(wizard.step)){const key=wizard.step;if(value==='-')p[key]=null;else{p[key]=parseJalaliDateTime(value);}const nextStep={starts_at:'ends_at',ends_at:'draw_at',draw_at:'terms'}[key];await saveWizard(ctx.from.id,nextStep,p);return respond(ctx,nextStep==='terms'?'قوانین و شرایط شرکت را وارد کنید؛ برای بدون قانون «-».':nextStep==='ends_at'?'زمان پایان را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.':'زمان قرعه‌کشی را به‌شکل ۱۴۰۵/۰۹/۰۱ ۱۸:۳۰ (ساعت تهران) وارد کنید یا «-» بفرستید.');}
-      if(wizard.step==='terms'){p.terms=value==='-'?'':value;if(p.terms.length>8000)throw new Error('قوانین حداکثر ۸۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'capacity',p);return respond(ctx,'ظرفیت کمپین را به عدد وارد کنید. عدد ۰ یعنی نامحدود.');}
-      if(wizard.step==='capacity'){if(!/^\d+$/.test(value)||Number(value)>10000000)throw new Error('ظرفیت باید عدد صحیح باشد؛ ۰ یعنی نامحدود.');p.capacity=Number(value)||null;await saveWizard(ctx.from.id,'codes',p);return respond(ctx,'تعداد کد برای هر شرکت‌کننده را وارد کنید (۱ تا ۱۰۰).');}
-      if(wizard.step==='codes'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>100)throw new Error('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');p.codes=Number(value);if(p.type==='paid'){await saveWizard(ctx.from.id,'price',p);return respond(ctx,'مبلغ شرکت در کمپین را به ریال وارد کنید (عدد صحیح مثبت).');}p.paymentMethods=[];return showConfirmation(ctx,p);}
+      if(wizard.step==='terms'){p.terms=value==='-'?'':value;if(p.terms.length>8000)throw new Error('قوانین حداکثر ۸۰۰۰ نویسه باشد.');await saveWizard(ctx.from.id,'capacity',p);return respond(ctx,'ظرفیت کل کدهای کمپین را وارد کنید. عدد ۰ یعنی نامحدود.');}
+      if(wizard.step==='capacity'){if(!/^\d+$/.test(value)||Number(value)>10000000)throw new Error('ظرفیت باید عدد صحیح باشد؛ ۰ یعنی نامحدود.');p.capacity=Number(value)||null;await saveWizard(ctx.from.id,'codes',p);return respond(ctx,p.type==='paid'?'حداکثر تعداد کد قابل خرید برای هر شرکت‌کننده را وارد کنید (۱ تا ۱۰۰).':'تعداد کد ثابت هر شرکت‌کننده در کمپین رایگان را وارد کنید (۱ تا ۱۰۰).');}
+      if(wizard.step==='codes'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>100)throw new Error('تعداد کد باید بین ۱ تا ۱۰۰ باشد.');p.codes=Number(value);if(p.type==='paid'){await saveWizard(ctx.from.id,'price',p);return respond(ctx,'قیمت هر کد را به ریال وارد کنید (عدد صحیح مثبت).');}p.paymentMethods=[];return showConfirmation(ctx,p);}
       if(wizard.step==='price'){if(!/^\d+$/.test(value)||Number(value)<1||Number(value)>1000000000000)throw new Error('مبلغ باید عدد صحیح مثبت و به ریال باشد.');p.price=Number(value);p.paymentMethods=['card_transfer'];return showConfirmation(ctx,p);}
     }catch(error){return respond(ctx,error.message||'ورودی نامعتبر است. دوباره تلاش کنید.');}
     return next();
@@ -713,18 +713,18 @@ async function showManagedOrders(ctx,status,page){
     [Markup.button.callback('در حال بررسی','admin:payments:status:under_review'),Markup.button.callback('تأییدشده','admin:payments:status:approved')],
     [Markup.button.callback('ردشده','admin:payments:status:rejected'),Markup.button.callback('لغوشده','admin:payments:status:cancelled'),Markup.button.callback('منقضی','admin:payments:status:expired')]
   ];
-  for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
+  for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+Number(o.requested_code_count||1)+' کد | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
   const pages=Math.max(1,Math.ceil(r.total/r.limit));
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:payments:page:'+status+':'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:payments:page:'+status+':'+(page+1)));if(nav.length)buttons.push(nav);
   buttons.push([Markup.button.callback('🔎 جست‌وجوی سفارش','admin:payment:search'),Markup.button.callback('📥 خروجی CSV','admin:payment:export')]);
   buttons.push([Markup.button.callback('بازگشت به مدیریت','admin:home')]);
-  const text='🧾 مرکز سفارش‌ها و پرداخت‌ها\nفیلتر: '+names[status]+'\nتعداد کل: '+Number(r.total).toLocaleString('fa-IR')+'\nصفحه: '+(page+1)+' از '+pages+'\n\n'+(r.rows.length?r.rows.map(o=>'#'+o.id+' | '+o.full_name+' | '+o.campaign_title+' | '+Number(o.amount).toLocaleString('fa-IR')+' ریال | '+o.status).join('\n'):'سفارشی در این فیلتر وجود ندارد.');
+  const text='🧾 مرکز سفارش‌ها و پرداخت‌ها\nفیلتر: '+names[status]+'\nتعداد کل: '+Number(r.total).toLocaleString('fa-IR')+'\nصفحه: '+(page+1)+' از '+pages+'\n\n'+(r.rows.length?r.rows.map(o=>'#'+o.id+' | '+o.full_name+' | '+o.campaign_title+' | '+Number(o.requested_code_count||1)+' کد | '+Number(o.amount).toLocaleString('fa-IR')+' ریال | '+o.status).join('\n'):'سفارشی در این فیلتر وجود ندارد.');
   return respond(ctx,text,Markup.inlineKeyboard(buttons));
 }
 async function showManagedOrderDetail(ctx,id){
   const d=await getManagedOrderDetail(id);if(!d)return respond(ctx,'سفارش پیدا نشد.');
   const o=d.order,n=v=>Number(v||0).toLocaleString('fa-IR');
-  const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+formatTehranDateTime(o.created_at)+'\nانقضا: '+formatTehranDateTime(o.expires_at)+'\nتأیید: '+formatTehranDateTime(o.approved_at)+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+formatTehranDateTime(x.created_at)+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+formatTehranDateTime(x.created_at)+(x.details?' | '+(typeof x.details==='string'?x.details:JSON.stringify(x.details)):'')).join('\n'):'بدون رویداد');
+  const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nتعداد کد: '+Number(o.requested_code_count||1)+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+formatTehranDateTime(o.created_at)+'\nانقضا: '+formatTehranDateTime(o.expires_at)+'\nتأیید: '+formatTehranDateTime(o.approved_at)+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+formatTehranDateTime(x.created_at)+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+formatTehranDateTime(x.created_at)+(x.details?' | '+(typeof x.details==='string'?x.details:JSON.stringify(x.details)):'')).join('\n'):'بدون رویداد');
   const buttons=[];
   for(const receipt of d.receipts.filter(x=>x.status==='submitted'))buttons.push([Markup.button.callback('تأیید رسید #'+receipt.id,'payment:approve:'+receipt.id),Markup.button.callback('رد رسید #'+receipt.id,'payment:reject:'+receipt.id)]);
   buttons.push([Markup.button.callback('بازگشت به سفارش‌ها','admin:payments')]);
@@ -734,7 +734,7 @@ async function showManagedOrderDetail(ctx,id){
 
 async function showConfirmation(ctx,p){
   await saveWizard(ctx.from.id,'confirm',p);
-  const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nمبلغ: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
-  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت: ${p.capacity??'نامحدود'}\nکد برای هر نفر: ${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
+  const type=p.type==='free'?'رایگان':'پولی';const price=p.type==='paid'?`\nقیمت هر کد: ${Number(p.price).toLocaleString('fa-IR')} ریال`:'';
+  const summary=`پیش‌نمایش کمپین\nعنوان: ${p.title}\nنوع: ${type}${price}\nجایزه: ${p.prizeTitle||'ثبت نشده'}\nارزش جایزه: ${p.prizeValue?Number(p.prizeValue).toLocaleString('fa-IR')+' ریال':'ثبت نشده'}\nشروع: ${p.starts_at?formatTehranDateTime(p.starts_at):'تعیین نشده'}\nپایان: ${p.ends_at?formatTehranDateTime(p.ends_at):'تعیین نشده'}\nقرعه‌کشی: ${p.draw_at?formatTehranDateTime(p.draw_at):'تعیین نشده'}\nظرفیت کل کد: ${p.capacity??'نامحدود'}\n${p.type==='paid'?'حداکثر کد قابل خرید هر نفر: ':'کد ثابت هر نفر: '}${p.codes}\nپوستر: ${p.posterFileId?'دریافت شد':'ندارد'}\nتوضیح: ${p.description||'ندارد'}\nقوانین: ${p.terms||'ثبت نشده'}\n\nبا تأیید، کمپین به‌صورت پیش‌نویس ذخیره می‌شود.`;
   return respond(ctx,summary,Markup.inlineKeyboard([[Markup.button.callback('تأیید و ایجاد کمپین','admin:campaign:confirm')],[Markup.button.callback('لغو','admin:campaign:cancel')]]));
 }
