@@ -44,6 +44,7 @@ export function registerUserHandlers(bot){
       campaign.prize_value?'ارزش تقریبی جایزه: '+Number(campaign.prize_value).toLocaleString('fa-IR')+' ریال':null,
       'نوع شرکت: '+(campaign.participation_type==='free'?'رایگان':'پولی'),
       campaign.participation_type==='paid'?'قیمت هر کد: '+Number(campaign.entry_price||0).toLocaleString('fa-IR')+' ریال | حداکثر: '+Number(campaign.codes_per_entry||1)+' کد':'شرکت رایگان | تعداد کد هر نفر: '+Number(campaign.codes_per_entry||1),
+      campaign.participation_type==='paid'&&Number(campaign.codes_per_entry)>1?'هر شرکت‌کننده می‌تواند تا سقف '+Number(campaign.codes_per_entry)+' کد دریافت کند؛ خرید کدها در چند سفارش جداگانه نیز امکان‌پذیر است.':null,
       campaign.starts_at?'شروع: '+formatTehranDateTime(campaign.starts_at):null,
       campaign.ends_at?'پایان: '+formatTehranDateTime(campaign.ends_at):null,
       campaign.draw_at?'زمان قرعه‌کشی: '+formatTehranDateTime(campaign.draw_at):null,
