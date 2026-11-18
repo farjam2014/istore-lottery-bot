@@ -9,7 +9,7 @@ export async function getPaymentSettings(){return getDefaultPaymentCard();}
 export async function updatePaymentSettings({bankName,cardNumber,cardHolder,instructions,adminId}){const current=await getDefaultPaymentCard();if(current)return updatePaymentCard(current.id,{bankName,cardNumber,cardHolder,instructions},adminId);return createPaymentCard({bankName,cardNumber,cardHolder,instructions},adminId);}
 const makePaymentReference=()=> 'ISTPAY-'+randomBytes(8).toString('hex').toUpperCase();
 async function getCampaignCodeCapacityUsage(connection,campaignId){
-  const [[issued]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);
+  const [[issued]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_codes WHERE campaign_id=?",[campaignId]);
   const [[reserved]]=await connection.execute("SELECT COALESCE(SUM(o.requested_code_count),0) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))",[campaignId]);
   return Number(issued.total)+Number(reserved.total);
 }
