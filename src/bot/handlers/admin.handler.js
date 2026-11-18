@@ -460,7 +460,7 @@ export function registerAdminHandlers(bot){
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await ctx.answerCbQuery('در حال ساخت خروجی...');
     const rows=await exportManagedOrders({limit:10000});
-    const columns=['id','payment_reference','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
+    const columns=['id','payment_reference','requested_code_count','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at),expires_at:formatTehranDateTime(row.expires_at),approved_at:formatTehranDateTime(row.approved_at)})),columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
@@ -713,7 +713,7 @@ async function showManagedOrders(ctx,status,page){
     [Markup.button.callback('در حال بررسی','admin:payments:status:under_review'),Markup.button.callback('تأییدشده','admin:payments:status:approved')],
     [Markup.button.callback('ردشده','admin:payments:status:rejected'),Markup.button.callback('لغوشده','admin:payments:status:cancelled'),Markup.button.callback('منقضی','admin:payments:status:expired')]
   ];
-  for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
+  for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+Number(o.requested_code_count||1)+' کد | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
   const pages=Math.max(1,Math.ceil(r.total/r.limit));
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:payments:page:'+status+':'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:payments:page:'+status+':'+(page+1)));if(nav.length)buttons.push(nav);
   buttons.push([Markup.button.callback('🔎 جست‌وجوی سفارش','admin:payment:search'),Markup.button.callback('📥 خروجی CSV','admin:payment:export')]);
