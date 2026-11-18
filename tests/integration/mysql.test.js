@@ -175,7 +175,7 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {createOrGetOrder,submitReceipt,reviewReceipt,updatePaymentSettings,expirePendingOrders}=await import('../../src/modules/payments/payment.service.js');
-  let participantId;let secondParticipantId;let campaignId;let orderId;let previousOrderId;let receiptId;let secondOrderId;let secondReceiptId;let telegramId;let secondTelegramId;let paymentCardId;const financeAdminId=String(890000000000n+(BigInt(Date.now())%100000000000n));
+  let participantId;let secondParticipantId;let campaignId;let orderId;let previousOrderId;let receiptId;let secondOrderId;let secondReceiptId;let repeatOrderId;let repeatReceiptId;let telegramId;let secondTelegramId;let paymentCardId;const financeAdminId=String(890000000000n+(BigInt(Date.now())%100000000000n));
   try{
     await migrate();
     const [[existingCards]]=await pool.execute('SELECT COUNT(*) AS total FROM payment_bank_cards');
@@ -215,10 +215,15 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     await assert.rejects(createOrGetOrder({telegramUserId:secondTelegramId,campaignId,requestedCodeCount:2}),/ظرفیت باقی/);
     const secondOrder=await createOrGetOrder({telegramUserId:secondTelegramId,campaignId,requestedCodeCount:1});secondOrderId=secondOrder.order.id;assert.equal(Number(secondOrder.order.amount),150000);assert.equal(Number(secondOrder.order.requested_code_count),1);
     secondReceiptId=(await submitReceipt({telegramUserId:secondTelegramId,orderId:secondOrderId,fileId:'file-test-3',fileUniqueId:'unique-test-3-'+secondTelegramId})).receiptId;await reviewReceipt({adminId:'1',receiptId:secondReceiptId,decision:'approve'});
-    const [finalCodes]=await pool.execute("SELECT code FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);assert.equal(finalCodes.length,3);
+    await pool.execute('UPDATE campaigns SET capacity=5 WHERE id=?',[campaignId]);
+    const repeat=await createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:1});repeatOrderId=repeat.order.id;assert.notEqual(repeatOrderId,orderId);assert.equal(Number(repeat.order.requested_code_count),1);assert.equal(Number(repeat.order.amount),150000);
+    repeatReceiptId=(await submitReceipt({telegramUserId:telegramId,orderId:repeatOrderId,fileId:'file-test-4',fileUniqueId:'unique-test-4-'+telegramId})).receiptId;await reviewReceipt({adminId:'1',receiptId:repeatReceiptId,decision:'approve'});
+    const last=await createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:1});assert.notEqual(last.order.id,repeatOrderId);const lastReceipt=(await submitReceipt({telegramUserId:telegramId,orderId:last.order.id,fileId:'file-test-5',fileUniqueId:'unique-test-5-'+telegramId})).receiptId;await reviewReceipt({adminId:'1',receiptId:lastReceipt,decision:'approve'});
+    await assert.rejects(createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:1}),/سقف باقی‌مانده/);
+    const [finalCodes]=await pool.execute("SELECT code FROM campaign_codes WHERE campaign_id=? AND status='active'",[campaignId]);assert.equal(finalCodes.length,5);
   }finally{
     if(telegramId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[telegramId]);if(secondTelegramId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[secondTelegramId]);await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[financeAdminId]);
-    for(const id of [orderId,previousOrderId,secondOrderId].filter(Boolean)){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[id]);}
+    for(const id of [orderId,previousOrderId,secondOrderId,repeatOrderId].filter(Boolean)){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[id]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[id]);}
     for(const id of [participantId,secondParticipantId].filter(Boolean)){const [entries]=await pool.execute('SELECT id FROM campaign_entries WHERE participant_id=?',[id]);for(const e of entries)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[e.id]);await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[id]);await pool.execute('DELETE FROM participants WHERE id=?',[id]);}
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     if(paymentCardId)await pool.execute('DELETE FROM payment_bank_cards WHERE id=?',[paymentCardId]);
