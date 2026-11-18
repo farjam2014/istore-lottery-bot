@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertMigrationAllowed} from '../../src/database/migration-guard.js';\nimport {assertPaidCodeQuantityBackfillSafe} from '../../src/database/migrate.js';
+import {assertMigrationAllowed} from '../../src/database/migration-guard.js';
+import {assertPaidCodeQuantityBackfillSafe} from '../../src/database/migrate.js';
 
 test('migrations are denied by default',()=>{
   assert.throws(
