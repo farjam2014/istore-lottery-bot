@@ -225,3 +225,12 @@ Campaign creation and editing validate that `draw_at` is not before `ends_at`, a
 **Test:** Added MySQL integration coverage verifying a future draw time prevents preparation and creates no draw row.
 
 **Status:** Fix implemented and verified by CI run `44522826747`.
+
+### AUDIT-021 — Manual integration test command did not select the prepared test database
+**Severity:** Test safety / High
+
+`prepare-integration-db.sh` creates `MYSQL_TEST_DATABASE`, but the integration runner reads `MYSQL_DATABASE` from the application environment. The documented `npm run test:integration` command did not override it or authorize test migrations, so it could fail or target the wrong database if the application database name happened to pass the test suffix guard.
+
+**Change on audit branch:** Added `scripts/run-integration-tests.sh`. It requires an explicit disposable `MYSQL_TEST_DATABASE`, verifies it differs from `MYSQL_DATABASE`, restricts MySQL to loopback, sets test-only migration authorization, and uses explicit admin credentials for the isolated backup/restore database. Updated `package.json`, static tests, and README instructions.
+
+**Status:** Fix implemented; CI verification pending.
