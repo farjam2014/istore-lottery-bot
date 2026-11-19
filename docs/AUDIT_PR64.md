@@ -75,3 +75,21 @@ The test suite and CI workflow exist. However, no successful workflow run has be
 6. Notification outbox failure/retry/uncertain-delivery behavior.
 7. Installer resume/failure recovery and fresh-server smoke test.
 8. Security and secret handling.
+
+### AUDIT-005 — Public draw proof contains internal participant identifiers
+**Severity:** Privacy / Medium
+
+The offline proof artifact intentionally excludes names, phone numbers, Instagram handles, Telegram IDs, and the publishing administrator's Telegram ID, but it includes numeric internal participant IDs so the verifier can enforce unique-participant winners. The documentation already warns that this is not anonymous data.
+
+**Evidence:** `src/modules/draw/draw-proof.service.js`, `docs/VERIFIABLE_DRAWS.md`
+
+**Status:** Risk acknowledged; decide whether public proof needs stable pseudonyms or a separate privacy-preserving uniqueness scheme.
+
+### AUDIT-006 — Publication attestation is not independently verified
+**Severity:** Integrity / Medium
+
+The draw workflow requires an HTTPS publication reference and stores the reference, timestamp, and admin attestation. The validator does not fetch the URL or verify that the commitment/snapshot hashes were actually published there or remained unchanged. This limitation is explicitly documented.
+
+**Evidence:** `src/modules/draw/draw-verifier.js`, `src/modules/draw/draw-proof.service.js`, `docs/VERIFIABLE_DRAWS.md`
+
+**Status:** Product trust limitation; assess campaign transparency requirements before release.
