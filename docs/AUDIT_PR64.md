@@ -234,3 +234,14 @@ Campaign creation and editing validate that `draw_at` is not before `ends_at`, a
 **Change on audit branch:** Added `scripts/run-integration-tests.sh`. It requires an explicit disposable `MYSQL_TEST_DATABASE`, verifies it differs from `MYSQL_DATABASE`, restricts MySQL to loopback, sets test-only migration authorization, and uses explicit admin credentials for the isolated backup/restore database. Updated `package.json`, static tests, and README instructions.
 
 **Status:** Fix implemented; CI verification pending.
+
+### AUDIT-022 — Archive guard counted expired rejected orders as open
+**Severity:** Workflow correctness / Medium
+
+Archive checks treated every rejected order as pending, even after its reservation expiry. This could block archiving a campaign after the order's 24-hour window had elapsed, despite capacity accounting no longer reserving it.
+
+**Change on audit branch:** Archive now uses the same active-reservation semantics as capacity accounting: under-review orders always count; awaiting-receipt/rejected orders count only while their expiry is in the future.
+
+**Test:** Extended campaign archive integration coverage with an expired rejected order.
+
+**Status:** Fix implemented; CI verification pending.
