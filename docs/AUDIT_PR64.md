@@ -173,3 +173,26 @@ The registration handler registered `/cancel` before the admin handler and retur
 **Change on audit branch:** Configured super-admins now pass the registration cancellation command to the admin handler.
 
 **Status:** Fix implemented; CI verification pending.
+
+### AUDIT-015 — Installer could declare success without confirming Telegram polling launch
+**Severity:** Deployment reliability / High
+
+The installer originally checked only `systemctl is-active` after a fixed sleep. That did not prove the service was in `running` state or that Telegraf had successfully launched polling.
+
+**Change on audit branch:** Startup now logs a success message only after `bot.launch()` resolves. Installer waits for ActiveState=active, SubState=running, a nonzero MainPID, and that fresh startup log message.
+
+**Status:** Implemented; CI verification pending.
+
+### AUDIT-016 — Installer has no real fresh-server integration test
+**Severity:** Deployment validation / High
+
+Existing installer tests are static assertions plus `bash -n`. They do not provision Ubuntu, MySQL, the systemd unit, or execute a complete clean install.
+
+**Status:** Open. Design a safe ephemeral clean-install test or a documented manual acceptance procedure; current CI cannot claim end-to-end installer verification.
+
+### AUDIT-017 — Installer update failure has no automatic rollback
+**Severity:** Recovery / Medium
+
+On an existing checkout, the installer stops the service, updates source, replaces dependencies, and applies migrations. A failure leaves the service stopped and does not restore the previous source/dependency state. The installer is resumable but not transactional.
+
+**Status:** Open. Fresh-server deployment is the current target; release-based deployment and rollback should be designed before updates to a live installation.
