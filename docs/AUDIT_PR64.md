@@ -144,3 +144,12 @@ Campaign creation allows `ends_at` to be null. The scheduler only closes open ca
 **Test:** MySQL integration test covers closing an open campaign with no end date and rejects an invalid repeat close.
 
 **Status:** Fix implemented; CI verification pending.
+
+### AUDIT-012 — CI does not scan production dependency advisories
+**Severity:** Security / Medium
+
+The CI workflow originally ran tests and syntax checks but did not scan the production dependency tree for known advisories.
+
+**Change on audit branch:** Added `npm audit --omit=dev --audit-level=high` after lockfile-exact installation.
+
+**Status:** Implemented; latest CI run will verify the dependency audit result.
