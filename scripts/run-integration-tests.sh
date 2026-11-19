@@ -4,16 +4,20 @@ set -Eeuo pipefail
 die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 TEST_DB="${MYSQL_TEST_DATABASE:-}"
-APP_DB="${MYSQL_DATABASE:-}"
-HOST="${MYSQL_HOST:-127.0.0.1}"
-ADMIN_USER="${MYSQL_TEST_ADMIN_USER:-}"
-ADMIN_PASSWORD="${MYSQL_TEST_ADMIN_PASSWORD:-${MYSQL_PASSWORD:-}}"
+read_dotenv_value(){ node --input-type=module -e "import 'dotenv/config';process.stdout.write(process.env.$1??'')"; }
+APP_DB="$(read_dotenv_value MYSQL_DATABASE)"
+HOST="${MYSQL_HOST:-$(read_dotenv_value MYSQL_HOST)}"
+HOST="${HOST:-127.0.0.1}"
+APP_USER="$(read_dotenv_value MYSQL_USER)"
+APP_PASSWORD="$(read_dotenv_value MYSQL_PASSWORD)"
+ADMIN_USER="${MYSQL_TEST_ADMIN_USER:-$APP_USER}"
+ADMIN_PASSWORD="${MYSQL_TEST_ADMIN_PASSWORD:-$APP_PASSWORD}"
 
 [[ "$TEST_DB" =~ ^[A-Za-z0-9_]+_(ci|test)$ ]] || die "Set MYSQL_TEST_DATABASE to an explicit disposable database ending in _ci or _test."
-[[ -n "$APP_DB" ]] || die "MYSQL_DATABASE is missing; refusing to infer the application database."
+[[ -n "$APP_DB" ]] || die "MYSQL_DATABASE is missing from .env; refusing to infer the application database."
 [[ "$TEST_DB" != "$APP_DB" ]] || die "Refusing to run integration tests against MYSQL_DATABASE. Choose a separate MYSQL_TEST_DATABASE."
 [[ "$HOST" =~ ^(127\.0\.0\.1|localhost|::1)$ ]] || die "Integration tests are restricted to loopback MySQL."
-[[ -n "${MYSQL_USER:-}" ]] || die "MYSQL_USER is required."
+[[ -n "$APP_USER" ]] || die "MYSQL_USER is missing from .env."
 [[ -n "$ADMIN_USER" ]] || die "Set MYSQL_TEST_ADMIN_USER for the isolated backup/restore test."
 export MYSQL_DATABASE="$TEST_DB"
 export NODE_ENV=test
