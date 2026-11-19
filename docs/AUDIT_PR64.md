@@ -130,7 +130,7 @@ The admin handler stores `campaign_edit_value` in `admin_wizards.step`, but the 
 
 The archive service allowed a closed campaign to be archived when it had no prepared/completed draw and no open payment orders, even if eligible entries remained. Since draw preparation requires a campaign to be closed, archiving such a campaign permanently prevented the draw workflow.
 
-**Change on audit branch:** Archive now refuses while any eligible entries remain. The integration test verifies the prepared-draw guard, the eligible-entry guard after cancelling a draw, and archive success only after the entry is disqualified.
+**Change on audit branch:** Archive now refuses while eligible entries with active codes and active participants remain. The integration test verifies the prepared-draw guard, the eligible-entry guard after cancelling a draw, and archive success only after the entry is disqualified.
 
 **Status:** Fix implemented and verified by CI run `44520666389` on PR merge commit `bf849463975b93aa39633496e67c588ed8bc0702`.
 
@@ -265,3 +265,14 @@ Archive checks treated every rejected order as pending, even after its reservati
 4. **Operator-independent draw fairness:** current seed is accessible to the server operator; external post-commit entropy and an independently reconciled eligibility register are required for stronger claims.
 5. **Public proof privacy/reconciliation:** proof artifacts include internal participant identifiers and do not independently prove the complete eligibility register; documented design boundary.
 6. **Publication attestation:** the system stores an admin-provided publication reference but does not independently verify that the commitment was published before the draw.
+
+### AUDIT-023 — Archive guard could deadlock campaigns with no eligible draw candidates
+**Severity:** Workflow correctness / Medium
+
+The initial archive guard counted every `eligible` entry, even if the participant was blocked or all their codes were inactive. In those cases draw preparation could have zero candidates, while archive remained blocked.
+
+**Change on consolidated audit branch:** Archive now counts the same effective eligibility conditions as draw candidate selection: eligible entry, active participant, and active code. Campaigns with no remaining draw candidates can be archived, while campaigns with candidates remain protected.
+
+**Test:** The archive integration test now blocks the participant and verifies archive succeeds after all candidates are removed.
+
+**Status:** Fix implemented; CI verification pending.
