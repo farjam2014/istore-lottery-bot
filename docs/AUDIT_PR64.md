@@ -153,3 +153,14 @@ The CI workflow originally ran tests and syntax checks but did not scan the prod
 **Change on audit branch:** Added `npm audit --omit=dev --audit-level=high` after lockfile-exact installation.
 
 **Status:** Implemented and verified by CI run `44520666389`; `npm audit --omit=dev --audit-level=high` succeeded.
+
+### AUDIT-013 — Support-ticket notification was outside the ticket transaction
+**Severity:** Reliability / Medium-High
+
+New support tickets and customer replies were committed before their admin notification was inserted into the outbox. If the notification insert failed, the support message persisted but the admin could receive no notification.
+
+**Change on audit branch:** Admin notifications for new tickets and customer replies are now enqueued using the same transaction executor as the ticket/message/session changes. Failure rolls back the business operation instead of leaving an unnotified ticket.
+
+**Test:** Added MySQL integration coverage for support-ticket and outbox rollback/commit atomicity.
+
+**Status:** Fix implemented; CI verification pending.
