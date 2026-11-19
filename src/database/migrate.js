@@ -209,6 +209,22 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(checks.some(Boolean) || enumReady) throw new Error('Partial DDL detected in 20261117_002_admin_campaign_code_search.sql. Stop migration and inspect admin_search_sessions schema before repair.');
     return false;
   }
+  if(file==='20261119_001_campaign_edit_wizard_step.sql' && index===0){
+    const [[step]]=await connection.execute(
+      "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'"
+    );
+    const enumType=String(step?.COLUMN_TYPE||'');
+    const requiredSteps=[
+      'select_type','title','description','poster','prize_title','prize_description',
+      'prize_value','starts_at','ends_at','draw_at','terms','capacity','codes',
+      'price','payment_methods','confirm','payment_settings','payment_reject',
+      'draw_publication_reference','draw_publication_confirm'
+    ];
+    const ready=requiredSteps.every(value=>enumType.includes("'"+value+"'"));
+    if(!ready) throw new Error('Incompatible admin_wizards.step enum detected before campaign edit wizard migration. Inspect the enum before repair.');
+    if(enumType.includes("'campaign_edit_value'")) return true;
+    return false;
+  }
   if(file==='20261118_001_participant_search_state.sql' && index===0){
     const hasQueryText=await hasColumn(connection,'admin_search_sessions','query_text');
     const [[step]]=await connection.execute(
