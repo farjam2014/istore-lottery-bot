@@ -45,7 +45,7 @@ The backup/restore integration test creates a second database and imports a dump
 
 **Evidence:** `tests/integration/draw-keyring-backup-restore.test.js`, `scripts/prepare-integration-db.sh`, CI MySQL environment.
 
-**Change on audit branch:** The backup/restore test now uses explicit `MYSQL_TEST_ADMIN_USER`/`MYSQL_TEST_ADMIN_PASSWORD` for creating, importing into, connecting to, and dropping the isolated restore database; source dumps still use the configured application user. CI explicitly configures the test admin. **Status:** Fix implemented; CI verification pending. Backup/restore operations now use explicit test-admin credentials, and CI supplies the admin account. The runner now reads application settings through dotenv rather than assuming shell-exported variables. The first CI run caught an incorrect static assertion regex; that test assertion was corrected.
+**Change on audit branch:** The backup/restore test now uses explicit `MYSQL_TEST_ADMIN_USER`/`MYSQL_TEST_ADMIN_PASSWORD` for creating, importing into, connecting to, and dropping the isolated restore database; source dumps still use the configured application user. CI explicitly configures the test admin. **Status:** Fix implemented and verified by CI run `44524907223`. Backup/restore operations now use explicit test-admin credentials, and CI supplies the admin account. The runner now reads application settings through dotenv rather than assuming shell-exported variables. The first CI run caught an incorrect static assertion regex; that test assertion was corrected.
 
 ### AUDIT-004 — Baseline CI execution evidence is not yet verified
 **Severity:** Validation / Medium
@@ -233,7 +233,7 @@ Campaign creation and editing validate that `draw_at` is not before `ends_at`, a
 
 **Change on audit branch:** Added `scripts/run-integration-tests.sh`. It requires an explicit disposable `MYSQL_TEST_DATABASE`, verifies it differs from `MYSQL_DATABASE`, restricts MySQL to loopback, sets test-only migration authorization, and uses explicit admin credentials for the isolated backup/restore database. Updated `package.json`, static tests, and README instructions.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44524907223`.
 
 ### AUDIT-022 — Archive guard counted expired rejected orders as open
 **Severity:** Workflow correctness / Medium
