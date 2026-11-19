@@ -349,7 +349,7 @@ export function registerAdminHandlers(bot){
     const [[campaign]]=await pool.execute('SELECT id,title,status FROM campaigns WHERE id=?',[id]);
     if(!campaign||!['open','paused','scheduled'].includes(campaign.status))return ctx.answerCbQuery('این کمپین امکان بستن دستی ندارد.',{show_alert:true});
     await ctx.answerCbQuery();
-    return respond(ctx,'آیا مطمئن هستید کمپین «'+campaign.title+'» بسته شود؟ پس از بسته‌شدن، ثبت شرکت جدید متوقف می‌شود و کمپین برای آماده‌سازی قرعه‌کشی در وضعیت بسته قرار می‌گیرد.',Markup.inlineKeyboard([[Markup.button.callback('🔒 تأیید بستن کمپین','admin:campaign:close-confirm:'+id)],[Markup.button.callback('لغو','admin:campaign:detail:'+id]]));
+    return respond(ctx,'آیا مطمئن هستید کمپین «'+campaign.title+'» بسته شود؟ پس از بسته‌شدن، ثبت شرکت جدید متوقف می‌شود و کمپین برای آماده‌سازی قرعه‌کشی در وضعیت بسته قرار می‌گیرد.',Markup.inlineKeyboard([[Markup.button.callback('🔒 تأیید بستن کمپین','admin:campaign:close-confirm:'+id)],[Markup.button.callback('لغو','admin:campaign:detail:'+id)]]));
   });
   bot.action(/^admin:campaign:close-confirm:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
