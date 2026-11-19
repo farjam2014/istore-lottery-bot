@@ -16,7 +16,7 @@ export async function archiveCampaign({campaignId,actorId}={}){
     );
     if(activeDraw) throw new Error('کمپینی که قرعه‌کشی آماده یا تکمیل‌شده دارد قابل بایگانی نیست.');
     const [[eligibleEntries]]=await connection.execute(
-      "SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='eligible'",
+      "SELECT COUNT(c.id) AS total FROM campaign_entries e JOIN participants p ON p.id=e.participant_id JOIN campaign_codes c ON c.campaign_entry_id=e.id WHERE e.campaign_id=? AND e.status='eligible' AND p.status='active' AND c.status='active'",
       [id]
     );
     if(Number(eligibleEntries.total)>0) throw new Error('کمپین دارای شرکت‌کنندگان واجد شرایط است؛ پیش از بایگانی باید قرعه‌کشی انجام شود یا وضعیت شرکت‌کنندگان تعیین تکلیف شود.');
