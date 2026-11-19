@@ -45,7 +45,7 @@ The backup/restore integration test creates a second database and imports a dump
 
 **Evidence:** `tests/integration/draw-keyring-backup-restore.test.js`, `scripts/prepare-integration-db.sh`, CI MySQL environment.
 
-**Status:** Open. Verify and redesign test privilege setup so elevated privileges are isolated to test infrastructure, not runtime credentials.
+**Change on audit branch:** The backup/restore test now uses explicit `MYSQL_TEST_ADMIN_USER`/`MYSQL_TEST_ADMIN_PASSWORD` for creating, importing into, connecting to, and dropping the isolated restore database; source dumps still use the configured application user. CI explicitly configures the test admin. **Status:** Fix implemented; CI verification pending.
 
 ### AUDIT-004 — Baseline CI execution evidence is not yet verified
 **Severity:** Validation / Medium
