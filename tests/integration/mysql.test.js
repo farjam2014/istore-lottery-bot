@@ -850,6 +850,33 @@ test('MySQL integration: production migration preflight contains only executable
 });
 
 
+test('MySQL integration: manually close campaigns without an end date for draw readiness',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {closeCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
+  let campaignId;
+  const slug='manual-close-'+Date.now();
+  try{
+    await migrate();
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,ends_at) VALUES(?,?,'open','free',NULL)",[slug,'Manual close without end date']);
+    campaignId=campaign.insertId;
+    const result=await closeCampaign({campaignId,actorId:'9001'});
+    assert.equal(result.from,'open');
+    assert.equal(result.to,'closed');
+    const [[closed]]=await pool.execute('SELECT status,ends_at FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(closed.status,'closed');
+    assert.equal(closed.ends_at,null);
+    await assert.rejects(closeCampaign({campaignId,actorId:'9001'}),/بستن دستی فقط/);
+  }finally{
+    if(campaignId){
+      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.closed_manually'",[campaignId]);
+      await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    }
+  }
+});
+
 test('MySQL integration: campaign archive requires eligible entries to be resolved and blocks prepared draws',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
