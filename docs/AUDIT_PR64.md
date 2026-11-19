@@ -163,7 +163,7 @@ New support tickets and customer replies were committed before their admin notif
 
 **Test:** Added MySQL integration coverage for support-ticket and outbox rollback/commit atomicity.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44521519922` on commit `04dfa2426b948015f0ce71bd9c54ae0df882f2f2`.
 
 ### AUDIT-014 — Registration `/cancel` intercepted admin role-session cancellation
 **Severity:** UX / Low
