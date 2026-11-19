@@ -23,6 +23,11 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
     if(campaign.status!=='closed') throw new Error('برای قرعه‌کشی، کمپین باید بسته شده باشد.');
     const [[pendingEntries]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[campaignId]);
     if(Number(pendingEntries.total)>0) throw new Error('تا تعیین تکلیف تمام ثبت‌نام‌های در انتظار پرداخت، آماده‌سازی قرعه‌کشی مجاز نیست.');
+    const [[pendingOrders]]=await connection.execute(
+      "SELECT COUNT(*) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))",
+      [campaignId]
+    );
+    if(Number(pendingOrders.total)>0) throw new Error('تا تعیین تکلیف تمام سفارش‌های پرداختی فعال، آماده‌سازی قرعه‌کشی مجاز نیست.');
     const [[existing]]=await connection.execute("SELECT id FROM campaign_draws WHERE campaign_id=? AND status IN ('prepared','completed') LIMIT 1 FOR UPDATE",[campaignId]);
     if(existing) throw new Error('برای این کمپین قبلاً قرعه‌کشی آماده یا تکمیل شده است.');
     const [candidates]=await connection.execute(
