@@ -22,10 +22,10 @@ async function screenReply(ctx,...args){
   }
   return ctx.reply(...args);
 }
-async function notifySupportAdmins(telegram,message,markup){
-  const [rows]=await pool.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','support_agent')");
+async function notifySupportAdmins(message,markup,executor=pool){
+  const [rows]=await executor.execute("SELECT telegram_user_id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','support_agent')");
   const recipients=new Set([...config.adminIds,...rows.map(x=>String(x.telegram_user_id))]);
-  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:message,options:markup?.reply_markup?{reply_markup:markup.reply_markup}:{}});
+  for(const id of recipients)await enqueueTelegramNotification({chatId:id,text:message,options:markup?.reply_markup?{reply_markup:markup.reply_markup}:{},executor});
 }
 
 export function registerUserHandlers(bot){
