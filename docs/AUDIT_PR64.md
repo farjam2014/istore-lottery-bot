@@ -132,7 +132,7 @@ The archive service allowed a closed campaign to be archived when it had no prep
 
 **Change on audit branch:** Archive now refuses while any eligible entries remain. The integration test verifies the prepared-draw guard, the eligible-entry guard after cancelling a draw, and archive success only after the entry is disqualified.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44520666389` on PR merge commit `bf849463975b93aa39633496e67c588ed8bc0702`.
 
 ### AUDIT-011 — Campaigns without an end date could never be closed for drawing
 **Severity:** Business integrity / High
@@ -143,7 +143,7 @@ Campaign creation allows `ends_at` to be null. The scheduler only closes open ca
 
 **Test:** MySQL integration test covers closing an open campaign with no end date and rejects an invalid repeat close.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44520666389` on PR merge commit `bf849463975b93aa39633496e67c588ed8bc0702`.
 
 ### AUDIT-012 — CI does not scan production dependency advisories
 **Severity:** Security / Medium
@@ -152,4 +152,4 @@ The CI workflow originally ran tests and syntax checks but did not scan the prod
 
 **Change on audit branch:** Added `npm audit --omit=dev --audit-level=high` after lockfile-exact installation.
 
-**Status:** Implemented; latest CI run will verify the dependency audit result.
+**Status:** Implemented and verified by CI run `44520666389`; `npm audit --omit=dev --audit-level=high` succeeded.
