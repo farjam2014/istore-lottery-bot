@@ -256,3 +256,12 @@ Archive checks treated every rejected order as pending, even after its reservati
 - JavaScript syntax checks: successful
 - Bash syntax checks for installer and integration setup/runner: successful
 - No deployment or server/database mutation performed
+
+## Open items requiring design or fresh-server validation
+
+1. **Durable Telegram inbox / crash recovery:** update handlers are not replayed from a durable payload after a process crash. Releasing an update claim on a caught exception is not crash recovery.
+2. **Fresh Ubuntu installation:** CI verifies code, MySQL integrations, and installer syntax, but does not boot a fresh Ubuntu VM and run the complete installer/systemd flow.
+3. **Rollback for in-place updates:** installer can leave service stopped and checkout/dependencies updated after a failure; fresh-server install is the current target, but live-update rollback needs a separate design.
+4. **Operator-independent draw fairness:** current seed is accessible to the server operator; external post-commit entropy and an independently reconciled eligibility register are required for stronger claims.
+5. **Public proof privacy/reconciliation:** proof artifacts include internal participant identifiers and do not independently prove the complete eligibility register; documented design boundary.
+6. **Publication attestation:** the system stores an admin-provided publication reference but does not independently verify that the commitment was published before the draw.
