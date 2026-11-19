@@ -971,7 +971,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     await assert.rejects(archiveCampaign({campaignId,actorId:'9001'}),/شرکت‌کنندگان واجد شرایط/);
     const [[stillClosed]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(stillClosed.status,'closed');
-    await pool.execute("UPDATE campaign_entries SET status='disqualified' WHERE id=?",[entryId]);
+    await pool.execute("UPDATE participants SET status='blocked' WHERE id=?",[participantId]);
     const [expiredOrder]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,currency,status,expires_at) VALUES(?,? ,100000,'IRR','rejected',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,'ARCH-'+Date.now()]);
     expiredOrderId=expiredOrder.insertId;
     const archived=await archiveCampaign({campaignId,actorId:'9001'});
