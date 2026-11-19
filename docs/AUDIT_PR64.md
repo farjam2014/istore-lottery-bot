@@ -108,7 +108,7 @@ The installer and CI originally used `npm install` despite a committed package l
 ### AUDIT-008 — Telegram update claim can become permanently stuck after process crash
 **Severity:** Reliability / High
 
-The update guard inserts an update ID into `processed_updates` before handler execution. It removes the claim on caught exceptions, but there is no processing state or lease. If the process terminates after the insert and before successful handler completion, the same update is treated as already processed if it is retried, and the handler is skipped.
+The update guard inserts an update ID into `processed_updates` before handler execution. It removes the claim on caught exceptions, but there is no durable inbox payload, processing state, or lease. Telegraf polling advances the update offset before handler completion; a process crash can therefore lose an update permanently. The guard's caught-exception release does not provide crash recovery.
 
 **Evidence:** `src/bot/middleware/update-guard.js`, `tests/unit/update-guard.test.js`, `src/database/schema.sql`
 
