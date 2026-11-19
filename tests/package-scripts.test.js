@@ -11,6 +11,8 @@ test('integration test script authorizes only disposable test migrations',()=>{
   assert.match(runner,/MYSQL_TEST_DATABASE/);
   assert.match(runner,/_(ci|test)$/);
   assert.match(runner,/MYSQL_DATABASE/);
+  assert.match(runner,/dotenv\/config/);
+  assert.match(runner,/read_dotenv_value/);
   assert.match(runner,/ALLOW_DATABASE_MIGRATIONS=1/);
   assert.match(runner,/ALLOW_TEST_DATABASE_MIGRATIONS=1/);
   assert.match(runner,/RUN_MYSQL_TESTS=1/);
