@@ -850,18 +850,23 @@ test('MySQL integration: production migration preflight contains only executable
 });
 
 
-test('MySQL integration: campaign archive is blocked while a prepared draw exists',{skip:!enabled},async()=>{
+test('MySQL integration: campaign archive requires eligible entries to be resolved and blocks prepared draws',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {archiveCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
-  let campaignId,drawId;
+  let campaignId,drawId,participantId,entryId;
   const slug='archive-draw-'+Date.now();
+  const telegramId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
   try{
     await migrate();
     const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type) VALUES(?,?,'closed','free')",[slug,'Archive draw guard']);
     campaignId=campaign.insertId;
+    const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Archive Eligible Participant','+989121234567','archive_test']);
+    participantId=participant.insertId;
+    const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,?,'eligible')",[campaignId,participantId,JSON.stringify({telegram_user_id:telegramId,full_name:'Archive Eligible Participant'})]);
+    entryId=entry.insertId;
     const [draw]=await pool.execute(
       "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','legacy-test',?,0,'9001')",
       [campaignId,'a'.repeat(64)]
@@ -871,19 +876,24 @@ test('MySQL integration: campaign archive is blocked while a prepared draw exist
     const [[unchanged]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(unchanged.status,'closed');
     await pool.execute("UPDATE campaign_draws SET status='cancelled' WHERE id=?",[drawId]);
+    await assert.rejects(archiveCampaign({campaignId,actorId:'9001'}),/شرکت‌کنندگان واجد شرایط/);
+    const [[stillClosed]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(stillClosed.status,'closed');
+    await pool.execute("UPDATE campaign_entries SET status='disqualified' WHERE id=?",[entryId]);
     const archived=await archiveCampaign({campaignId,actorId:'9001'});
     assert.equal(archived.to,'archived');
     const [[updated]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(updated.status,'archived');
   }finally{
     if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
       await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.archived'",[campaignId]);
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
 });
-
 
 test('MySQL integration: draw winner cannot reference a candidate with mismatched participant or entry',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
