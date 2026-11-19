@@ -450,6 +450,7 @@ test('MySQL integration: failure after the first code insert rolls back all code
     assert.equal(Number(codes.total),0);
   }finally{
     if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
+    if(codeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[codeId]);
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
@@ -948,7 +949,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {archiveCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
-  let campaignId,drawId,participantId,entryId,expiredOrderId;
+  let campaignId,drawId,participantId,entryId,codeId,expiredOrderId;
   const slug='archive-draw-'+Date.now();
   const telegramId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
   try{
@@ -959,6 +960,8 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     participantId=participant.insertId;
     const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,?,'eligible')",[campaignId,participantId,JSON.stringify({telegram_user_id:telegramId,full_name:'Archive Eligible Participant'})]);
     entryId=entry.insertId;
+    const [code]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?,1,2,'active')",[entryId,campaignId,'P'+campaignId+'-ARCH1-X0]);
+    codeId=code.insertId;
     const [draw]=await pool.execute(
       "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','legacy-test',?,0,'9001')",
       [campaignId,'a'.repeat(64)]
