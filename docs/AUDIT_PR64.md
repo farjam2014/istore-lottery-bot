@@ -123,4 +123,4 @@ The admin handler stores `campaign_edit_value` in `admin_wizards.step`, but the 
 
 **Change on audit branch:** Added `20261119_001_campaign_edit_wizard_step.sql`, a preflight/replay guard in `src/database/migrate.js`, and integration coverage for persistence and migration-history replay.
 
-**Status:** Fix implemented; CI verification is pending.
+**Status:** Fix implemented and verified by CI run `44519921332` on commit `1c7756b661e2d9189bd17b2a8a1f3a0737978b05`. The MySQL integration suite, npm ci, JavaScript syntax checks, and Bash syntax check all passed.
