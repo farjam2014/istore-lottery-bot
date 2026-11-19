@@ -113,3 +113,14 @@ The update guard inserts an update ID into `processed_updates` before handler ex
 **Evidence:** `src/bot/middleware/update-guard.js`, `tests/unit/update-guard.test.js`, `src/database/schema.sql`
 
 **Status:** Open. Design crash recovery without introducing duplicate financial or campaign actions; requires durable inbox state, lease/recovery semantics, and business-level idempotency tests.
+
+### AUDIT-009 — Campaign field-edit wizard cannot persist its step on PR #64 baseline
+**Severity:** Functional / High
+
+The admin handler stores `campaign_edit_value` in `admin_wizards.step`, but the baseline schema/migrations did not include that ENUM value. MySQL rejects the wizard state write, so campaign field editing fails.
+
+**Evidence:** `src/bot/handlers/admin.handler.js` and baseline `admin_wizards.step` ENUM in `src/database/schema.sql` plus migrations.
+
+**Change on audit branch:** Added `20261119_001_campaign_edit_wizard_step.sql`, a preflight/replay guard in `src/database/migrate.js`, and integration coverage for persistence and migration-history replay.
+
+**Status:** Fix implemented; CI verification is pending.
