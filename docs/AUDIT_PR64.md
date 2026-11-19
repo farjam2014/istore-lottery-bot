@@ -133,3 +133,14 @@ The archive service allowed a closed campaign to be archived when it had no prep
 **Change on audit branch:** Archive now refuses while any eligible entries remain. The integration test verifies the prepared-draw guard, the eligible-entry guard after cancelling a draw, and archive success only after the entry is disqualified.
 
 **Status:** Fix implemented; CI verification pending.
+
+### AUDIT-011 — Campaigns without an end date could never be closed for drawing
+**Severity:** Business integrity / High
+
+Campaign creation allows `ends_at` to be null. The scheduler only closes open campaigns whose end date has passed, and the admin toggle only switches open to paused. Draw preparation requires `closed`, so campaigns without an end date had no UI path to draw readiness.
+
+**Change on audit branch:** Added explicit manual closure for open, paused, or scheduled campaigns. It locks the campaign, records an audit event, and transitions to `closed`. The admin campaign detail now exposes the close action separately from pause/resume.
+
+**Test:** MySQL integration test covers closing an open campaign with no end date and rejects an invalid repeat close.
+
+**Status:** Fix implemented; CI verification pending.
