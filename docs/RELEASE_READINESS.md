@@ -38,7 +38,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The eight new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The nine new migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
@@ -48,12 +48,14 @@ The migration runner sorts SQL files by filename. The eight new migrations are a
 6. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
 7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
 8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
+9. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`, allowing campaign field-edit callbacks to persist their wizard state without removing existing workflow values.
 
 Important migration properties:
 
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
 - Applied migration checksums must not change.
+- Migration 009 only extends the `admin_wizards.step` enum. Its replay guard verifies the expected existing workflow values and treats the new value as already applied if it is present; an unexpected enum state fails closed.
 - Migration 001 now checks for legacy campaign-code rows whose `campaign_id` disagrees with their entry's campaign before adding the composite foreign key.
 - Migration 006 fails closed if any legacy `draw_candidates` or `draw_winners` rows exist. It does not infer historical candidate snapshots or participant ownership. Existing draw evidence must be reviewed and reconciled explicitly before this migration can be applied.
 - Assigning `legacy-env` does not create missing ciphertext. A legacy prepared draw without ciphertext/nonce/tag cannot be recovered from its seed hash.
@@ -88,6 +90,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] New code format, sequence boundaries, per-campaign counter isolation, and database uniqueness are correct.
 - [ ] Paid-order creation, receipt submission, approval/rejection, and code issuance work end-to-end.
 - [ ] Admin role and permission checks are enforced server-side.
+- [ ] Campaign editing opens the input prompt for every editable field (title, description, prize title/description, terms, start/end/draw dates, capacity, price, and codes per participant); invalid inputs are rejected without changing campaign data, and valid inputs persist and appear in campaign details.
 - [ ] Campaign closure blocks new entries and pending payments prevent draw preparation.
 - [ ] Concurrent draw preparation/completion produces at most one draw and one winner set.
 - [ ] Draw publication gate blocks completion until an HTTPS attestation is recorded.
