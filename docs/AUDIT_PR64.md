@@ -206,7 +206,7 @@ A participant with an already eligible entry could create a second paid order wi
 
 **Test:** Expanded MySQL integration test covers a first pending order and a repeat order under review on an already-eligible entry, then verifies draw preparation succeeds only after both are resolved.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented; CI verification pending. The first CI attempt exposed a test-fixture payment reference exceeding the schema length, not a service failure; the fixture was corrected and a new CI run is pending.
 
 ### AUDIT-019 — Draw proof is verifiable but not operator-proof
 **Severity:** Transparency / High for public campaigns; design limitation
