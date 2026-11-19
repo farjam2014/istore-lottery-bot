@@ -837,7 +837,7 @@ test('MySQL integration: draw preparation waits for first and repeat pending pay
     receiptId=receipt.insertId;
     const [repeatOrder]=await pool.execute(
       "INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,requested_code_count,currency,status,expires_at) VALUES(?,?,100000,1,'IRR','under_review',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",
-      [eligibleEntryId,'ISTPAY-REPEAT-'+suffix.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,24)]
+      [eligibleEntryId,'ISTREP-'+suffix.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,20)]
     );
     repeatOrderId=repeatOrder.insertId;
     const [repeatReceipt]=await pool.execute(
