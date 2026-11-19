@@ -172,7 +172,7 @@ The registration handler registered `/cancel` before the admin handler and retur
 
 **Change on audit branch:** Configured super-admins now pass the registration cancellation command to the admin handler.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44521519922` on commit `04dfa2426b948015f0ce71bd9c54ae0df882f2f2`.
 
 ### AUDIT-015 — Installer could declare success without confirming Telegram polling launch
 **Severity:** Deployment reliability / High
@@ -181,7 +181,7 @@ The installer originally checked only `systemctl is-active` after a fixed sleep.
 
 **Change on audit branch:** Startup now logs a success message only after `bot.launch()` resolves. Installer waits for ActiveState=active, SubState=running, a nonzero MainPID, and that fresh startup log message.
 
-**Status:** Implemented; CI verification pending.
+**Status:** Implemented and verified by CI run `44521519922` on commit `04dfa2426b948015f0ce71bd9c54ae0df882f2f2`.
 
 ### AUDIT-016 — Installer has no real fresh-server integration test
 **Severity:** Deployment validation / High
