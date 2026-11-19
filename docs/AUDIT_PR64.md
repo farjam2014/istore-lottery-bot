@@ -93,3 +93,23 @@ The draw workflow requires an HTTPS publication reference and stores the referen
 **Evidence:** `src/modules/draw/draw-verifier.js`, `src/modules/draw/draw-proof.service.js`, `docs/VERIFIABLE_DRAWS.md`
 
 **Status:** Product trust limitation; assess campaign transparency requirements before release.
+
+### AUDIT-007 — Installer and CI use non-clean dependency installation
+**Severity:** Reproducibility / Medium
+
+The installer and CI originally used `npm install` despite a committed package lock. This can reconcile or modify dependency resolution rather than enforcing the exact lockfile state.
+
+**Change:** Replaced with `npm ci --omit=dev` in the installer and `npm ci` in CI.
+
+**Verification:** CI run `44519626338` succeeded on commit `859b94da2f9a8934395a6976b1874ff3d4656250`, including npm ci, the full test command, JavaScript syntax checks, and Bash syntax check.
+
+**Status:** Resolved on audit branch; draft PR #67.
+
+### AUDIT-008 — Telegram update claim can become permanently stuck after process crash
+**Severity:** Reliability / High
+
+The update guard inserts an update ID into `processed_updates` before handler execution. It removes the claim on caught exceptions, but there is no processing state or lease. If the process terminates after the insert and before successful handler completion, the same update is treated as already processed if it is retried, and the handler is skipped.
+
+**Evidence:** `src/bot/middleware/update-guard.js`, `tests/unit/update-guard.test.js`, `src/database/schema.sql`
+
+**Status:** Open. Design crash recovery without introducing duplicate financial or campaign actions; requires durable inbox state, lease/recovery semantics, and business-level idempotency tests.
