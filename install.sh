@@ -137,7 +137,7 @@ if [[ "$UPDATE_EXISTING" == "1" ]]; then
 fi
 
 log "Installing production dependencies and running automated tests."
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm ci --omit=dev"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && node --input-type=module -e \"import \\\"dotenv/config\\\"; import {loadDrawKeyring} from \\\"./src/modules/draw/draw-keyring.js\\\"; loadDrawKeyring();\""
 unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
@@ -194,15 +194,28 @@ install -o root -g root -m 0644 "$tmp_unit" "$UNIT_FILE"
 rm -f "$tmp_unit"
 systemctl daemon-reload
 systemctl enable "$SERVICE"
+STARTUP_LOG_SINCE="$(date --iso-8601=seconds)"
 if systemctl is-active --quiet "$SERVICE"; then
   systemctl restart "$SERVICE"
 else
   systemctl start "$SERVICE"
 fi
-sleep 3
-if ! systemctl is-active --quiet "$SERVICE"; then
+startup_verified=0
+for attempt in $(seq 1 20); do
+  active_state="$(systemctl show "$SERVICE" --property=ActiveState --value)"
+  sub_state="$(systemctl show "$SERVICE" --property=SubState --value)"
+  main_pid="$(systemctl show "$SERVICE" --property=MainPID --value)"
+  startup_log="$(journalctl -u "$SERVICE" --since "$STARTUP_LOG_SINCE" --no-pager 2>/dev/null || true)"
+  if [[ "$active_state" == "active" && "$sub_state" == "running" && "$main_pid" =~ ^[1-9][0-9]*$ ]] && grep -Fq "Telegram bot launched with long polling" <<<"$startup_log"; then
+    startup_verified=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$startup_verified" != "1" ]]; then
   systemctl --no-pager --full status "$SERVICE" || true
-  fail "Service failed to start. Inspect: journalctl -u $SERVICE -n 100"
+  journalctl -u "$SERVICE" --since "$STARTUP_LOG_SINCE" -n 100 --no-pager || true
+  fail "Service did not reach running state with successful Telegram polling startup. Inspect: journalctl -u $SERVICE -n 100"
 fi
 
 log "Installation completed."

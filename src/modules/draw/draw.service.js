@@ -18,11 +18,17 @@ export async function prepareCampaignDraw({campaignId,createdBy,winnerCount=1}){
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
-    const [[campaign]]=await connection.execute("SELECT id,status FROM campaigns WHERE id=? FOR UPDATE",[campaignId]);
+    const [[campaign]]=await connection.execute("SELECT id,status,draw_at,(draw_at IS NOT NULL AND draw_at>UTC_TIMESTAMP()) AS draw_not_started FROM campaigns WHERE id=? FOR UPDATE",[campaignId]);
     if(!campaign) throw new Error('کمپین پیدا نشد.');
     if(campaign.status!=='closed') throw new Error('برای قرعه‌کشی، کمپین باید بسته شده باشد.');
+    if(Number(campaign.draw_not_started)===1) throw new Error('زمان تعیین‌شده برای قرعه‌کشی هنوز نرسیده است.');
     const [[pendingEntries]]=await connection.execute("SELECT COUNT(*) AS total FROM campaign_entries WHERE campaign_id=? AND status='pending_payment'",[campaignId]);
     if(Number(pendingEntries.total)>0) throw new Error('تا تعیین تکلیف تمام ثبت‌نام‌های در انتظار پرداخت، آماده‌سازی قرعه‌کشی مجاز نیست.');
+    const [[pendingOrders]]=await connection.execute(
+      "SELECT COUNT(*) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))",
+      [campaignId]
+    );
+    if(Number(pendingOrders.total)>0) throw new Error('تا تعیین تکلیف تمام سفارش‌های پرداختی فعال، آماده‌سازی قرعه‌کشی مجاز نیست.');
     const [[existing]]=await connection.execute("SELECT id FROM campaign_draws WHERE campaign_id=? AND status IN ('prepared','completed') LIMIT 1 FOR UPDATE",[campaignId]);
     if(existing) throw new Error('برای این کمپین قبلاً قرعه‌کشی آماده یا تکمیل شده است.');
     const [candidates]=await connection.execute(
