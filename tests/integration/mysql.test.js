@@ -948,7 +948,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {archiveCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
-  let campaignId,drawId,participantId,entryId;
+  let campaignId,drawId,participantId,entryId,expiredOrderId;
   const slug='archive-draw-'+Date.now();
   const telegramId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
   try{
@@ -972,12 +972,15 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     const [[stillClosed]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(stillClosed.status,'closed');
     await pool.execute("UPDATE campaign_entries SET status='disqualified' WHERE id=?",[entryId]);
+    const [expiredOrder]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,currency,status,expires_at) VALUES(?,? ,100000,'IRR','rejected',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,'ISTPAY-ARCHIVE-EXPIRED-'+Date.now()]);
+    expiredOrderId=expiredOrder.insertId;
     const archived=await archiveCampaign({campaignId,actorId:'9001'});
     assert.equal(archived.to,'archived');
     const [[updated]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(updated.status,'archived');
   }finally{
     if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    if(expiredOrderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[expiredOrderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[expiredOrderId]);}
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
