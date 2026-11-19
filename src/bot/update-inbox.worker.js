@@ -1,5 +1,5 @@
-import {pool} from '../../database/pool.js';
-import {logger} from '../../shared/logger.js';
+import {pool} from '../database/pool.js';
+import {logger} from '../shared/logger.js';
 
 const LEASE_MINUTES=2;
 
