@@ -47,12 +47,20 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       'select_type','title','description','poster','prize_title','prize_description',
       'prize_value','starts_at','ends_at','draw_at','terms','capacity','codes',
       'price','payment_methods','confirm','payment_settings','payment_reject',
-      'draw_publication_reference','draw_publication_confirm'
+      'draw_publication_reference','draw_publication_confirm','campaign_edit_value'
     ];
     const [[wizardColumn]]=await pool.execute(
       "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'"
     );
     for(const step of expectedWizardSteps) assert.ok(wizardColumn.COLUMN_TYPE.includes("'"+step+"'"),'Missing admin_wizards.step enum value: '+step);
+    const campaignEditAdminId=String(670000000000000000n+(BigInt(Date.now())%1000000000n));
+    await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?)',[campaignEditAdminId,'campaign_edit_value',JSON.stringify({campaignId:legacyCampaignId,field:'title'})]);
+    const [[campaignEditWizard]]=await pool.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=?',[campaignEditAdminId]);
+    assert.equal(campaignEditWizard.step,'campaign_edit_value');
+    const campaignEditPayload=typeof campaignEditWizard.payload==='string'?JSON.parse(campaignEditWizard.payload):campaignEditWizard.payload;
+    assert.equal(campaignEditPayload.campaignId,legacyCampaignId);
+    assert.equal(campaignEditPayload.field,'title');
+    await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[campaignEditAdminId]);
     const [[drawColumns]]=await pool.execute(
       "SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draws' AND COLUMN_NAME IN ('winner_count','seed_ciphertext','seed_nonce','seed_tag','revealed_seed','candidate_snapshot_hash','commitment_publication_reference','commitment_published_at','commitment_published_by','seed_key_id')"
     );
@@ -80,7 +88,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_005_draw_seed_keyring.sql',
       '20261117_006_draw_relational_integrity.sql',
       '20261118_001_participant_search_state.sql',
-      '20261118_002_paid_code_quantity.sql'
+      '20261118_002_paid_code_quantity.sql',
+      '20261119_001_campaign_edit_wizard_step.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -93,7 +102,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_004_draw_commitment_publication.sql',
       '20261117_006_draw_relational_integrity.sql',
       '20261118_001_participant_search_state.sql',
-      '20261118_002_paid_code_quantity.sql'
+      '20261118_002_paid_code_quantity.sql',
+      '20261119_001_campaign_edit_wizard_step.sql'
     ]){
       await pool.execute('DELETE FROM schema_migrations WHERE version=?',[version]);
       await migrate();
