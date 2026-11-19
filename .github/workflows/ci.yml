@@ -6,10 +6,12 @@ on:
       - install/resumable-ubuntu-v2
       - fix/admin-role-session-command-routing
       - safety/migration-explicit-guard
+      - audit/pr64-clean-rebuild
   pull_request:
     branches:
       - rebuild/telegram-native-v1
       - install/resumable-ubuntu-v2
+      - audit/pr64-clean-rebuild
 jobs:
   test:
     runs-on: ubuntu-latest
