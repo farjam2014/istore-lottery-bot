@@ -38,8 +38,9 @@ async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=1){
   const marker='\\n\\n🧮 انتخاب تعداد کد';
   const message=ctx.callbackQuery?.message;
   const existing=message?.caption??message?.text??'';
-  const base=existing.includes(marker)?existing.split(marker)[0]:existing;
+  const rawBase=existing.includes(marker)?existing.split(marker)[0]:existing;
   const prompt=marker+'\\nقیمت هر کد: '+money(campaign.entry_price)+' ریال | باقی‌مانده قابل سفارش: '+remaining+' کد\\nتعداد و مبلغ کل را انتخاب کنید:';
+  const base=message?.caption!==undefined&&rawBase.length>850?rawBase.slice(0,847)+'…':rawBase;
   const keyboard=paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount);
   if(message?.caption!==undefined)return ctx.editMessageCaption(base+prompt,{reply_markup:keyboard.reply_markup});
   if(message?.text!==undefined)return ctx.editMessageText(base+prompt,{reply_markup:keyboard.reply_markup});
