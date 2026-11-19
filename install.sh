@@ -194,11 +194,6 @@ install -o root -g root -m 0644 "$tmp_unit" "$UNIT_FILE"
 rm -f "$tmp_unit"
 systemctl daemon-reload
 systemctl enable "$SERVICE"
-if systemctl is-active --quiet "$SERVICE"; then
-  systemctl restart "$SERVICE"
-else
-  systemctl start "$SERVICE"
-fi
 STARTUP_LOG_SINCE="$(date --iso-8601=seconds)"
 if systemctl is-active --quiet "$SERVICE"; then
   systemctl restart "$SERVICE"
