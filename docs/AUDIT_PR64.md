@@ -244,4 +244,4 @@ Archive checks treated every rejected order as pending, even after its reservati
 
 **Test:** Extended campaign archive integration coverage with an expired rejected order.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented and verified by CI run `44524907223`.
