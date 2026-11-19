@@ -550,7 +550,7 @@ test('MySQL integration: transactional outbox notifications roll back and commit
     const commit=await pool.getConnection();try{await commit.beginTransaction();await enqueueTelegramNotification({chatId,text:'must commit',executor:commit});await commit.commit();}finally{commit.release();}
     const [[afterCommit]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?",[chatId]);assert.equal(Number(afterCommit.total),1);
     const telegramId=String(790000000000n+(BigInt(Date.now())%100000000000n));let participantId,ticketId;
-    const ticketNo='SUP-'+randomBytesForTest();
+    const ticketNo='SUP-'+telegramId;
     try{
       const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Outbox Support Test','+989121234567','outbox_support_test']);participantId=participant.insertId;
       const rollbackTicket=await pool.getConnection();try{await rollbackTicket.beginTransaction();const [ticket]=await rollbackTicket.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,? ,?,'new')",[ticketNo,participantId,'technical','Rollback ticket']);await rollbackTicket.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticket.insertId,telegramId,'rollback message']);await enqueueTelegramNotification({chatId,text:'ticket notice rollback',executor:rollbackTicket});await rollbackTicket.rollback();}finally{rollbackTicket.release();}
