@@ -137,7 +137,7 @@ if [[ "$UPDATE_EXISTING" == "1" ]]; then
 fi
 
 log "Installing production dependencies and running automated tests."
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm install --omit=dev"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm ci --omit=dev"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && node --input-type=module -e \"import \\\"dotenv/config\\\"; import {loadDrawKeyring} from \\\"./src/modules/draw/draw-keyring.js\\\"; loadDrawKeyring();\""
 unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
