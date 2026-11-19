@@ -35,3 +35,24 @@ export async function archiveCampaign({campaignId,actorId}={}){
   }catch(error){await connection.rollback();throw error;}
   finally{connection.release();}
 }
+
+export async function closeCampaign({campaignId,actorId}={}){
+  const id=Number(campaignId);
+  if(!Number.isSafeInteger(id)||id<1) throw new TypeError('Campaign ID must be a positive safe integer.');
+  if(!/^\d+$/.test(String(actorId??''))) throw new TypeError('Campaign closer must be a numeric Telegram user ID.');
+  const connection=await pool.getConnection();
+  try{
+    await connection.beginTransaction();
+    const [[campaign]]=await connection.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[id]);
+    if(!campaign) throw new Error('کمپین پیدا نشد.');
+    if(!['open','paused','scheduled'].includes(campaign.status)) throw new Error('بستن دستی فقط برای کمپین فعال، متوقف یا زمان‌بندی‌شده مجاز است.');
+    await connection.execute("UPDATE campaigns SET status='closed' WHERE id=?",[id]);
+    await connection.execute(
+      'INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',
+      [String(actorId),'campaign.closed_manually','campaign',id,JSON.stringify({from:campaign.status,to:'closed'})]
+    );
+    await connection.commit();
+    return {campaignId:id,from:campaign.status,to:'closed'};
+  }catch(error){await connection.rollback();throw error;}
+  finally{connection.release();}
+}
