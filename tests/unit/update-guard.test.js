@@ -16,7 +16,7 @@ function fakeDatabase(){
       }
       if(sql.startsWith("UPDATE telegram_update_inbox SET status='processing'")){
         const row=inbox.get(params[1]);
-        if(row&&(row.status==='pending'||row.status==='failed'||row.status==='processing')){
+        if(row&&(row.status==='pending'||row.status==='failed')){
           row.status='processing';row.attempts++;row.lease=params[0];
           return [{affectedRows:1},[]];
         }
