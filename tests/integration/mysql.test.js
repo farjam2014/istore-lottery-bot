@@ -960,7 +960,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     participantId=participant.insertId;
     const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,?,'eligible')",[campaignId,participantId,JSON.stringify({telegram_user_id:telegramId,full_name:'Archive Eligible Participant'})]);
     entryId=entry.insertId;
-    const [code]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?,1,2,'active')",[entryId,campaignId,'P'+campaignId+'-ARCH1-X0]);
+    const [code]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?,1,2,'active')",[entryId,campaignId,'P'+campaignId+'-ARCH1-X0']);
     codeId=code.insertId;
     const [draw]=await pool.execute(
       "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','legacy-test',?,0,'9001')",
