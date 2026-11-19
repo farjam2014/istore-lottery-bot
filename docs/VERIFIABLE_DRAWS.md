@@ -71,3 +71,9 @@ Important limitations:
 - The publication URL and timestamp in the proof are admin self-attestation. The input validator requires HTTPS and rejects IP literals and common special-use/internal host suffixes, but it does not perform DNS or network reachability checks. The verifier does not fetch the URL, prove it was public at the stated time, or prove that its content was not changed later.
 - The proof contains internal numeric participant IDs. Do not publish it broadly without assessing the privacy implications and applicable campaign rules.
 - Telegram delivery is gzip-compressed and capped at 45 MiB. Larger proofs currently fail closed; chunked export is not implemented.
+
+## Operator trust boundary
+
+The encrypted seed protects the seed at rest from a database-only reader who does not have the configured encryption key. The server operator has access to that key and can decrypt the seed before the draw, calculate the outcome, and decide whether to proceed. The current commitment/proof workflow therefore provides deterministic verification of the published snapshot and result; it is not cryptographically operator-proof randomness.
+
+A campaign that promises fairness against the operator should use unpredictable external entropy revealed after the candidate snapshot commitment (such as a specified public randomness beacon) and publish an independently reconciled eligibility register. That is a separate design change.

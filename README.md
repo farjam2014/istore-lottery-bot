@@ -9,7 +9,7 @@ Requires Node.js 22+, MySQL 8+, and a Telegram bot token.
 Copy `.env.example` to `.env`, configure credentials, and take a verified database backup before the first production migration. Then run:
 
 ```bash
-npm install
+npm ci
 ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 MIGRATION_TARGET_DATABASE=your_database_name npm run db:migrate
 npm start
 ```
@@ -40,6 +40,14 @@ See `docs/COMPLETION_SCOPE.md` for product invariants, `docs/VERIFIABLE_DRAWS.md
 
 ```bash
 npm test
+
+# Prepare an isolated disposable database (run as root for MySQL socket access)
+sudo MYSQL_TEST_DATABASE=ustore_bot_ci ./scripts/prepare-integration-db.sh
+
+# Run against that database, never against MYSQL_DATABASE from .env
+MYSQL_TEST_DATABASE=ustore_bot_ci \
+MYSQL_TEST_ADMIN_USER=root \
+MYSQL_TEST_ADMIN_PASSWORD='<test-admin-password>' \
 npm run test:integration
 ```
 
