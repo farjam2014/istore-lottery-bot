@@ -248,7 +248,7 @@ Archive checks treated every rejected order as pending, even after its reservati
 
 ## Latest verification snapshot
 
-- CI run: `44524907223`
+- CI run: `44525346581`
 - `npm ci`: successful
 - `npm audit --omit=dev --audit-level=high`: successful
 - Main test suite: 128 passed, 0 failed, 0 skipped
