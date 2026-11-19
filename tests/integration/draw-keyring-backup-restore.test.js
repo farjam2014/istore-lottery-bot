@@ -35,6 +35,9 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const port=String(process.env.MYSQL_PORT||'3306');
   const user=String(process.env.MYSQL_USER||'');
   assert.ok(user,'MYSQL_USER is required.');
+  const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||user);
+  const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD??process.env.MYSQL_PASSWORD??'');
+  const adminEnv={...process.env,MYSQL_PWD:adminPassword};
   const restoreDatabase=process.env.MYSQL_RESTORE_DATABASE||('draw_restore_'+randomBytes(8).toString('hex')+'_ci');
   assert.match(restoreDatabase,/^draw_restore_[a-f0-9]{16}_ci$/,'Invalid isolated restore database name.');
   assert.notEqual(restoreDatabase,database,'Restore database must differ from source database.');
@@ -65,11 +68,11 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     drawId=draw.insertId;
 
     if(!process.env.MYSQL_RESTORE_DATABASE){
-      execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:childEnv,stdio:'pipe'});
+      execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:adminEnv,stdio:'pipe'});
       restoreCreated=true;
     }
     if(process.env.MYSQL_RESTORE_DATABASE){
-      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:childEnv,encoding:'utf8'}).trim();
+      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:adminEnv,encoding:'utf8'}).trim();
       assert.equal(existingObjects,'0','Restore database must be empty.');
     }
     const backup=execFileSync('mysqldump',[
@@ -78,11 +81,11 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       '--column-statistics=0',database
     ],{env:childEnv,encoding:'buffer',maxBuffer:128*1024*1024});
     assert.ok(backup.length>0,'mysqldump returned an empty backup.');
-    execFileSync('mysql',['--host',host,'--port',port,'--user',user,restoreDatabase],{
-      env:childEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024
+    execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,restoreDatabase],{
+      env:adminEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024
     });
 
-    restored=await mysql.createConnection({host,port:Number(port),user,password:String(process.env.MYSQL_PASSWORD||''),database:restoreDatabase});
+    restored=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:restoreDatabase});
     const [[restoredDraw]]=await restored.execute('SELECT id,campaign_id,status,seed_hash,seed_ciphertext,seed_nonce,seed_tag,seed_key_id FROM campaign_draws WHERE id=?',[drawId]);
     assert.ok(restoredDraw,'Prepared draw row was not present after database restore.');
     assert.equal(restoredDraw.status,'prepared');
@@ -119,7 +122,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     if(restored){try{await restored.end();}catch(error){cleanupErrors.push(error);}}
     if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
     if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
-    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',user,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:childEnv,stdio:'pipe'});}catch(error){cleanupErrors.push(error);}}
+    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:adminEnv,stdio:'pipe'});}catch(error){cleanupErrors.push(error);}}
     if(cleanupErrors.length) throw new AggregateError(primaryError?[primaryError,...cleanupErrors]:cleanupErrors,'Backup/restore integration fixture cleanup failed.');
   }
 });
