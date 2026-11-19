@@ -8,6 +8,11 @@ async function main(){
  await pingDatabase();
  logger.info('Database connection established');
  const bot=createBot();
+ const webhookInfo=await bot.telegram.getWebhookInfo();
+ if(webhookInfo?.url){
+  logger.warn({webhookConfigured:true},'A stale webhook was found; removing it before long polling. Pending updates are preserved.');
+  await bot.telegram.deleteWebhook({drop_pending_updates:false});
+ }
  let expiryRunning=false,outboxRunning=false,campaignScheduleRunning=false;
  const expiryTimer=setInterval(async()=>{
   if(expiryRunning)return;expiryRunning=true;
@@ -37,7 +42,7 @@ async function main(){
  };
  process.once('SIGINT',()=>shutdown('SIGINT'));
  process.once('SIGTERM',()=>shutdown('SIGTERM'));
+ logger.info('Launching Telegram bot with long polling');
  await bot.launch({dropPendingUpdates:false});
- logger.info('Telegram bot started using long polling');
 }
 main().catch(error=>{logger.fatal({err:error},'Startup failed');process.exit(1);});
