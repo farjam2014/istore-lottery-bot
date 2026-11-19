@@ -105,14 +105,14 @@ The installer and CI originally used `npm install` despite a committed package l
 
 **Status:** Resolved on audit branch; draft PR #67.
 
-### AUDIT-008 — Telegram update claim can become permanently stuck after process crash
+### AUDIT-008 — Telegram update claim could become permanently stuck after process crash
 **Severity:** Reliability / High
 
-The update guard inserts an update ID into `processed_updates` before handler execution. It removes the claim on caught exceptions, but there is no durable inbox payload, processing state, or lease. Telegraf polling advances the update offset before handler completion; a process crash can therefore lose an update permanently. The guard's caught-exception release does not provide crash recovery.
+The original update guard stored only a claim before handler execution. A crash could lose the update after Telegraf advanced polling.
 
-**Evidence:** `src/bot/middleware/update-guard.js`, `tests/unit/update-guard.test.js`, `src/database/schema.sql`
+**Change on audit branch:** Added `telegram_update_inbox` with the full update payload, state, attempts, availability, lease token, completion timestamp, and error field. The guard claims updates using an expiring lease, preserves payload on handler errors, and makes failed work retryable. A recovery worker replays pending or expired-lease payloads through Telegraf's normal handler chain. Completed updates are deduplicated; replay bypasses user rate limits.
 
-**Status:** Open. Design crash recovery without introducing duplicate financial or campaign actions; requires durable inbox state, lease/recovery semantics, and business-level idempotency tests.
+**Status:** Implemented; CI verification pending. **At-least-once processing is not exactly-once processing.** If a handler performs an external side effect and the process crashes before the inbox completion write, recovery may replay it. Payment/campaign operations must remain independently idempotent; this audit does not claim that every handler side effect is crash-atomic.
 
 ### AUDIT-009 — Campaign field-edit wizard cannot persist its step on PR #64 baseline
 **Severity:** Functional / High
