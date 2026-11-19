@@ -245,3 +245,14 @@ Archive checks treated every rejected order as pending, even after its reservati
 **Test:** Extended campaign archive integration coverage with an expired rejected order.
 
 **Status:** Fix implemented and verified by CI run `44524907223`.
+
+## Latest verification snapshot
+
+- CI run: `44524907223`
+- `npm ci`: successful
+- `npm audit --omit=dev --audit-level=high`: successful
+- Main test suite: 128 passed, 0 failed, 0 skipped
+- Draw keyring backup/restore integration: 1 passed, 0 failed, 0 skipped
+- JavaScript syntax checks: successful
+- Bash syntax checks for installer and integration setup/runner: successful
+- No deployment or server/database mutation performed
