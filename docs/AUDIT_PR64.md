@@ -27,7 +27,7 @@ The workflow's push filters and pull-request base filters do not include `audit/
 
 **Evidence:** `.github/workflows/ci.yml`
 
-**Status:** Open. Review workflow trigger strategy before changing it.
+**Status:** Resolved on audit branch by commit `2abbf347de7ad413fa226f8f4724fd56aeb71e1c`, which adds the audit branch to push and pull-request filters. CI run `44519309580` succeeded.
 
 ### AUDIT-002 — Installer's test phase does not run MySQL integration tests
 **Severity:** Deployment validation / High
@@ -52,7 +52,7 @@ The backup/restore integration test creates a second database and imports a dump
 
 The test suite and CI workflow exist. However, no successful workflow run has been confirmed for the exact baseline merge commit during this audit.
 
-**Status:** Open. Obtain a reproducible CI run for the audit baseline.
+**Status:** Verified by successful CI run `44519309580` on audit-branch commit `2abbf347de7ad413fa226f8f4724fd56aeb71e1c`, which is based on the exact PR #64 baseline and includes only the CI trigger adjustment. MySQL integration tests were enabled in that workflow.
 
 ## Positive controls observed
 
