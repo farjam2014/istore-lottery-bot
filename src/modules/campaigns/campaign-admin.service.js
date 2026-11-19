@@ -21,7 +21,7 @@ export async function archiveCampaign({campaignId,actorId}={}){
     );
     if(Number(eligibleEntries.total)>0) throw new Error('کمپین دارای شرکت‌کنندگان واجد شرایط است؛ پیش از بایگانی باید قرعه‌کشی انجام شود یا وضعیت شرکت‌کنندگان تعیین تکلیف شود.');
     const [[pending]]=await connection.execute(
-      "SELECT COUNT(*) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND o.status IN ('awaiting_receipt','under_review','rejected')",
+      "SELECT COUNT(*) AS total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id WHERE e.campaign_id=? AND (o.status='under_review' OR (o.status IN ('awaiting_receipt','rejected') AND o.expires_at>UTC_TIMESTAMP()))",
       [id]
     );
     if(Number(pending.total)>0) throw new Error('تا تعیین تکلیف سفارش‌های باز، بایگانی مجاز نیست.');
