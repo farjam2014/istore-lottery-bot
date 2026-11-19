@@ -6,10 +6,10 @@ const packageJson=JSON.parse(readFileSync(new URL('../package.json',import.meta.
 
 test('integration test script authorizes only disposable test migrations',()=>{
   const script=String(packageJson.scripts?.['test:integration']||'');
-  assert.match(script,/run-integration-tests\\.sh/);
+  assert.match(script,/run-integration-tests\.sh/);
   const runner=readFileSync(new URL('../scripts/run-integration-tests.sh',import.meta.url),'utf8');
   assert.match(runner,/MYSQL_TEST_DATABASE/);
-  assert.match(runner,/_\\(ci\\|test\\)\\$/);
+  assert.match(runner,/_(ci|test)$/);
   assert.match(runner,/MYSQL_DATABASE/);
   assert.match(runner,/ALLOW_DATABASE_MIGRATIONS=1/);
   assert.match(runner,/ALLOW_TEST_DATABASE_MIGRATIONS=1/);
