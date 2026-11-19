@@ -275,4 +275,4 @@ The initial archive guard counted every `eligible` entry, even if the participan
 
 **Test:** The archive integration test now blocks the participant and verifies archive succeeds after all candidates are removed.
 
-**Status:** Fix implemented; CI verification pending.
+**Status:** Fix implemented; CI verification pending. The first CI run exposed a test fixture that lacked an active code; the fixture has been corrected.
