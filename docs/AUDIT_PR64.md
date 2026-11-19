@@ -164,3 +164,12 @@ New support tickets and customer replies were committed before their admin notif
 **Test:** Added MySQL integration coverage for support-ticket and outbox rollback/commit atomicity.
 
 **Status:** Fix implemented; CI verification pending.
+
+### AUDIT-014 — Registration `/cancel` intercepted admin role-session cancellation
+**Severity:** UX / Low
+
+The registration handler registered `/cancel` before the admin handler and returned without calling `next()`, so configured super-admins could not use the admin role-session command cancellation through text. The inline cancel button still worked.
+
+**Change on audit branch:** Configured super-admins now pass the registration cancellation command to the admin handler.
+
+**Status:** Fix implemented; CI verification pending.
