@@ -6,6 +6,7 @@ This checklist is for deploying the audited repository to a brand-new, disposabl
 
 - [ ] New Ubuntu 24.04 LTS server.
 - [ ] No production database or production bot data on this server.
+- [ ] The old server's polling process is stopped before starting the new server with the same Telegram bot token; do not run two long-polling instances concurrently.
 - [ ] Repository commit/PR has passed CI.
 - [ ] Installer source and checksum have been reviewed.
 - [ ] Telegram bot token and administrator Telegram ID are available.
