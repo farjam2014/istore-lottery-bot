@@ -196,3 +196,14 @@ Existing installer tests are static assertions plus `bash -n`. They do not provi
 On an existing checkout, the installer stops the service, updates source, replaces dependencies, and applies migrations. A failure leaves the service stopped and does not restore the previous source/dependency state. The installer is resumable but not transactional.
 
 **Status:** Open. Fresh-server deployment is the current target; release-based deployment and rollback should be designed before updates to a live installation.
+
+### AUDIT-018 — Draw preparation did not check active repeat payment orders
+**Severity:** Business integrity / High
+
+A participant with an already eligible entry could create a second paid order without changing the entry status to `pending_payment`. Draw preparation only checked that entry status, so an active `awaiting_receipt`, `under_review`, or unexpired `rejected` repeat order could be overlooked. A paid code from that order could be excluded from the draw snapshot.
+
+**Change on audit branch:** Draw preparation now separately checks active payment orders using the same reservation statuses/expiry semantics as capacity accounting.
+
+**Test:** Expanded MySQL integration test covers a first pending order and a repeat order under review on an already-eligible entry, then verifies draw preparation succeeds only after both are resolved.
+
+**Status:** Fix implemented; CI verification pending.
