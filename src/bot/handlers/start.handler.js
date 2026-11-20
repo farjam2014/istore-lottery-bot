@@ -15,11 +15,11 @@ export function registerStartHandlers(bot){
   const s=await getSession(ctx.from.id);
   if(s){
    if(s.step==='awaiting_phone'){
-    await ctx.reply('برای ادامه ثبت‌نام، شماره موبایل خودتان را به اشتراک بگذارید.',phoneShareKeyboard());
-    return ctx.reply('در صورت انصراف:',cancelKeyboard());
+    return ctx.reply('برای ادامه ثبت‌نام، شماره موبایل خودتان را به اشتراک بگذارید. برای لغو، دکمه «انصراف از ثبت‌نام» را بزنید.',phoneShareKeyboard());
    }
    return ctx.reply(promptFor(s.step),cancelKeyboard());
   }
   return ctx.reply('به ربات رسمی iStore خوش آمدید. برای ایجاد حساب کاربری، ثبت‌نام را آغاز کنید.',registrationKeyboard());
- });
+ }
+ );
 }
