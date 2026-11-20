@@ -53,8 +53,13 @@ export function registerUserHandlers(bot){
     ].filter(Boolean);
     const buttons=campaign.participation_type==='free'?[[Markup.button.callback('شرکت در کمپین','campaign:join:'+campaign.id)]]:[[Markup.button.callback('ثبت سفارش و پرداخت','payment:start:'+campaign.id)]];
     buttons.push([Markup.button.callback('بازگشت به کمپین‌ها','user:campaigns')]);
-    if(campaign.poster_file_id)await ctx.replyWithPhoto(campaign.poster_file_id,{caption:'پوستر کمپین: '+campaign.title});
-    return screenReply(ctx,lines.join('\n\n'),Markup.inlineKeyboard(buttons));
+    const description=lines.join('\n\n');
+    if(campaign.poster_file_id){
+      const suffix='\n\n… ادامه توضیحات در بخش شرایط کمپین';
+      const caption=description.length>1024?description.slice(0,1024-suffix.length)+suffix:description;
+      return ctx.replyWithPhoto(campaign.poster_file_id,{caption,reply_markup:Markup.inlineKeyboard(buttons).reply_markup});
+    }
+    return screenReply(ctx,description,Markup.inlineKeyboard(buttons));
   });
   bot.action(/^campaign:join:(\d+)$/,async ctx=>{
     await ctx.answerCbQuery();

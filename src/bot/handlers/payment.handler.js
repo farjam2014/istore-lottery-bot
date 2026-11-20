@@ -29,13 +29,26 @@ export function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,min
   rows.push([Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]);
   return Markup.inlineKeyboard(rows);
 }
-async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=2){
+async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=1){
   const [[campaign]]=await pool.execute("SELECT id,title,status,participation_type,entry_price,codes_per_entry FROM campaigns WHERE id=?",[campaignId]);
   if(!campaign||campaign.status!=='open'||campaign.participation_type!=='paid')return ctx.reply('این کمپین برای سفارش پولی در دسترس نیست.');
   const max=Number(campaign.codes_per_entry);const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});const remaining=Math.min(max,allowance.remaining);
   if(!Number.isInteger(max)||max<1||max>100)return ctx.reply('تنظیم تعداد کد کمپین نامعتبر است؛ با مدیریت تماس بگیرید.');
   if(remaining<minCount)return ctx.reply('با توجه به کدهای صادرشده و سفارش‌های فعال، تعداد کد قابل سفارش شما کافی نیست.');
-  return ctx.reply('کمپین: '+campaign.title+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال\nسقف کل هر نفر: '+max+' کد\nکدهای صادرشده/رزروشده: '+(allowance.issued+allowance.reserved)+'\nباقی‌مانده قابل سفارش: '+remaining+' کد\n\nتعداد کد موردنظر را انتخاب کنید؛ مبلغ بر اساس تعداد انتخابی محاسبه می‌شود:',paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount));
+  const marker='\n\n🧮 انتخاب تعداد کد';
+  const message=ctx.callbackQuery?.message;
+  const existing=message?.caption??message?.text??'';
+  const rawBase=existing.includes(marker)?existing.split(marker)[0]:existing;
+  const prompt=marker+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال | باقی‌مانده قابل سفارش: '+remaining+' کد\nتعداد و مبلغ کل را انتخاب کنید:';
+  const limit=message?.caption!==undefined?1024:4096;
+  const available=Math.max(0,limit-prompt.length);
+  const base=rawBase.length>available
+    ? (available>1?rawBase.slice(0,available-1)+'…':'')
+    : rawBase;
+  const keyboard=paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount);
+  if(message?.caption!==undefined)return ctx.editMessageCaption(base+prompt,{reply_markup:keyboard.reply_markup});
+  if(message?.text!==undefined)return ctx.editMessageText(base+prompt,{reply_markup:keyboard.reply_markup});
+  return ctx.reply('کمپین: '+campaign.title+prompt,keyboard);
 }
 async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   try{
@@ -50,21 +63,21 @@ async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
 }
 export function registerPaymentHandlers(bot){
  bot.action(/^payment:start:(\d+)$/,async ctx=>{
-  await ctx.answerCbQuery();
   const campaignId=Number(ctx.match[1]);
-  const [[campaign]]=await pool.execute("SELECT codes_per_entry FROM campaigns WHERE id=?",[campaignId]);
-  if(!campaign)return ctx.reply('کمپین پیدا نشد.');
+  const [[campaign]]=await pool.execute("SELECT codes_per_entry,status,participation_type FROM campaigns WHERE id=?",[campaignId]);
+  if(!campaign||campaign.status!=='open'||campaign.participation_type!=='paid'){
+    return ctx.answerCbQuery('کمپین برای سفارش پولی در دسترس نیست.',{show_alert:true});
+  }
   const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});
-  if(allowance.remaining<1)return ctx.reply('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.');
-  if(Number(campaign.codes_per_entry)===1||allowance.remaining===1)return sendPaymentOrder(ctx,campaignId,1);
-  return ctx.reply('چند کد می‌خواهید؟',Markup.inlineKeyboard([
-    [Markup.button.callback('۱ کد','payment:quantity:'+campaignId+':1'),Markup.button.callback('کدهای بیشتر','payment:more:'+campaignId)],
-    [Markup.button.callback('بازگشت به کمپین','campaign:view:'+campaignId)]
-  ]));
+  if(allowance.remaining<1){
+    return ctx.answerCbQuery('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.',{show_alert:true});
+  }
+  await ctx.answerCbQuery();
+  return showPaymentQuantityPrompt(ctx,campaignId,0,1);
  });
  bot.action(/^payment:more:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery();
-  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,2);
+  return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),0,1);
  });
  bot.action(/^payment:quantity-page:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showPaymentQuantityPrompt(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
  bot.action(/^payment:quantity:(\d+):(\d+)$/,async ctx=>{await ctx.answerCbQuery();return sendPaymentOrder(ctx,Number(ctx.match[1]),Number(ctx.match[2]));});
