@@ -21,7 +21,8 @@ export function registerRegistrationHandlers(bot){
     await ctx.answerCbQuery('ثبت‌نام متوقف شد.');
     await ctx.reply('هر زمان خواستید می‌توانید ثبت‌نام را شروع کنید.',registrationKeyboard());
   });
-  bot.command('cancel',async ctx=>{
+  bot.command('cancel',async(ctx,next)=>{
+    if(config.adminIds.has(String(ctx.from.id)))return next();
     await clearSession(ctx.from.id);
     await ctx.reply('فرآیند ثبت‌نام لغو شد.',registrationKeyboard());
   });
