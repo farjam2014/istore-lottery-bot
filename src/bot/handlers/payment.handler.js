@@ -35,12 +35,16 @@ async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=1){
   const max=Number(campaign.codes_per_entry);const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});const remaining=Math.min(max,allowance.remaining);
   if(!Number.isInteger(max)||max<1||max>100)return ctx.reply('تنظیم تعداد کد کمپین نامعتبر است؛ با مدیریت تماس بگیرید.');
   if(remaining<minCount)return ctx.reply('با توجه به کدهای صادرشده و سفارش‌های فعال، تعداد کد قابل سفارش شما کافی نیست.');
-  const marker='\\n\\n🧮 انتخاب تعداد کد';
+  const marker='\n\n🧮 انتخاب تعداد کد';
   const message=ctx.callbackQuery?.message;
   const existing=message?.caption??message?.text??'';
   const rawBase=existing.includes(marker)?existing.split(marker)[0]:existing;
-  const prompt=marker+'\\nقیمت هر کد: '+money(campaign.entry_price)+' ریال | باقی‌مانده قابل سفارش: '+remaining+' کد\\nتعداد و مبلغ کل را انتخاب کنید:';
-  const base=message?.caption!==undefined&&rawBase.length>850?rawBase.slice(0,847)+'…':rawBase;
+  const prompt=marker+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال | باقی‌مانده قابل سفارش: '+remaining+' کد\nتعداد و مبلغ کل را انتخاب کنید:';
+  const limit=message?.caption!==undefined?1024:4096;
+  const available=Math.max(0,limit-prompt.length);
+  const base=rawBase.length>available
+    ? (available>1?rawBase.slice(0,available-1)+'…':'')
+    : rawBase;
   const keyboard=paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount);
   if(message?.caption!==undefined)return ctx.editMessageCaption(base+prompt,{reply_markup:keyboard.reply_markup});
   if(message?.text!==undefined)return ctx.editMessageText(base+prompt,{reply_markup:keyboard.reply_markup});
@@ -59,12 +63,16 @@ async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
 }
 export function registerPaymentHandlers(bot){
  bot.action(/^payment:start:(\d+)$/,async ctx=>{
-  await ctx.answerCbQuery();
   const campaignId=Number(ctx.match[1]);
   const [[campaign]]=await pool.execute("SELECT codes_per_entry,status,participation_type FROM campaigns WHERE id=?",[campaignId]);
-  if(!campaign||campaign.status!=='open'||campaign.participation_type!=='paid')return ctx.reply('کمپین برای سفارش پولی در دسترس نیست.');
+  if(!campaign||campaign.status!=='open'||campaign.participation_type!=='paid'){
+    return ctx.answerCbQuery('کمپین برای سفارش پولی در دسترس نیست.',{show_alert:true});
+  }
   const allowance=await getUserCampaignCodeAllowance({telegramUserId:ctx.from.id,campaignId});
-  if(allowance.remaining<1)return ctx.answerCbQuery('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.',{show_alert:true});
+  if(allowance.remaining<1){
+    return ctx.answerCbQuery('سقف کدهای مجاز شما تکمیل شده یا سفارش فعالی دارید.',{show_alert:true});
+  }
+  await ctx.answerCbQuery();
   return showPaymentQuantityPrompt(ctx,campaignId,0,1);
  });
  bot.action(/^payment:more:(\d+)$/,async ctx=>{
