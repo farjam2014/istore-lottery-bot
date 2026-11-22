@@ -29,7 +29,7 @@ async function main(){
  },60_000);
  const updateInboxTimer=setInterval(async()=>{
   if(updateInboxRunning)return;updateInboxRunning=true;
-  try{const result=await processUpdateInbox(bot,{limit:10});if(result.scanned)logger.info(result,'Durable Telegram update inbox recovery scanned');}
+  try{const result=await processUpdateInbox(bot,{limit:10});if(result.claimed)logger.info(result,'Durable Telegram update inbox recovery processed');}
   catch(error){logger.error({err:error},'Durable Telegram update inbox recovery failed');}
   finally{updateInboxRunning=false;}
  },15_000);
