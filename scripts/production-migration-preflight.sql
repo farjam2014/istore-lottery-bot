@@ -64,7 +64,7 @@ FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
 
--- Migration history and presence of all eight release migrations.
+-- Migration history and presence of all nine release migrations.
 SELECT version, checksum, applied_at
 FROM schema_migrations
 ORDER BY version;
@@ -82,6 +82,7 @@ FROM (
   UNION ALL SELECT '20261117_006_draw_relational_integrity.sql'
   UNION ALL SELECT '20261118_001_participant_search_state.sql'
   UNION ALL SELECT '20261118_002_paid_code_quantity.sql'
+  UNION ALL SELECT '20261119_001_campaign_edit_wizard_step.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
@@ -98,6 +99,7 @@ WHERE table_schema=DATABASE()
     OR (table_name='campaign_code_counters' AND column_name='campaign_id')
     OR (table_name='admin_search_sessions' AND column_name IN ('campaign_id','step','query_text'))
     OR (table_name='payment_orders' AND column_name='requested_code_count')
+    OR (table_name='admin_wizards' AND column_name='step')
   )
 ORDER BY table_name, ordinal_position;
 
