@@ -32,6 +32,9 @@ test('installer preserves existing application state and requires production aut
   assert.match(script,/Telegram bot launched with long polling/);
   assert.doesNotMatch(script,/rm -rf/);
   const unitPreflight=script.indexOf('grep -Fq "WorkingDirectory=$APP_DIR"');
+  const activePreflight=script.indexOf('Active "$SERVICE" uses WorkingDirectory');
+  const aptInstall=script.indexOf('apt-get update');
+  assert.ok(activePreflight>=0&&activePreflight<aptInstall,'Active service path must be validated before installing prerequisites.');
   const stopService=script.indexOf('systemctl stop "$SERVICE"');
   assert.ok(unitPreflight>=0&&unitPreflight<stopService,'Existing service target must be validated before the service is stopped.');
   const updateCheckout=script.indexOf('git -C "$APP_DIR" fetch');
