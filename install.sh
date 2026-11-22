@@ -126,6 +126,14 @@ MIGRATION_TARGET_DATABASE="$DB_NAME"
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
 [[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
 
+# Validate the existing service target before any stop/update operation.
+UNIT_FILE="/etc/systemd/system/$SERVICE.service"
+if [[ -e "$UNIT_FILE" ]]; then
+  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
+  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
+  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
+fi
+
 if systemctl is-active --quiet "$SERVICE"; then
   log "Stopping the active application service before changing source files or database schema."
   systemctl stop "$SERVICE"
@@ -143,12 +151,6 @@ unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js' -print0 | xargs -0 -n1 node --check"
 
-UNIT_FILE="/etc/systemd/system/$SERVICE.service"
-if [[ -e "$UNIT_FILE" ]]; then
-  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
-  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
-  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
-fi
 
 log "Ensuring the dedicated database and restricted application user exist. No database is dropped."
 mysql <<SQL
