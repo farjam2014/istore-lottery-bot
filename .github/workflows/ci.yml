@@ -1,12 +1,25 @@
 name: CI
 on:
   push:
-    branches: [rebuild/telegram-native-v1]
+    branches:
+      - rebuild/telegram-native-v1
+      - install/resumable-ubuntu-v2
+      - fix/admin-role-session-command-routing
+      - safety/migration-explicit-guard
+      - audit/pr64-clean-rebuild
+      - release/ustore-unified
+      - audit/fix-release-blockers
+      - audit/installer-preflight-stacked
   pull_request:
-    branches: [rebuild/telegram-native-v1]
+    branches:
+      - rebuild/telegram-native-v1
+      - install/resumable-ubuntu-v2
+      - audit/pr64-clean-rebuild
+      - release/ustore-unified
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8.0
@@ -28,15 +41,22 @@ jobs:
       MYSQL_DATABASE: istore_lottery_ci
       MYSQL_USER: root
       MYSQL_PASSWORD: root
+      MYSQL_TEST_ADMIN_USER: root
+      MYSQL_TEST_ADMIN_PASSWORD: root
       MYSQL_POOL_SIZE: 5
       BOT_ADMIN_IDS: 237573106
       RUN_MYSQL_TESTS: '1'
+      ALLOW_DATABASE_MIGRATIONS: '1'
+      ALLOW_TEST_DATABASE_MIGRATIONS: '1'
+      DRAW_SEED_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
       - run: node --check src/index.js
+      - run: bash -n install.sh scripts/prepare-integration-db.sh scripts/run-integration-tests.sh

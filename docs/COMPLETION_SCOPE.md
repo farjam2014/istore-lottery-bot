@@ -1,16 +1,19 @@
 # iStore — Completion Scope and Acceptance Plan
 
 ## Scope of this release
-This release completes customer registration, campaign operations, participant management, orders/payments, account, support, reporting/export and security/reliability. The draw execution and winner selection workflow is explicitly deferred. Existing draw tables may remain dormant; do not expose draw execution controls to admins or customers in this phase.
+This release includes customer registration, campaign operations, participant management, orders/payments, account, support, reporting/export, security/reliability, and the implemented verifiable draw workflow (prepare, commitment publication attestation, deterministic winner selection, reveal, and offline proof verification). Live gateway integration and independent eligibility reconciliation remain deferred. Draw proof limitations and operator trust boundaries are documented in `docs/VERIFIABLE_DRAWS.md`.
 
 ## Approved product invariants
 - Draw model remains code-based; a code is one independent ticket.
-- A participant can win at most one prize per campaign; draw execution itself is deferred.
+- A participant can win at most one prize per campaign; the draw service enforces unique participant winners and verifies the committed candidate snapshot.
+- Draws require a closed campaign, no unresolved payment reservations, a committed seed and candidate snapshot, an HTTPS publication attestation before completion, and a supported algorithm version. The publication attestation is not independently verified.
 - Payments support manual bank-transfer evidence and a provider-neutral online-payment abstraction. Gateway provider selection and live gateway integration are deferred.
-- Capacity is reserved when a paid order is created and released on expiry/cancellation.
+- Paid campaigns price each code individually; participants select a quantity up to the configured per-participant maximum. Order amount and requested quantity are snapshotted, and approved receipts issue exactly that quantity.
+- Campaign capacity is measured in codes, including issued codes and active payment reservations; reservations are released on expiry/cancellation.
+- Free campaigns retain their configured fixed codes-per-participant quantity, and capacity is checked against the number of codes issued.
 - Campaign limits are separately configurable by admins.
 - Support supports tickets and direct chat, but every message is persisted centrally.
-- Admin model is shared permissions across multiple explicitly allowlisted admin accounts; no role hierarchy in this phase.
+- Admin model uses server-side role permissions: environment-configured super-admins and assignable campaign-manager, finance-manager, and support-agent roles. Role assignment and access changes are audited; super-admins are not assignable through the ordinary role wizard.
 
 ## Registration and customer profile
 - Required fields only: full name, verified mobile number, Instagram handle.
@@ -70,7 +73,7 @@ This release completes customer registration, campaign operations, participant m
 - Notification outbox with retries and dead-letter visibility.
 - Structured logs with sensitive data redacted; never log bot token, full card number or receipt file IDs unnecessarily.
 - UTC storage and explicit Persian/local display formatting.
-- Tests cover concurrent capacity, duplicate receipt, double approval, expired order release, contact ownership, participant export, support history, campaign transitions and authorization.
+- Tests cover code issuance, payment quantity, registration state transitions, contact ownership, campaign transitions, draw integrity, migration guards, notification delivery and authorization. MySQL concurrency and production recovery remain separate release acceptance drills.
 - No production DB mutation, VPS deployment, or bot restart without explicit approval.
 
 ## User-interface convention

@@ -8,6 +8,7 @@ test('super admin has every permission',()=>{
 test('campaign manager is limited to campaigns and participant read',()=>{
   assert.equal(roleHasPermission('campaign_manager','campaign.write'),true);
   assert.equal(roleHasPermission('campaign_manager','participant.read'),true);
+  assert.equal(roleHasPermission('campaign_manager','campaign.draw'),false);
   for(const permission of ['payment.review','payment.settings','support.reply','support.manage','report.read','participant.manage'])assert.equal(roleHasPermission('campaign_manager',permission),false);
 });
 test('finance manager can review payments but cannot manage campaigns or support',()=>{

@@ -1,7 +1,7 @@
 import {Markup} from 'telegraf';
 import {completeRegistration,getSession,saveSession,clearSession,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
 import {promptFor} from './start.handler.js';
-import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,phoneShareKeyboard} from '../keyboards/user.keyboard.js';
+import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
 
 export function registerRegistrationHandlers(bot){
@@ -11,8 +11,7 @@ export function registerRegistrationHandlers(bot){
     if(!s)await saveSession(ctx.from.id,'awaiting_name',{});
     const step=s?.step||'awaiting_name';
     if(step==='awaiting_phone'){
-      await ctx.reply('برای تأیید مالکیت شماره، از دکمه «اشتراک‌گذاری شماره موبایل» استفاده کنید. شماره‌ای که دستی تایپ شود پذیرفته نیست.',phoneShareKeyboard());
-      return ctx.reply('برای توقف فرایند:',cancelKeyboard());
+      return ctx.reply('برای تأیید مالکیت شماره، از دکمه «اشتراک‌گذاری شماره موبایل» استفاده کنید. شماره‌ای که دستی تایپ شود پذیرفته نیست.',phoneShareKeyboard());
     }
     await ctx.reply(promptFor(step),cancelKeyboard());
   });
@@ -21,9 +20,10 @@ export function registerRegistrationHandlers(bot){
     await ctx.answerCbQuery('ثبت‌نام متوقف شد.');
     await ctx.reply('هر زمان خواستید می‌توانید ثبت‌نام را شروع کنید.',registrationKeyboard());
   });
-  bot.command('cancel',async ctx=>{
+  bot.command('cancel',async(ctx,next)=>{
+    if(config.adminIds.has(String(ctx.from.id)))return next();
     await clearSession(ctx.from.id);
-    await ctx.reply('فرآیند ثبت‌نام لغو شد.',registrationKeyboard());
+    await ctx.reply('فرآیند ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
   });
   bot.on('contact',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
@@ -44,17 +44,26 @@ export function registerRegistrationHandlers(bot){
   });
   bot.on('text',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
-    const s=await getSession(ctx.from.id);if(!s)return next();
-    const value=ctx.message.text.trim();const data=s.payload||{};
+    const s=await getSession(ctx.from.id);
+    const value=ctx.message.text.trim();
+    if(!s&&value==='ثبت‌نام'){
+      await saveSession(ctx.from.id,'awaiting_name',{});
+      return ctx.reply(promptFor('awaiting_name'),cancelKeyboard());
+    }
+    if(!s)return next();
+    const data=s.payload||{};
+    if(s.step==='awaiting_phone'&&value==='❌ انصراف از ثبت‌نام'){
+      await clearSession(ctx.from.id);
+      return ctx.reply('ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
+    }
     try{
       if(s.step==='awaiting_name'){
         normalizeFullName(value);data.fullName=value;
         await saveSession(ctx.from.id,'awaiting_phone',data);
-        await ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید. واردکردن دستی شماره پذیرفته نیست.',phoneShareKeyboard());
-        return ctx.reply('در صورت انصراف:',cancelKeyboard());
+        return ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید. واردکردن دستی شماره پذیرفته نیست.',phoneShareKeyboard());
       }
       if(s.step==='awaiting_phone'){
-        return ctx.reply('شماره را تایپ نکنید؛ لطفاً دکمه «اشتراک‌گذاری شماره موبایل» را بزنید.',phoneShareKeyboard());
+        return ctx.reply('شماره را تایپ نکنید؛ لطفاً دکمه «اشتراک‌گذاری شماره موبایل» را بزنید یا «انصراف از ثبت‌نام» را انتخاب کنید.',phoneShareKeyboard());
       }
       if(s.step==='awaiting_instagram'){
         data.instagramHandle=value;
