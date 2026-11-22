@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertMigrationHistoryIntegrity} from '../../src/database/migrate.js';
+import {assertMigrationHistoryIntegrity} from '../../src/database/migration-integrity.js';
 
 test('migration history is valid when every applied migration exists in source',()=>{
   assert.equal(assertMigrationHistoryIntegrity(
