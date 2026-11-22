@@ -5,8 +5,9 @@ import {createUpdateGuard} from '../../src/bot/middleware/update-guard.js';
 function fakeDatabase(){
   const inbox=new Map();
   const counters=new Map();
+  let heartbeatCount=0;
   return {
-    inbox,counters,
+    inbox,counters,get heartbeatCount(){return heartbeatCount;},
     async execute(sql,params=[]){
       if(sql.startsWith('INSERT IGNORE INTO telegram_update_inbox')){
         const id=params[0];
@@ -44,10 +45,15 @@ function fakeDatabase(){
         if(row&&row.lease===params[1]){row.status='completed';row.lease=null;return [{affectedRows:1},[]];}
         return [{affectedRows:0},[]];
       }
-      if(sql.startsWith("UPDATE telegram_update_inbox SET status='pending'")){
-        const row=inbox.get(params[1]);
-        if(row&&row.lease===params[2]){row.status='pending';row.lease=null;row.error=params[0];return [{affectedRows:1},[]];}
+      if(sql.startsWith("UPDATE telegram_update_inbox SET status='failed'")){
+        const row=inbox.get(params[2]);
+        if(row&&row.lease===params[3]){row.status='failed';row.lease=null;row.error=params[1];row.availableDelay=params[0];return [{affectedRows:1},[]];}
         return [{affectedRows:0},[]];
+      }
+      if(sql.startsWith("UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP()")){
+        const row=inbox.get(params[0]);
+        if(row&&row.lease===params[1])heartbeatCount++;
+        return [{affectedRows:row&&row.lease===params[1]?1:0},[]];
       }
       if(sql.startsWith('DELETE FROM '))return [{affectedRows:0},[]];
       throw new Error('Unexpected SQL in update-guard unit test: '+sql);
@@ -113,14 +119,15 @@ test('rate limits are isolated by user and update category',async()=>{
   assert.equal(database.counters.get('11111:callback'),1);
 });
 
-test('handler failure preserves payload and makes the update retryable',async()=>{
+test('handler failure preserves payload and enters bounded retry state',async()=>{
   const database=fakeDatabase();
   const guard=createUpdateGuard({database,log:logger,correlate:identity});
   await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error('handler failure');}),/handler failure/);
   const row=database.inbox.get(300);
-  assert.equal(row.status,'pending');
+  assert.equal(row.status,'failed');
   assert.ok(row.payload);
   assert.equal(row.lease,null);
+  assert.ok(row.availableDelay>0);
 });
 
 test('callback and non-text buckets enforce independent limits',async()=>{
@@ -141,4 +148,13 @@ test('updates without a safe integer update id bypass inbox claiming',async()=>{
   let calls=0;
   await guard(ctx,async()=>{calls++;});
   assert.equal(calls,1);
+});
+
+
+test('long-running handler renews its lease before it expires',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,heartbeatIntervalMs:5,leaseMinutes:1});
+  await guard(context({id:900,userId:'99999'}),async()=>new Promise(resolve=>setTimeout(resolve,25)));
+  assert.ok(database.heartbeatCount>=1,'expected at least one lease heartbeat');
+  assert.equal(database.inbox.get(900).status,'completed');
 });
