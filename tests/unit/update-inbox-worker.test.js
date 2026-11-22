@@ -18,7 +18,7 @@ test('recovery worker replays stored payloads and counts only completed updates'
   const bot={async handleUpdate(update){calls.push(update.update_id);}};
   const result=await worker(bot,{limit:2});
   assert.deepEqual(calls,[1,2]);
-  assert.deepEqual(result,{claimed:2,replayed:2,failed:0,skipped:0});
+  assert.deepEqual(result,{scanned:2,replayed:2,failed:0,skipped:0});
 });
 
 test('malformed payloads are quarantined with bounded retry metadata and worker continues',async()=>{
@@ -40,7 +40,7 @@ test('malformed payloads are quarantined with bounded retry metadata and worker 
   const bot={async handleUpdate(update){calls.push(update.update_id);}};
   const result=await worker(bot);
   assert.deepEqual(calls,[2]);
-  assert.deepEqual(result,{claimed:2,replayed:1,failed:1,skipped:0});
+  assert.deepEqual(result,{scanned:2,replayed:1,failed:1,skipped:0});
   assert.equal(updates.length,1);
   assert.equal(updates[0].params[0],30*24*60*60,'attempt 8 must receive terminal backoff');
   assert.match(updates[0].params[1],/Inbox payload\/update ID mismatch|Unexpected end|JSON/);
