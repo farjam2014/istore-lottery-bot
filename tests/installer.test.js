@@ -36,3 +36,12 @@ test('installer preserves existing application state and requires production aut
   const migrateDatabase=script.indexOf('npm run db:migrate');
   assert.ok(stopService>=0&&stopService<updateCheckout&&stopService<migrateDatabase,'An active service must stop before source checkout updates and production migrations.');
 });
+
+test('production migration preflight includes campaign-edit wizard migration and schema check',()=>{
+  const preflight=readFileSync(new URL('../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+  const readiness=readFileSync(new URL('../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
+  assert.ok(preflight.includes('20261119_001_campaign_edit_wizard_step.sql'));
+  assert.ok(preflight.includes("table_name='admin_wizards' AND column_name='step'"));
+  assert.ok(readiness.includes('20261119_001_campaign_edit_wizard_step.sql'));
+  assert.ok(readiness.includes('Campaign editing opens the input prompt'));
+});
