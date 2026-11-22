@@ -11,3 +11,9 @@ test('CSV neutralizes spreadsheet formulas and control-prefixed formulas',()=>{
 test('CSV output includes UTF-8 BOM and CRLF rows',()=>{
   assert.equal(toCsv([{name:'test'}],['name']),'\uFEFFname\r\n"test"');
 });
+
+
+test('CSV neutralizes formulas preceded by spaces and control characters',()=>{
+  assert.ok(csvCell('   @SUM(A1)').startsWith('"\''));
+  assert.ok(csvCell('\u0000=1+1').startsWith('"\''));
+});
