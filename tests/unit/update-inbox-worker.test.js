@@ -18,7 +18,7 @@ test('recovery worker replays stored payloads and counts only completed updates'
   const bot={async handleUpdate(update){calls.push(update.update_id);}};
   const result=await worker(bot,{limit:2});
   assert.deepEqual(calls,[1,2]);
-  assert.equal(cleanup.length,4,'worker must enforce completed, failed, pending and stale-processing retention');
+  assert.equal(cleanup.length,3,'worker must enforce completed, pending/failed and stale-processing retention');
   assert.deepEqual(result,{scanned:2,replayed:2,failed:0,skipped:0});
 });
 
