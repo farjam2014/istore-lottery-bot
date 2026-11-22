@@ -9,7 +9,7 @@ import {formatTehranDateTime} from '../../shared/datetime.js';
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const money=n=>Number(n||0).toLocaleString('fa-IR');
 const QUANTITY_PAGE_SIZE=10;
-export function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,minCount=2){
+export function paymentQuantityKeyboard(campaignId,maxCount,unitPrice,page=0,minCount=1){
   const pages=Math.max(1,Math.ceil((maxCount-minCount+1)/QUANTITY_PAGE_SIZE));
   const current=Math.max(0,Math.min(pages-1,Number(page)||0));
   const first=minCount+current*QUANTITY_PAGE_SIZE,last=Math.min(maxCount,first+QUANTITY_PAGE_SIZE-1);
@@ -41,14 +41,15 @@ async function showPaymentQuantityPrompt(ctx,campaignId,page=0,minCount=1){
   const rawBase=existing.includes(marker)?existing.split(marker)[0]:existing;
   const prompt=marker+'\nقیمت هر کد: '+money(campaign.entry_price)+' ریال | باقی‌مانده قابل سفارش: '+remaining+' کد\nتعداد و مبلغ کل را انتخاب کنید:';
   const limit=message?.caption!==undefined?1024:4096;
-  const available=Math.max(0,limit-prompt.length);
+  const safePrompt=prompt.length>limit?prompt.slice(0,limit):prompt;
+  const available=Math.max(0,limit-safePrompt.length);
   const base=rawBase.length>available
     ? (available>1?rawBase.slice(0,available-1)+'…':'')
     : rawBase;
   const keyboard=paymentQuantityKeyboard(campaign.id,remaining,Number(campaign.entry_price),page,minCount);
-  if(message?.caption!==undefined)return ctx.editMessageCaption(base+prompt,{reply_markup:keyboard.reply_markup});
-  if(message?.text!==undefined)return ctx.editMessageText(base+prompt,{reply_markup:keyboard.reply_markup});
-  return ctx.reply('کمپین: '+campaign.title+prompt,keyboard);
+  if(message?.caption!==undefined)return ctx.editMessageCaption(base+safePrompt,{reply_markup:keyboard.reply_markup});
+  if(message?.text!==undefined)return ctx.editMessageText(base+safePrompt,{reply_markup:keyboard.reply_markup});
+  return ctx.reply('کمپین: '+campaign.title+safePrompt,{reply_markup:keyboard.reply_markup});
 }
 async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
   try{
