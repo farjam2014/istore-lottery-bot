@@ -38,7 +38,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The nine new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The ten new migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
