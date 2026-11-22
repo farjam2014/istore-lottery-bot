@@ -14,8 +14,9 @@ export function isValidPublicationReference(value){
     // IP literals and special-use/internal host suffixes; syntax validation
     // cannot prove that a DNS name is actually reachable from the public internet.
     const labels=hostname.split('.');
-    const reservedSuffixes=new Set(['localhost','local','internal','test','example','invalid']);
-    const validDomain=hostname.length<=253&&labels.length>=2&&!reservedSuffixes.has(labels.at(-1).toLowerCase())&&labels.every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
+    const reservedSuffixes=new Set(['localhost','local','localdomain','internal','intranet','test','example','invalid','onion','arpa','home','lan','corp','private']);
+    const reservedExampleDomains=new Set(['example.com','example.net','example.org','example.edu','example.gov','example.mil','example.int']);
+    const validDomain=hostname.length<=253&&labels.length>=2&&!reservedSuffixes.has(labels.at(-1).toLowerCase())&&!reservedExampleDomains.has(hostname.toLowerCase())&&!([...reservedExampleDomains].some(domain=>hostname.toLowerCase().endsWith('.'+domain)))&&labels.every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
     return url.protocol==='https:'&&Boolean(hostname)&&isIP(hostname)===0&&validDomain&&!url.username&&!url.password;
   }catch{return false;}
 }

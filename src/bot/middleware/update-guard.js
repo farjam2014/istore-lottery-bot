@@ -4,6 +4,9 @@ import {logger} from '../../shared/logger.js';
 import {withCorrelation} from '../../shared/request-context.js';
 
 const counters=new Map();
+const LEASE_MINUTES=5;
+const HEARTBEAT_INTERVAL_MS=30_000;
+const MAX_ATTEMPTS=8;
 
 function ratePolicy(ctx){
   if(ctx.callbackQuery)return {bucket:'callback',max:35};
@@ -15,7 +18,9 @@ export function createUpdateGuard({
   database=pool,
   log=logger,
   correlate=withCorrelation,
-  uuid=randomUUID
+  uuid=randomUUID,
+  heartbeatIntervalMs=HEARTBEAT_INTERVAL_MS,
+  leaseMinutes=LEASE_MINUTES
 }={}){
   return async(ctx,next)=>{
     const updateId=ctx.update?.update_id;
@@ -27,19 +32,44 @@ export function createUpdateGuard({
     ctx.state.correlationId=correlationId;
 
     return correlate(correlationId,async()=>{
+      const leaseToken=uuid();
       let claimed=false;
+      let heartbeatTimer=null;
+      let heartbeatRunning=false;
       try{
-        const [insert]=await database.execute(
-          'INSERT IGNORE INTO processed_updates(update_id,correlation_id) VALUES(?,?)',
-          [updateId,correlationId]
+        await database.execute(
+          "INSERT IGNORE INTO telegram_update_inbox(update_id,payload,status,available_at) VALUES(?,?,'pending',UTC_TIMESTAMP())",
+          [updateId,JSON.stringify(ctx.update)]
         );
-        if(!insert.affectedRows){
-          if(ctx.callbackQuery)await ctx.answerCbQuery().catch(()=>{});
+        const [claim]=await database.execute(
+          "UPDATE telegram_update_inbox SET status='processing',locked_at=UTC_TIMESTAMP(),lease_token=?,attempts=attempts+1,last_error=NULL WHERE update_id=? AND ((status IN ('pending','failed') AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND locked_at<UTC_TIMESTAMP()-INTERVAL ? MINUTE))",
+          [leaseToken,updateId,leaseMinutes]
+        );
+        if(!claim.affectedRows){
+          const [[row]]=await database.execute('SELECT status FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+          if(row?.status==='completed'&&ctx.callbackQuery)await ctx.answerCbQuery().catch(()=>{});
           return;
         }
         claimed=true;
+        heartbeatTimer=setInterval(async()=>{
+          if(heartbeatRunning)return;
+          heartbeatRunning=true;
+          try{
+            const [renewed]=await database.execute(
+              "UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP() WHERE update_id=? AND lease_token=? AND status='processing'",
+              [updateId,leaseToken]
+            );
+            if(renewed?.affectedRows===0)log.warn({updateId},'Telegram update lease was lost during processing');
+          }catch(error){log.warn({err:error,updateId},'Telegram update lease heartbeat failed');}
+          finally{heartbeatRunning=false;}
+        },heartbeatIntervalMs);
+        heartbeatTimer.unref?.();
 
-        if(userId){
+        const [[attempt]]=await database.execute('SELECT attempts FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+        const replay=Number(attempt?.attempts)>1;
+        ctx.state.durableReplay=replay;
+
+        if(userId&&!replay){
           const policy=ratePolicy(ctx);
           await database.execute(
             "INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,?,UTC_TIMESTAMP(),1) ON DUPLICATE KEY UPDATE request_count=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,1,request_count+1),window_started_at=IF(window_started_at<=UTC_TIMESTAMP()-INTERVAL 10 SECOND,UTC_TIMESTAMP(),window_started_at)",
@@ -52,6 +82,8 @@ export function createUpdateGuard({
           if(Number(counter?.request_count)>policy.max){
             if(ctx.callbackQuery)await ctx.answerCbQuery('درخواست‌های شما بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.',{show_alert:true}).catch(()=>{});
             else if(ctx.chat?.id)await ctx.reply('تعداد درخواست‌ها زیاد است. لطفاً چند ثانیه صبر کنید.').catch(()=>{});
+            await database.execute("UPDATE telegram_update_inbox SET status='completed',completed_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL WHERE update_id=? AND lease_token=?",[updateId,leaseToken]);
+            claimed=false;
             return;
           }
         }
@@ -61,21 +93,31 @@ export function createUpdateGuard({
         if(count%500===0){
           try{
             await Promise.all([
+              database.execute("DELETE FROM telegram_update_inbox WHERE status='completed' AND completed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY"),
               database.execute('DELETE FROM processed_updates WHERE processed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY'),
               database.execute('DELETE FROM telegram_rate_limits WHERE window_started_at<UTC_TIMESTAMP()-INTERVAL 1 DAY')
             ]);
-          }catch(error){
-            log.warn({err:error,updateId},'Telegram update cleanup failed; request processing continues');
-          }
+          }catch(error){log.warn({err:error,updateId},'Telegram update cleanup failed; request processing continues');}
         }
-        return await next();
+
+        await next();
+        await database.execute("UPDATE telegram_update_inbox SET status='completed',completed_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=NULL WHERE update_id=? AND lease_token=? AND status='processing'",[updateId,leaseToken]);
+        claimed=false;
       }catch(error){
         log.error({err:error,updateId,userId},'Telegram update processing failed');
         if(claimed){
-          await database.execute('DELETE FROM processed_updates WHERE update_id=?',[updateId])
-            .catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update claim'));
+          const [[currentAttempt]]=await database.execute('SELECT attempts FROM telegram_update_inbox WHERE update_id=? AND lease_token=?',[updateId,leaseToken]).catch(()=>[[]]);
+          const attempts=Number(currentAttempt?.attempts||0);
+          const terminal=attempts>=MAX_ATTEMPTS;
+          const delay=terminal?30*24*60*60:Math.min(3600,Math.pow(2,Math.max(1,attempts))*15);
+          await database.execute(
+            "UPDATE telegram_update_inbox SET status='failed',available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE update_id=? AND lease_token=? AND status='processing'",
+            [delay,String(error?.message||error).slice(0,500),updateId,leaseToken]
+          ).catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update lease'));
         }
         throw error;
+      }finally{
+        if(heartbeatTimer)clearInterval(heartbeatTimer);
       }
     });
   };

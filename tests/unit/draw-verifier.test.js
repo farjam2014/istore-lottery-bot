@@ -18,13 +18,13 @@ const ranked=rankDrawCandidates(seed,candidates);
 const winners=ranked.slice(0,2).map((x,index)=>({campaign_code_id:x.campaign_code_id,participant_id:x.participant_id,code_snapshot:x.code_snapshot,rank_position:index+1}));
 const proof={
   proofVersion:DRAW_PROOF_VERSION,
-  draw:{id:9,campaignId:13,status:'completed',algorithm:DRAW_ALGORITHM,seedHash:createHash('sha256').update(seed).digest('hex'),revealedSeed:seed,candidateSnapshotHash:snapshotHash,candidateCount:3,winnerCount:2,publication:{reference:'https://example.com/draw/9',publishedAt:'2026-11-17T10:00:00.000Z',publishedBy:'admin'},completedAt:'2026-11-17T10:01:00.000Z'},
+  draw:{id:9,campaignId:13,status:'completed',algorithm:DRAW_ALGORITHM,seedHash:createHash('sha256').update(seed).digest('hex'),revealedSeed:seed,candidateSnapshotHash:snapshotHash,candidateCount:3,winnerCount:2,publication:{reference:'https://github.com/farjam2014/istore-lottery-bot',publishedAt:'2026-11-17T10:00:00.000Z',publishedBy:'admin'},completedAt:'2026-11-17T10:01:00.000Z'},
   candidates,winners
 };
 
 test('publication references require a real HTTPS URL without embedded credentials',()=>{
-  assert.equal(isValidPublicationReference('https://example.com/draw/9'),true);
-  assert.equal(isValidPublicationReference('http://example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://github.com/farjam2014/istore-lottery-bot'),true);
+  assert.equal(isValidPublicationReference('http://github.com/farjam2014/istore-lottery-bot'),false);
   assert.equal(isValidPublicationReference('https://'),false);
   assert.equal(isValidPublicationReference('https://!!!!!!!!'),false);
   assert.equal(isValidPublicationReference('https://-bad.example/draw/9'),false);
@@ -33,9 +33,13 @@ test('publication references require a real HTTPS URL without embedded credentia
   assert.equal(isValidPublicationReference('https://10.0.0.1/draw/9'),false);
   assert.equal(isValidPublicationReference('https://192.168.1.20/draw/9'),false);
   assert.equal(isValidPublicationReference('https://service.internal/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://sub.example.org/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://host.onion/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://host.arpa/draw/9'),false);
   assert.equal(isValidPublicationReference('https://host.local/draw/9'),false);
-  assert.equal(isValidPublicationReference('https://user:secret@example.com/draw/9'),false);
-  assert.equal(isValidPublicationReference(' https://example.com/draw/9'),false);
+  assert.equal(isValidPublicationReference('https://user:secret@github.com/farjam2014/istore-lottery-bot'),false);
+  assert.equal(isValidPublicationReference(' https://github.com/farjam2014/istore-lottery-bot'),false);
   assert.equal(isValidPublicationReference('https://example.com/'+('a'.repeat(490))),false);
 });
 
@@ -61,7 +65,7 @@ test('proof rejects altered seed, candidate list, winner, algorithm and missing 
   assert.equal(verifyDrawProof(badTimestamp).reason,'publication_metadata_missing');
   const latePublication=structuredClone(proof);latePublication.draw.publication.publishedAt='2026-11-17T10:02:00.000Z';
   assert.equal(verifyDrawProof(latePublication).reason,'publication_metadata_missing');
-  const credentialUrl=structuredClone(proof);credentialUrl.draw.publication.reference='https://user:secret@example.com/draw/9';
+  const credentialUrl=structuredClone(proof);credentialUrl.draw.publication.reference='https://user:secret@github.com/farjam2014/istore-lottery-bot';
   assert.equal(verifyDrawProof(credentialUrl).reason,'publication_metadata_missing');
   const wrongCampaign=structuredClone(proof);wrongCampaign.draw.campaignId=14;
   assert.equal(verifyDrawProof(wrongCampaign).reason,'candidate_campaign_mismatch');

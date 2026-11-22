@@ -549,6 +549,17 @@ test('MySQL integration: transactional outbox notifications roll back and commit
     const [[afterRollback]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?",[chatId]);assert.equal(Number(afterRollback.total),0);
     const commit=await pool.getConnection();try{await commit.beginTransaction();await enqueueTelegramNotification({chatId,text:'must commit',executor:commit});await commit.commit();}finally{commit.release();}
     const [[afterCommit]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=?",[chatId]);assert.equal(Number(afterCommit.total),1);
+    const telegramId=String(790000000000n+(BigInt(Date.now())%100000000000n));let participantId,ticketId;
+    const ticketNo='SUP-'+telegramId;
+    try{
+      const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Outbox Support Test','+989121234567','outbox_support_test']);participantId=participant.insertId;
+      const rollbackTicket=await pool.getConnection();try{await rollbackTicket.beginTransaction();const [ticket]=await rollbackTicket.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,? ,?,'new')",[ticketNo,participantId,'technical','Rollback ticket']);await rollbackTicket.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticket.insertId,telegramId,'rollback message']);await enqueueTelegramNotification({chatId,text:'ticket notice rollback',executor:rollbackTicket});await rollbackTicket.rollback();}finally{rollbackTicket.release();}
+      const [[rolledBackTicket]]=await pool.execute('SELECT COUNT(*) total FROM support_tickets WHERE ticket_number=?',[ticketNo]);assert.equal(Number(rolledBackTicket.total),0);
+      const [[rolledBackNotice]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=? AND payload LIKE '%ticket notice rollback%'",[chatId]);assert.equal(Number(rolledBackNotice.total),0);
+      const commitTicket=await pool.getConnection();try{await commitTicket.beginTransaction();const [ticket]=await commitTicket.execute("INSERT INTO support_tickets(ticket_number,participant_id,category,subject,status) VALUES(?,?,? ,?,'new')",[ticketNo,participantId,'technical','Committed ticket']);ticketId=ticket.insertId;await commitTicket.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'participant',?,?)",[ticketId,telegramId,'committed message']);await enqueueTelegramNotification({chatId,text:'ticket notice commit',executor:commitTicket});await commitTicket.commit();}finally{commitTicket.release();}
+      const [[committedTicket]]=await pool.execute('SELECT COUNT(*) total FROM support_tickets WHERE ticket_number=?',[ticketNo]);assert.equal(Number(committedTicket.total),1);
+      const [[committedNotice]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE chat_id=? AND payload LIKE '%ticket notice commit%'",[chatId]);assert.equal(Number(committedNotice.total),1);
+    }finally{if(ticketId)await pool.execute('DELETE FROM support_messages WHERE ticket_id=?',[ticketId]);if(participantId)await pool.execute('DELETE FROM support_tickets WHERE participant_id=?',[participantId]);if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
   }finally{await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
 });
 
@@ -685,7 +696,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     assert.equal(prepared.status,'prepared');assert.equal(prepared.candidateCount,3);assert.equal(prepared.winnerCount,2);
     assert.match(prepared.seedHash,/^[a-f0-9]{64}$/);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/پیش از اجرای قرعه‌کشی/);
-    await pool.execute('UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=?',['https://example.com/public-draw/'+drawId,telegramIds[0],drawId]);
+    await pool.execute('UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=?',['https://github.com/farjam2014/istore-lottery-bot/releases/tag/draw-'+drawId,telegramIds[0],drawId]);
     const [[before]]=await pool.execute('SELECT status,revealed_seed,seed_ciphertext,seed_key_id,candidate_snapshot_hash FROM campaign_draws WHERE id=?',[drawId]);
     assert.equal(before.status,'prepared');assert.equal(before.revealed_seed,null);assert.ok(before.seed_ciphertext);assert.equal(before.seed_key_id,'legacy-env');assert.equal(before.candidate_snapshot_hash,prepared.candidateSnapshotHash);
     await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}),/قبلاً/);
@@ -737,7 +748,43 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
 });
 
 
-test('MySQL integration: draw preparation waits for pending payments and prepared draws reject late receipt approvals',{skip:!enabled},async()=>{
+test('MySQL integration: draw preparation respects configured draw_at',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  assert.match(String(process.env.DRAW_SEED_ENCRYPTION_KEY||''),/^[a-f0-9]{64}$/i);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {prepareCampaignDraw}=await import('../../src/modules/draw/draw.service.js');
+  let campaignId,participantId,entryId,codeId;
+  const suffix=String(Date.now())+'-'+Math.random().toString(16).slice(2);
+  const telegramId=String(640000000000n+(BigInt(Date.now())%100000000000n));
+  try{
+    await migrate();
+    const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Future Draw Test','+989121777779','future_draw_'+suffix]);
+    participantId=participant.insertId;
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,draw_at) VALUES(?,?,'closed','free',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",['future-draw-'+suffix,'Future draw test']);
+    campaignId=campaign.insertId;
+    const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('test',true),'eligible')",[campaignId,participantId]);
+    entryId=entry.insertId;
+    const [code]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?,1,2,'active')",[entryId,campaignId,'P'+campaignId+'-FUTURE1-X0']);
+    codeId=code.insertId;
+    await assert.rejects(prepareCampaignDraw({campaignId,createdBy:telegramId,winnerCount:1}),/زمان تعیین‌شده برای قرعه‌کشی هنوز نرسیده/);
+    const [[drawCount]]=await pool.execute('SELECT COUNT(*) total FROM campaign_draws WHERE campaign_id=?',[campaignId]);
+    assert.equal(Number(drawCount.total),0);
+  }finally{
+    if(campaignId){
+      await pool.execute('DELETE FROM draw_winners WHERE campaign_id=?',[campaignId]);
+      await pool.execute('DELETE FROM draw_candidates WHERE campaign_id=?',[campaignId]);
+      await pool.execute('DELETE FROM campaign_draws WHERE campaign_id=?',[campaignId]);
+      await pool.execute('DELETE FROM campaign_codes WHERE campaign_id=?',[campaignId]);
+      await pool.execute('DELETE FROM campaign_entries WHERE campaign_id=?',[campaignId]);
+      await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    }
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
+  }
+});
+
+test('MySQL integration: draw preparation waits for first and repeat pending payments and rejects late approvals',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   assert.match(String(process.env.DRAW_SEED_ENCRYPTION_KEY||''),/^[a-f0-9]{64}$/i);
@@ -748,7 +795,7 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
   const suffix=String(Date.now())+'-'+Math.random().toString(16).slice(2);
   const telegramIds=[1,2].map(n=>String(650000000000n+BigInt(n)*10000000000n+(BigInt(Date.now())%1000000000n)));
   const participantIds=[];
-  let campaignId,eligibleEntryId,pendingEntryId,codeId,orderId,receiptId,drawId;
+  let campaignId,eligibleEntryId,pendingEntryId,codeId,orderId,receiptId,repeatOrderId,repeatReceiptId,drawId;
   try{
     await migrate();
     for(let i=0;i<2;i++){
@@ -759,7 +806,7 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
       participantIds.push(p.insertId);
     }
     const [campaign]=await pool.execute(
-      "INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'closed','paid',100000,1)",
+      "INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'closed','paid',100000,2)",
       ['draw-payment-race-'+suffix,'Draw payment race']
     );
     campaignId=campaign.insertId;
@@ -779,7 +826,7 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
     );
     codeId=code.insertId;
     const [order]=await pool.execute(
-      "INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,currency,status,expires_at) VALUES(?,? ,100000,'IRR','under_review',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",
+      "INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,requested_code_count,currency,status,expires_at) VALUES(?,?,100000,1,'IRR','under_review',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",
       [pendingEntryId,'ISTPAY-'+suffix.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,24)]
     );
     orderId=order.insertId;
@@ -788,6 +835,16 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
       [orderId,'draw-payment-file-'+suffix,'draw-payment-unique-'+suffix]
     );
     receiptId=receipt.insertId;
+    const [repeatOrder]=await pool.execute(
+      "INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,requested_code_count,currency,status,expires_at) VALUES(?,?,100000,1,'IRR','under_review',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",
+      [eligibleEntryId,'ISTREP-'+suffix.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,20)]
+    );
+    repeatOrderId=repeatOrder.insertId;
+    const [repeatReceipt]=await pool.execute(
+      "INSERT INTO payment_receipts(order_id,telegram_file_id,telegram_file_unique_id,status) VALUES(?,?,?,'submitted')",
+      [repeatOrderId,'draw-repeat-file-'+suffix,'draw-repeat-unique-'+suffix]
+    );
+    repeatReceiptId=repeatReceipt.insertId;
 
     const firstAttempt=await prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}).then(value=>({value}),error=>({error}));
     if(firstAttempt.value)drawId=firstAttempt.value.drawId;
@@ -795,6 +852,10 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
 
     await pool.execute("UPDATE campaign_entries SET status='cancelled' WHERE id=?",[pendingEntryId]);
     await pool.execute("UPDATE payment_orders SET status='cancelled' WHERE id=?",[orderId]);
+    const repeatAttempt=await prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1}).then(value=>({value}),error=>({error}));
+    if(repeatAttempt.value)drawId=repeatAttempt.value.drawId;
+    assert.match(String(repeatAttempt.error?.message||''),/سفارش‌های پرداختی فعال/);
+    await pool.execute("UPDATE payment_orders SET status='cancelled' WHERE id=?",[repeatOrderId]);
     const prepared=await prepareCampaignDraw({campaignId,createdBy:telegramIds[0],winnerCount:1});
     drawId=prepared.drawId;
     assert.equal(prepared.candidateCount,1);
@@ -823,6 +884,11 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
       await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);
       await pool.execute('DELETE FROM payment_orders WHERE id=?',[orderId]);
     }
+    if(repeatOrderId){
+      await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[repeatOrderId]);
+      await pool.execute('DELETE FROM payment_events WHERE order_id=?',[repeatOrderId]);
+      await pool.execute('DELETE FROM payment_orders WHERE id=?',[repeatOrderId]);
+    }
     if(campaignId){
       await pool.execute('DELETE FROM campaign_codes WHERE campaign_id=?',[campaignId]);
       await pool.execute('DELETE FROM campaign_entries WHERE campaign_id=?',[campaignId]);
@@ -831,7 +897,6 @@ test('MySQL integration: draw preparation waits for pending payments and prepare
     for(const id of participantIds)await pool.execute('DELETE FROM participants WHERE id=?',[id]);
   }
 });
-
 
 test('MySQL integration: production migration preflight contains only executable SELECT statements',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
@@ -850,18 +915,52 @@ test('MySQL integration: production migration preflight contains only executable
 });
 
 
-test('MySQL integration: campaign archive is blocked while a prepared draw exists',{skip:!enabled},async()=>{
+test('MySQL integration: manually close campaigns without an end date for draw readiness',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {closeCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
+  let campaignId;
+  const slug='manual-close-'+Date.now();
+  try{
+    await migrate();
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,ends_at) VALUES(?,?,'open','free',NULL)",[slug,'Manual close without end date']);
+    campaignId=campaign.insertId;
+    const result=await closeCampaign({campaignId,actorId:'9001'});
+    assert.equal(result.from,'open');
+    assert.equal(result.to,'closed');
+    const [[closed]]=await pool.execute('SELECT status,ends_at FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(closed.status,'closed');
+    assert.equal(closed.ends_at,null);
+    await assert.rejects(closeCampaign({campaignId,actorId:'9001'}),/بستن دستی فقط/);
+  }finally{
+    if(campaignId){
+      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.closed_manually'",[campaignId]);
+      await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    }
+  }
+});
+
+test('MySQL integration: campaign archive requires eligible entries to be resolved and blocks prepared draws',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
   const {archiveCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
-  let campaignId,drawId;
+  let campaignId,drawId,participantId,entryId,codeId,expiredOrderId;
   const slug='archive-draw-'+Date.now();
+  const telegramId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
   try{
     await migrate();
     const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type) VALUES(?,?,'closed','free')",[slug,'Archive draw guard']);
     campaignId=campaign.insertId;
+    const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Archive Eligible Participant','+989121234567','archive_test']);
+    participantId=participant.insertId;
+    const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,?,'eligible')",[campaignId,participantId,JSON.stringify({telegram_user_id:telegramId,full_name:'Archive Eligible Participant'})]);
+    entryId=entry.insertId;
+    const [code]=await pool.execute("INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code,sequence_number,format_version,status) VALUES(?,?,?,1,2,'active')",[entryId,campaignId,'P'+campaignId+'-ARCH1-X0']);
+    codeId=code.insertId;
     const [draw]=await pool.execute(
       "INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','legacy-test',?,0,'9001')",
       [campaignId,'a'.repeat(64)]
@@ -871,19 +970,28 @@ test('MySQL integration: campaign archive is blocked while a prepared draw exist
     const [[unchanged]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(unchanged.status,'closed');
     await pool.execute("UPDATE campaign_draws SET status='cancelled' WHERE id=?",[drawId]);
+    await assert.rejects(archiveCampaign({campaignId,actorId:'9001'}),/شرکت‌کنندگان واجد شرایط/);
+    const [[stillClosed]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
+    assert.equal(stillClosed.status,'closed');
+    await pool.execute("UPDATE participants SET status='blocked' WHERE id=?",[participantId]);
+    const [expiredOrder]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,currency,status,expires_at) VALUES(?,? ,100000,'IRR','rejected',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,'ARCH-'+Date.now()]);
+    expiredOrderId=expiredOrder.insertId;
     const archived=await archiveCampaign({campaignId,actorId:'9001'});
     assert.equal(archived.to,'archived');
     const [[updated]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(updated.status,'archived');
   }finally{
-    if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(expiredOrderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[expiredOrderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[expiredOrderId]);}
+    if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
+    if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
       await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.archived'",[campaignId]);
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
 });
-
 
 test('MySQL integration: draw winner cannot reference a candidate with mismatched participant or entry',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);

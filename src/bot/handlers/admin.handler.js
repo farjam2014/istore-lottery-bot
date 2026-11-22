@@ -20,7 +20,7 @@ import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../s
 import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
-import {archiveCampaign} from '../../modules/campaigns/campaign-admin.service.js';
+import {archiveCampaign,closeCampaign} from '../../modules/campaigns/campaign-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -162,6 +162,7 @@ async function showCampaignDetail(ctx,id){
   const actions=[];
   const canDraw=await hasPermission(ctx.from?.id,'campaign.draw');
   if(['draft','scheduled','paused','open'].includes(c.status))actions.push([Markup.button.callback(c.status==='open'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id)]);
+  if(['open','paused','scheduled'].includes(c.status))actions.push([Markup.button.callback('🔒 بستن کمپین و آماده‌سازی قرعه‌کشی','admin:campaign:close:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
   actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
@@ -341,6 +342,22 @@ export function registerAdminHandlers(bot){
     try{await archiveCampaign({campaignId:id,actorId:String(ctx.from.id)});}
     catch(error){return ctx.answerCbQuery(error.message||'بایگانی انجام نشد.',{show_alert:true});}
     await ctx.answerCbQuery('بایگانی شد.');return showCampaignList(ctx,0);
+  });
+  bot.action(/^admin:campaign:close:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);
+    const [[campaign]]=await pool.execute('SELECT id,title,status FROM campaigns WHERE id=?',[id]);
+    if(!campaign||!['open','paused','scheduled'].includes(campaign.status))return ctx.answerCbQuery('این کمپین امکان بستن دستی ندارد.',{show_alert:true});
+    await ctx.answerCbQuery();
+    return respond(ctx,'آیا مطمئن هستید کمپین «'+campaign.title+'» بسته شود؟ پس از بسته‌شدن، ثبت شرکت جدید متوقف می‌شود و کمپین برای آماده‌سازی قرعه‌کشی در وضعیت بسته قرار می‌گیرد.',Markup.inlineKeyboard([[Markup.button.callback('🔒 تأیید بستن کمپین','admin:campaign:close-confirm:'+id)],[Markup.button.callback('لغو','admin:campaign:detail:'+id)]]));
+  });
+  bot.action(/^admin:campaign:close-confirm:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
+    const id=Number(ctx.match[1]);
+    try{await closeCampaign({campaignId:id,actorId:String(ctx.from.id)});}
+    catch(error){return ctx.answerCbQuery(error.message||'بستن کمپین ناموفق بود.',{show_alert:true});}
+    await ctx.answerCbQuery('کمپین بسته شد.');
+    return showCampaignDetail(ctx,id);
   });
   bot.action(/^admin:campaign:toggle:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});

@@ -10,6 +10,8 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const LOCK_NAME='ustore_telegram_bot_schema_migrations';
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
+import {assertMigrationHistoryIntegrity} from './migration-integrity.js';
+
 async function hasIndex(connection,table,index){
   const [[row]]=await connection.execute(
     'SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?',
@@ -260,7 +262,6 @@ export async function migrate(){
     lockAcquired=Number(lock?.acquired)===1;
     if(!lockAcquired)throw new Error('Could not acquire the database migration lock within 30 seconds.');
 
-    for(const statement of splitSql(base))await c.query(statement);
     await c.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version VARCHAR(120) PRIMARY KEY,
       checksum CHAR(64) NOT NULL,
@@ -269,6 +270,12 @@ export async function migrate(){
 
     const dir=path.join(here,'migrations');
     const files=(await readdir(dir)).filter(x=>x.endsWith('.sql')).sort();
+    const [appliedRows]=await c.execute('SELECT version FROM schema_migrations ORDER BY version');
+    assertMigrationHistoryIntegrity(appliedRows.map(row=>row.version),files);
+
+    // Fail closed before base schema or migration DDL if production history
+    // references migration files that are absent from this release source.
+    for(const statement of splitSql(base))await c.query(statement);
     for(const file of files){
       const sql=await readFile(path.join(dir,file),'utf8');
       const checksum=createHash('sha256').update(sql).digest('hex');

@@ -6,6 +6,8 @@ This document is an operational checklist, not an authorization to deploy. A rel
 
 Target runtime: Ubuntu 24.04, Node.js 22+, MySQL 8+, systemd service `ustore-telegram-bot.service`. The application directory and service configuration must be confirmed on the target host before use.
 
+For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOYMENT.md`](./PRODUCTION_STAGED_DEPLOYMENT.md). Do not use the Ubuntu installer to deploy over the active release path.
+
 ## 1. Pre-deployment gates
 
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
@@ -38,7 +40,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The nine new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The ten release migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
@@ -49,12 +51,14 @@ The migration runner sorts SQL files by filename. The nine new migrations are ap
 7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
 8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
 9. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`, allowing campaign field-edit callbacks to persist their wizard state without removing existing workflow values.
+10. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata for idempotent recovery.
 
 Important migration properties:
 
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
 - Applied migration checksums must not change.
+- Before base-schema or migration DDL, the runner compares every applied migration version with the release source files and fails closed if an applied migration file is missing.
 - Migration 009 only extends the `admin_wizards.step` enum. Its replay guard verifies the expected existing workflow values and treats the new value as already applied if it is present; an unexpected enum state fails closed.
 - Migration 001 now checks for legacy campaign-code rows whose `campaign_id` disagrees with their entry's campaign before adding the composite foreign key.
 - Migration 006 fails closed if any legacy `draw_candidates` or `draw_winners` rows exist. It does not infer historical candidate snapshots or participant ownership. Existing draw evidence must be reviewed and reconciled explicitly before this migration can be applied.
@@ -77,6 +81,7 @@ Run production migrations only after explicit approval, a verified backup, and a
 10. Observe logs and service health before re-enabling registration and payment workflows.
 
 The Ubuntu installer does not create a database backup. Its approval flags authorize schema/database changes; they do not replace backup verification or production approval.
+Before using the installer on an existing host, verify that its systemd unit already points to the installer's exact application directory. The installer must refuse mismatched service paths before stopping any service. This installer is not the production release deployment mechanism for the current host, whose active source is under `/opt/ustore-releases/`; use the reviewed staged-release procedure instead.
 The installer validates the environment first, then stops an active service before updating the source checkout or applying migrations. If it fails after stopping the service, it deliberately leaves the service stopped; inspect the code and schema state before any manual start.
 
 ## 5. Post-deployment checks
@@ -97,6 +102,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] Proof export succeeds, contains no participant contact details or Telegram IDs, and stays within the 45 MiB compressed limit.
 - [ ] Offline proof verification succeeds on a separate machine.
 - [ ] Notification outbox, audit logs, and error rates are healthy.
+- [ ] Telegram inbox backlog, retry/dead-letter counts, and payload-retention cleanup are observable and acceptable.
 - [ ] Backup and key recovery remain available after the deployment.
 
 ## 6. Stop conditions
@@ -152,3 +158,10 @@ Do not restore the pre-deployment database backup blindly: doing so would discar
 ## 9. Release decision
 
 Do not label the release READY until the latest-head CI, production read-only inventory, independent key backup/recovery rehearsal, migration compatibility, and rollback plan have all been verified with evidence. Any unverified production condition remains BLOCKED or NOT VERIFIED.
+
+## Privacy and retention
+
+- Participant profiles and payment receipts contain personal data. The application does not currently enforce automatic deletion of participant profiles, payment receipt metadata/file IDs, payment events, or audit logs.
+- Before launch, publish a privacy notice and approve retention periods for participant contact data, receipts, payment/order records, support transcripts, and audit logs.
+- Verify least-privilege export permissions: participant export is restricted to `participant.export`; campaign code export requires `campaign.write` and `participant.read`; payment export requires `payment.read`.
+- Review Telegram update inbox retention: completed payloads are purged after three days; pending/failed and stale-processing payloads are purged after thirty days.

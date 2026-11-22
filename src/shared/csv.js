@@ -1,6 +1,6 @@
 export function csvCell(value){
   let text=String(value??'');
-  if(/^[=+@\t\r-]/.test(text))text="'"+text;
+  if(/^[\s\uFEFF]*[=+\-@]/.test(text)||/^[\u0000-\u001F\u007F]/.test(text))text="'"+text;
   return '"'+text.replace(/"/g,'""')+'"';
 }
 export function toCsv(rows,columns){

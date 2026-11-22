@@ -9,7 +9,7 @@ Requires Node.js 22+, MySQL 8+, and a Telegram bot token.
 Copy `.env.example` to `.env`, configure credentials, and take a verified database backup before the first production migration. Then run:
 
 ```bash
-npm install
+npm ci
 ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 MIGRATION_TARGET_DATABASE=your_database_name npm run db:migrate
 npm start
 ```
@@ -29,7 +29,8 @@ Replace `your_database_name` with the exact `MYSQL_DATABASE` value in `.env`. Th
 ## Reliability controls
 
 - Polling startup detects and removes a stale Telegram webhook without discarding pending updates.
-- Telegram update IDs are claimed idempotently; database-backed per-user rate limits are applied to text, callback and other updates.
+- Telegram update IDs are claimed idempotently through a durable inbox; database-backed per-user rate limits are applied to text, callback and other updates.
+- Inbox payloads contain the Telegram Update needed for replay. Completed payloads are retained for three days; pending, failed and stale-processing payloads are purged after thirty days. This retention window is an operational/privacy tradeoff and should be reviewed before production use.
 - Correlation IDs are carried through async logs, processed-update rows, payment events, audit records and queued notifications.
 - Notification delivery uses a leased outbox with bounded automatic retries. Failed and uncertain deliveries can be retried manually from the super-admin health screen; uncertain retries explicitly warn that duplicates are possible.
 - Bank-card details are snapshotted per order, and successful presentation to a participant is recorded in the payment event history using only the card's last four digits.
@@ -40,6 +41,14 @@ See `docs/COMPLETION_SCOPE.md` for product invariants, `docs/VERIFIABLE_DRAWS.md
 
 ```bash
 npm test
+
+# Prepare an isolated disposable database (run as root for MySQL socket access)
+sudo MYSQL_TEST_DATABASE=ustore_bot_ci ./scripts/prepare-integration-db.sh
+
+# Run against that database, never against MYSQL_DATABASE from .env
+MYSQL_TEST_DATABASE=ustore_bot_ci \
+MYSQL_TEST_ADMIN_USER=root \
+MYSQL_TEST_ADMIN_PASSWORD='<test-admin-password>' \
 npm run test:integration
 ```
 
