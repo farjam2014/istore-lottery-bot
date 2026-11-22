@@ -6,6 +6,8 @@ This document is an operational checklist, not an authorization to deploy. A rel
 
 Target runtime: Ubuntu 24.04, Node.js 22+, MySQL 8+, systemd service `ustore-telegram-bot.service`. The application directory and service configuration must be confirmed on the target host before use.
 
+For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOYMENT.md`](./PRODUCTION_STAGED_DEPLOYMENT.md). Do not use the Ubuntu installer to deploy over the active release path.
+
 ## 1. Pre-deployment gates
 
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
@@ -38,7 +40,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The ten new migrations are applied in this order:
+The migration runner sorts SQL files by filename. The ten release migrations are applied in this order:
 
 1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
 2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
