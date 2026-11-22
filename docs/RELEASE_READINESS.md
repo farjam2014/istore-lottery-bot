@@ -99,6 +99,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] Proof export succeeds, contains no participant contact details or Telegram IDs, and stays within the 45 MiB compressed limit.
 - [ ] Offline proof verification succeeds on a separate machine.
 - [ ] Notification outbox, audit logs, and error rates are healthy.
+- [ ] Telegram inbox backlog, retry/dead-letter counts, and payload-retention cleanup are observable and acceptable.
 - [ ] Backup and key recovery remain available after the deployment.
 
 ## 6. Stop conditions

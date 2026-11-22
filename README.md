@@ -29,7 +29,8 @@ Replace `your_database_name` with the exact `MYSQL_DATABASE` value in `.env`. Th
 ## Reliability controls
 
 - Polling startup detects and removes a stale Telegram webhook without discarding pending updates.
-- Telegram update IDs are claimed idempotently; database-backed per-user rate limits are applied to text, callback and other updates.
+- Telegram update IDs are claimed idempotently through a durable inbox; database-backed per-user rate limits are applied to text, callback and other updates.
+- Inbox payloads contain the Telegram Update needed for replay. Completed payloads are retained for three days; pending, failed and stale-processing payloads are purged after thirty days. This retention window is an operational/privacy tradeoff and should be reviewed before production use.
 - Correlation IDs are carried through async logs, processed-update rows, payment events, audit records and queued notifications.
 - Notification delivery uses a leased outbox with bounded automatic retries. Failed and uncertain deliveries can be retried manually from the super-admin health screen; uncertain retries explicitly warn that duplicates are possible.
 - Bank-card details are snapshotted per order, and successful presentation to a participant is recorded in the payment event history using only the card's last four digits.
