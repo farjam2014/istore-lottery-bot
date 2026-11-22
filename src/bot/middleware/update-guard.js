@@ -34,6 +34,8 @@ export function createUpdateGuard({
     return correlate(correlationId,async()=>{
       const leaseToken=uuid();
       let claimed=false;
+      let heartbeatTimer=null;
+      let heartbeatRunning=false;
       try{
         await database.execute(
           "INSERT IGNORE INTO telegram_update_inbox(update_id,payload,status,available_at) VALUES(?,?,'pending',UTC_TIMESTAMP())",
@@ -49,6 +51,19 @@ export function createUpdateGuard({
           return;
         }
         claimed=true;
+        heartbeatTimer=setInterval(async()=>{
+          if(heartbeatRunning)return;
+          heartbeatRunning=true;
+          try{
+            const [renewed]=await database.execute(
+              "UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP() WHERE update_id=? AND lease_token=? AND status='processing'",
+              [updateId,leaseToken]
+            );
+            if(renewed?.affectedRows===0)log.warn({updateId},'Telegram update lease was lost during processing');
+          }catch(error){log.warn({err:error,updateId},'Telegram update lease heartbeat failed');}
+          finally{heartbeatRunning=false;}
+        },heartbeatIntervalMs);
+        heartbeatTimer.unref?.();
 
         const [[attempt]]=await database.execute('SELECT attempts FROM telegram_update_inbox WHERE update_id=?',[updateId]);
         const replay=Number(attempt?.attempts)>1;
@@ -101,6 +116,8 @@ export function createUpdateGuard({
           ).catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update lease'));
         }
         throw error;
+      }finally{
+        if(heartbeatTimer)clearInterval(heartbeatTimer);
       }
     });
   };
