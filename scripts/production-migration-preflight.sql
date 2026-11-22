@@ -18,8 +18,12 @@ UNION ALL SELECT 'payment_events', COUNT(*) FROM payment_events
 UNION ALL SELECT 'processed_updates', COUNT(*) FROM processed_updates
 UNION ALL SELECT 'telegram_rate_limits', COUNT(*) FROM telegram_rate_limits
 UNION ALL SELECT 'telegram_notification_outbox', COUNT(*) FROM telegram_notification_outbox
-UNION ALL SELECT 'telegram_update_inbox', COUNT(*) FROM telegram_update_inbox
 ORDER BY table_name;
+
+-- Telegram inbox table presence. This query is safe before migration 002.
+SELECT 'telegram_update_inbox' AS table_name, COUNT(*) AS table_exists
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_update_inbox';
 
 -- Exact campaign code ownership mismatches. Migration 001 adds a composite
 -- FK from (campaign_entry_id,campaign_id) to campaign_entries(id,campaign_id).
