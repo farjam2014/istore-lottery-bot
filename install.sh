@@ -20,6 +20,24 @@ case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "Supported Ubuntu versions: 22
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required."
 [[ -e /dev/tty ]] || fail "An interactive terminal is required."
 
+# Refuse to touch an active service whose effective runtime points elsewhere.
+if systemctl is-active --quiet "$SERVICE"; then
+  active_user="$(systemctl show "$SERVICE" -p User --value)"
+  active_working_dir="$(systemctl show "$SERVICE" -p WorkingDirectory --value)"
+  active_exec_start="$(systemctl show "$SERVICE" -p ExecStart --value)"
+  [[ "$active_user" == "$APP_USER" ]] || fail "Active $SERVICE runs as '$active_user', expected '$APP_USER'; refusing to stop it."
+  [[ "$active_working_dir" == "$APP_DIR" ]] || fail "Active $SERVICE uses WorkingDirectory '$active_working_dir', not '$APP_DIR'; refusing to stop it."
+  [[ "$active_exec_start" == *"$APP_DIR/src/index.js"* ]] || fail "Active $SERVICE ExecStart does not target '$APP_DIR/src/index.js'; refusing to stop it."
+fi
+
+# Validate any existing unit file before provisioning, checkout updates, or service stop.
+UNIT_FILE="/etc/systemd/system/$SERVICE.service"
+if [[ -e "$UNIT_FILE" ]]; then
+  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
+  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
+  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
+fi
+
 log "Installing prerequisites."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -126,6 +144,8 @@ MIGRATION_TARGET_DATABASE="$DB_NAME"
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
 [[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
 
+# Validate the existing service target before any stop/update operation.
+
 if systemctl is-active --quiet "$SERVICE"; then
   log "Stopping the active application service before changing source files or database schema."
   systemctl stop "$SERVICE"
@@ -143,12 +163,6 @@ unset DRAW_SEED_ENCRYPTION_KEY DRAW_SEED_ENCRYPTION_KEYS
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm test"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && find src tests -name '*.js' -print0 | xargs -0 -n1 node --check"
 
-UNIT_FILE="/etc/systemd/system/$SERVICE.service"
-if [[ -e "$UNIT_FILE" ]]; then
-  grep -Fq "User=$APP_USER" "$UNIT_FILE" || fail "An unrelated $SERVICE.service already exists; refusing to overwrite it."
-  grep -Fq "WorkingDirectory=$APP_DIR" "$UNIT_FILE" || fail "Existing $SERVICE.service points to a different directory."
-  grep -Fq "ExecStart=/usr/bin/node $APP_DIR/src/index.js" "$UNIT_FILE" || fail "Existing $SERVICE.service has an unexpected ExecStart."
-fi
 
 log "Ensuring the dedicated database and restricted application user exist. No database is dropped."
 mysql <<SQL
