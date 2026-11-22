@@ -49,12 +49,14 @@ The migration runner sorts SQL files by filename. The nine new migrations are ap
 7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
 8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
 9. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`, allowing campaign field-edit callbacks to persist their wizard state without removing existing workflow values.
+10. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata for idempotent recovery.
 
 Important migration properties:
 
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
 - Applied migration checksums must not change.
+- Before base-schema or migration DDL, the runner compares every applied migration version with the release source files and fails closed if an applied migration file is missing.
 - Migration 009 only extends the `admin_wizards.step` enum. Its replay guard verifies the expected existing workflow values and treats the new value as already applied if it is present; an unexpected enum state fails closed.
 - Migration 001 now checks for legacy campaign-code rows whose `campaign_id` disagrees with their entry's campaign before adding the composite foreign key.
 - Migration 006 fails closed if any legacy `draw_candidates` or `draw_winners` rows exist. It does not infer historical candidate snapshots or participant ownership. Existing draw evidence must be reviewed and reconciled explicitly before this migration can be applied.
