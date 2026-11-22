@@ -79,6 +79,7 @@ Run production migrations only after explicit approval, a verified backup, and a
 10. Observe logs and service health before re-enabling registration and payment workflows.
 
 The Ubuntu installer does not create a database backup. Its approval flags authorize schema/database changes; they do not replace backup verification or production approval.
+Before using the installer on an existing host, verify that its systemd unit already points to the installer's exact application directory. The installer must refuse mismatched service paths before stopping any service. This installer is not the production release deployment mechanism for the current host, whose active source is under `/opt/ustore-releases/`; use the reviewed staged-release procedure instead.
 The installer validates the environment first, then stops an active service before updating the source checkout or applying migrations. If it fails after stopping the service, it deliberately leaves the service stopped; inspect the code and schema state before any manual start.
 
 ## 5. Post-deployment checks
