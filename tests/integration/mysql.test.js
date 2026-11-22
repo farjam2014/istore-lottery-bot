@@ -450,7 +450,6 @@ test('MySQL integration: failure after the first code insert rolls back all code
     assert.equal(Number(codes.total),0);
   }finally{
     if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
-    if(codeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[codeId]);
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
@@ -984,6 +983,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
   }finally{
     if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
     if(expiredOrderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[expiredOrderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[expiredOrderId]);}
+    if(codeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[codeId]);
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
