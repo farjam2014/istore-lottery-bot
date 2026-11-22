@@ -981,9 +981,9 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     const [[updated]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);
     assert.equal(updated.status,'archived');
   }finally{
-    if(drawId)await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);
+    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
     if(expiredOrderId){await pool.execute('DELETE FROM payment_events WHERE order_id=?',[expiredOrderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[expiredOrderId]);}
-    if(codeId)await pool.execute('DELETE FROM campaign_codes WHERE id=?',[codeId]);
+    if(entryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[entryId]);
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
