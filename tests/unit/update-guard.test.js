@@ -5,8 +5,9 @@ import {createUpdateGuard} from '../../src/bot/middleware/update-guard.js';
 function fakeDatabase(){
   const inbox=new Map();
   const counters=new Map();
+  let heartbeatCount=0;
   return {
-    inbox,counters,
+    inbox,counters,get heartbeatCount(){return heartbeatCount;},
     async execute(sql,params=[]){
       if(sql.startsWith('INSERT IGNORE INTO telegram_update_inbox')){
         const id=params[0];
@@ -51,6 +52,7 @@ function fakeDatabase(){
       }
       if(sql.startsWith("UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP()")){
         const row=inbox.get(params[0]);
+        if(row&&row.lease===params[1])heartbeatCount++;
         return [{affectedRows:row&&row.lease===params[1]?1:0},[]];
       }
       if(sql.startsWith('DELETE FROM '))return [{affectedRows:0},[]];
@@ -146,4 +148,13 @@ test('updates without a safe integer update id bypass inbox claiming',async()=>{
   let calls=0;
   await guard(ctx,async()=>{calls++;});
   assert.equal(calls,1);
+});
+
+
+test('long-running handler renews its lease before it expires',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,heartbeatIntervalMs:5,leaseMinutes:1});
+  await guard(context({id:900,userId:'99999'}),async()=>new Promise(resolve=>setTimeout(resolve,25)));
+  assert.ok(database.heartbeatCount>=1,'expected at least one lease heartbeat');
+  assert.equal(database.inbox.get(900).status,'completed');
 });
