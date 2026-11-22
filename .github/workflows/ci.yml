@@ -7,6 +7,8 @@ on:
       - fix/admin-role-session-command-routing
       - safety/migration-explicit-guard
       - audit/pr64-clean-rebuild
+      - release/ustore-unified
+      - audit/fix-release-blockers
   pull_request:
     branches:
       - rebuild/telegram-native-v1
