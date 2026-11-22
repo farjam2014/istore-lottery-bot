@@ -40,6 +40,7 @@ export function createUpdateInboxWorker({database=pool,log=logger}={}){
         await bot.handleUpdate(update);
         const [[state]]=await database.execute('SELECT status FROM telegram_update_inbox WHERE update_id=?',[row.update_id]);
         if(state?.status==='completed')replayed++;
+        else if(state?.status==='failed')failed++;
         else skipped++;
       }catch(error){
         log.error({err:error,updateId:row.update_id},'Durable Telegram update replay failed');
