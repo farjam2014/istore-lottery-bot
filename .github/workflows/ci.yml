@@ -12,6 +12,7 @@ on:
       - rebuild/telegram-native-v1
       - install/resumable-ubuntu-v2
       - audit/pr64-clean-rebuild
+      - release/ustore-unified
 jobs:
   test:
     runs-on: ubuntu-latest
