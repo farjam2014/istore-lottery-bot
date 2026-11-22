@@ -31,7 +31,9 @@ test('installer preserves existing application state and requires production aut
   assert.match(script,/--property=MainPID/);
   assert.match(script,/Telegram bot launched with long polling/);
   assert.doesNotMatch(script,/rm -rf/);
+  const unitPreflight=script.indexOf('Existing "$SERVICE.service" points to a different directory');
   const stopService=script.indexOf('systemctl stop "$SERVICE"');
+  assert.ok(unitPreflight>=0&&unitPreflight<stopService,'Existing service target must be validated before the service is stopped.');
   const updateCheckout=script.indexOf('git -C "$APP_DIR" fetch');
   const migrateDatabase=script.indexOf('npm run db:migrate');
   assert.ok(stopService>=0&&stopService<updateCheckout&&stopService<migrateDatabase,'An active service must stop before source checkout updates and production migrations.');
