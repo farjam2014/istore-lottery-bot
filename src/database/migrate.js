@@ -10,12 +10,7 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const LOCK_NAME='ustore_telegram_bot_schema_migrations';
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
-export function assertMigrationHistoryIntegrity(appliedVersions,sourceVersions){
-  const source=new Set(sourceVersions.map(String));
-  const missing=[...new Set(appliedVersions.map(String))].filter(version=>!source.has(version)).sort();
-  if(missing.length)throw new Error('Applied migrations are missing from source: '+missing.join(', ')+'. Restore the exact migration files before running migrations.');
-  return true;
-}
+import {assertMigrationHistoryIntegrity} from './migration-integrity.js';
 
 async function hasIndex(connection,table,index){
   const [[row]]=await connection.execute(
