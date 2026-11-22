@@ -9,13 +9,14 @@ const user=readFileSync(userPath,'utf8');
 const payment=readFileSync(paymentPath,'utf8');
 
 test('campaign poster and description are sent as one photo message with inline keyboard',()=>{
-  assert.ok(user.includes("return ctx.replyWithPhoto(campaign.poster_file_id,{caption,reply_markup:Markup.inlineKeyboard(buttons).reply_markup}"));
+  assert.ok(user.includes("const sent=await ctx.replyWithPhoto(campaign.poster_file_id,{caption,reply_markup:Markup.inlineKeyboard(buttons).reply_markup}"));
+  assert.ok(user.includes("if(truncated)await ctx.reply('📋 متن کامل توضیحات و قوانین کمپین:\\n\\n'+description)"));
   assert.ok(!user.includes("await ctx.replyWithPhoto(campaign.poster_file_id,{caption:'پوستر کمپین: '+campaign.title})"));
 });
 
 test('paid quantity selection edits the campaign message instead of sending a new prompt',()=>{
-  assert.ok(payment.includes("return ctx.editMessageCaption(base+prompt,{reply_markup:keyboard.reply_markup})"));
-  assert.ok(payment.includes("return ctx.editMessageText(base+prompt,{reply_markup:keyboard.reply_markup})"));
+  assert.ok(payment.includes("return ctx.editMessageCaption(base+safePrompt,{reply_markup:keyboard.reply_markup})"));
+  assert.ok(payment.includes("return ctx.editMessageText(base+safePrompt,{reply_markup:keyboard.reply_markup})"));
   assert.ok(!payment.includes("return ctx.reply('چند کد می‌خواهید؟'"));
 });
 
