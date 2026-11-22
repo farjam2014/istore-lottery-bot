@@ -7,9 +7,9 @@ test('recovery worker replays stored payloads and counts only completed updates'
     {update_id:1,payload:JSON.stringify({update_id:1,message:{text:'/start'}}),attempts:1},
     {update_id:2,payload:{update_id:2,callback_query:{id:'cb'}},attempts:1}
   ];
-  const calls=[];
+  const calls=[],cleanup=[];
   const database={async execute(sql,params=[]){
-    if(sql.startsWith('DELETE FROM telegram_update_inbox'))return [{affectedRows:0},[]];
+    if(sql.startsWith('DELETE FROM telegram_update_inbox')){cleanup.push(sql);return [{affectedRows:0},[]];}
     if(sql.startsWith('SELECT update_id,payload,attempts')){assert.equal(params[0],2);return [rows,[]];}
     if(sql.startsWith('SELECT status FROM telegram_update_inbox'))return [[{status:'completed'}],[]];
     throw new Error('Unexpected SQL: '+sql);
@@ -18,6 +18,7 @@ test('recovery worker replays stored payloads and counts only completed updates'
   const bot={async handleUpdate(update){calls.push(update.update_id);}};
   const result=await worker(bot,{limit:2});
   assert.deepEqual(calls,[1,2]);
+  assert.equal(cleanup.length,4,'worker must enforce completed, failed, pending and stale-processing retention');
   assert.deepEqual(result,{scanned:2,replayed:2,failed:0,skipped:0});
 });
 
