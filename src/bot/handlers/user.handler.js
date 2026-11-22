@@ -55,9 +55,11 @@ export function registerUserHandlers(bot){
     buttons.push([Markup.button.callback('بازگشت به کمپین‌ها','user:campaigns')]);
     const description=lines.join('\n\n');
     if(campaign.poster_file_id){
-      const suffix='\n\n… ادامه توضیحات در بخش شرایط کمپین';
-      const caption=description.length>1024?description.slice(0,1024-suffix.length)+suffix:description;
-      return ctx.replyWithPhoto(campaign.poster_file_id,{caption,reply_markup:Markup.inlineKeyboard(buttons).reply_markup});
+      const truncated=description.length>1024;
+      const caption=truncated?description.slice(0,1023)+'…':description;
+      const sent=await ctx.replyWithPhoto(campaign.poster_file_id,{caption,reply_markup:Markup.inlineKeyboard(buttons).reply_markup});
+      if(truncated)await ctx.reply('📋 متن کامل توضیحات و قوانین کمپین:\n\n'+description);
+      return sent;
     }
     return screenReply(ctx,description,Markup.inlineKeyboard(buttons));
   });
