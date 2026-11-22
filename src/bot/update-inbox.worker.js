@@ -47,7 +47,7 @@ export function createUpdateInboxWorker({database=pool,log=logger}={}){
         failed++;
       }
     }
-    return {claimed:rows.length,replayed,failed,skipped};
+    return {scanned:rows.length,replayed,failed,skipped};
   };
 }
 
