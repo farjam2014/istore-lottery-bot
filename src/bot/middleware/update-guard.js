@@ -4,7 +4,9 @@ import {logger} from '../../shared/logger.js';
 import {withCorrelation} from '../../shared/request-context.js';
 
 const counters=new Map();
-const LEASE_MINUTES=2;
+const LEASE_MINUTES=5;
+const HEARTBEAT_INTERVAL_MS=30_000;
+const MAX_ATTEMPTS=8;
 
 function ratePolicy(ctx){
   if(ctx.callbackQuery)return {bucket:'callback',max:35};
@@ -16,7 +18,9 @@ export function createUpdateGuard({
   database=pool,
   log=logger,
   correlate=withCorrelation,
-  uuid=randomUUID
+  uuid=randomUUID,
+  heartbeatIntervalMs=HEARTBEAT_INTERVAL_MS,
+  leaseMinutes=LEASE_MINUTES
 }={}){
   return async(ctx,next)=>{
     const updateId=ctx.update?.update_id;
@@ -37,7 +41,7 @@ export function createUpdateGuard({
         );
         const [claim]=await database.execute(
           "UPDATE telegram_update_inbox SET status='processing',locked_at=UTC_TIMESTAMP(),lease_token=?,attempts=attempts+1,last_error=NULL WHERE update_id=? AND ((status IN ('pending','failed') AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND locked_at<UTC_TIMESTAMP()-INTERVAL ? MINUTE))",
-          [leaseToken,updateId,LEASE_MINUTES]
+          [leaseToken,updateId,leaseMinutes]
         );
         if(!claim.affectedRows){
           const [[row]]=await database.execute('SELECT status FROM telegram_update_inbox WHERE update_id=?',[updateId]);
@@ -87,9 +91,13 @@ export function createUpdateGuard({
       }catch(error){
         log.error({err:error,updateId,userId},'Telegram update processing failed');
         if(claimed){
+          const [[currentAttempt]]=await database.execute('SELECT attempts FROM telegram_update_inbox WHERE update_id=? AND lease_token=?',[updateId,leaseToken]).catch(()=>[[]]);
+          const attempts=Number(currentAttempt?.attempts||0);
+          const terminal=attempts>=MAX_ATTEMPTS;
+          const delay=terminal?30*24*60*60:Math.min(3600,Math.pow(2,Math.max(1,attempts))*15);
           await database.execute(
-            "UPDATE telegram_update_inbox SET status='pending',available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 30 SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE update_id=? AND lease_token=? AND status='processing'",
-            [String(error?.message||error).slice(0,500),updateId,leaseToken]
+            "UPDATE telegram_update_inbox SET status='failed',available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE update_id=? AND lease_token=? AND status='processing'",
+            [delay,String(error?.message||error).slice(0,500),updateId,leaseToken]
           ).catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update lease'));
         }
         throw error;
