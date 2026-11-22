@@ -45,4 +45,5 @@ test('malformed payloads are quarantined with bounded retry metadata and worker 
   assert.equal(updates.length,1);
   assert.equal(updates[0].params[0],30*24*60*60,'attempt 8 must receive terminal backoff');
   assert.match(updates[0].params[1],/Inbox payload\/update ID mismatch|Unexpected end|JSON/);
+  assert.match(updates[0].sql,/available_at<=UTC_TIMESTAMP\(\)/,'quarantine must not race with future-backoff rows');
 });
