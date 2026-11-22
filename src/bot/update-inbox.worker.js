@@ -6,14 +6,16 @@ const MAX_BATCH=50;
 
 export function createUpdateInboxWorker({database=pool,log=logger}={}){
   return async(bot,{limit=10}={})=>{
-    // Retain completed updates for three days for diagnostics; terminal failures
-    // retain only metadata for thirty days after their initial creation.
+    // Keep completed updates for three days. Unprocessed/failed payloads are
+    // retained for at most thirty days; stale leases are also purged.
     await database.execute(
       "DELETE FROM telegram_update_inbox WHERE status='completed' AND completed_at<UTC_TIMESTAMP()-INTERVAL 3 DAY LIMIT 500"
     );
     await database.execute(
-      "DELETE FROM telegram_update_inbox WHERE status='failed' AND attempts>=? AND created_at<UTC_TIMESTAMP()-INTERVAL 30 DAY LIMIT 500",
-      [MAX_ATTEMPTS]
+      "DELETE FROM telegram_update_inbox WHERE status IN ('pending','failed') AND created_at<UTC_TIMESTAMP()-INTERVAL 30 DAY LIMIT 500"
+    );
+    await database.execute(
+      "DELETE FROM telegram_update_inbox WHERE status='processing' AND locked_at<UTC_TIMESTAMP()-INTERVAL 30 DAY AND created_at<UTC_TIMESTAMP()-INTERVAL 30 DAY LIMIT 500"
     );
     const [rows]=await database.execute(
       "SELECT update_id,payload,attempts FROM telegram_update_inbox WHERE (status IN ('pending','failed') AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND locked_at<UTC_TIMESTAMP()-INTERVAL 5 MINUTE) ORDER BY update_id LIMIT ?",
