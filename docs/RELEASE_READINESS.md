@@ -155,3 +155,10 @@ Do not restore the pre-deployment database backup blindly: doing so would discar
 ## 9. Release decision
 
 Do not label the release READY until the latest-head CI, production read-only inventory, independent key backup/recovery rehearsal, migration compatibility, and rollback plan have all been verified with evidence. Any unverified production condition remains BLOCKED or NOT VERIFIED.
+
+## Privacy and retention
+
+- Participant profiles and payment receipts contain personal data. The application does not currently enforce automatic deletion of participant profiles, payment receipt metadata/file IDs, payment events, or audit logs.
+- Before launch, publish a privacy notice and approve retention periods for participant contact data, receipts, payment/order records, support transcripts, and audit logs.
+- Verify least-privilege export permissions: participant export is restricted to `participant.export`; campaign code export requires `campaign.write` and `participant.read`; payment export requires `payment.read`.
+- Review Telegram update inbox retention: completed payloads are purged after three days; pending/failed and stale-processing payloads are purged after thirty days.
