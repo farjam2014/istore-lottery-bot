@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
 
@@ -49,4 +50,11 @@ test('payment navigation callback patterns accept numeric IDs and pages',()=>{
   assert.ok(order,'order detail callback is registered');
   assert.ok(page.test('user:orders:page:2'));
   assert.ok(order.test('payment:order:123'));
+});
+
+test('handler callback regexes do not contain double-escaped digit tokens',()=>{
+  for(const path of ['src/bot/handlers/user.handler.js','src/bot/handlers/payment.handler.js','src/bot/handlers/admin.handler.js']){
+    const source=readFileSync(new URL('../../'+path,import.meta.url),'utf8');
+    assert.doesNotMatch(source,/\\\\d\+/,{message:path+' contains a double-escaped digit regex'});
+  }
 });
