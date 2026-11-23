@@ -62,8 +62,8 @@ async function sendPaymentOrder(ctx,campaignId,requestedCodeCount){
     return sent;
   }catch(e){return ctx.reply(e.message||'ایجاد سفارش ناموفق بود.');}
 }
-export function userOrdersKeyboard(rows,page=0,pageSize=8){
-  const pages=Math.max(1,Math.ceil(rows.length/pageSize)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),visible=rows.slice(current*pageSize,(current+1)*pageSize);
+export function userOrdersKeyboard(rows,page=0,total=rows.length,pageSize=8){
+  const pages=Math.max(1,Math.ceil(total/pageSize)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),visible=rows;
   const status={awaiting_receipt:'⏳ منتظر رسید',under_review:'🔎 در حال بررسی',approved:'✅ تأییدشده',rejected:'❌ ردشده',cancelled:'🚫 لغوشده',expired:'⌛ منقضی'};
   const buttons=visible.map(o=>[Markup.button.callback((status[o.status]||o.status)+' | #'+o.id+' | '+String(o.campaign_title).slice(0,22)+' | '+Number(o.requested_code_count||1)+' کد','payment:order:'+o.id)]);
   const nav=[];if(current>0)nav.push(Markup.button.callback('⬅️ قبلی','user:orders:page:'+(current-1)));if(current+1<pages)nav.push(Markup.button.callback('بعدی ➡️','user:orders:page:'+(current+1)));if(nav.length)buttons.push(nav);
@@ -77,10 +77,10 @@ export function userOrderDetailKeyboard(order){
   return Markup.inlineKeyboard(buttons);
 }
 async function showUserOrders(ctx,page=0){
-  const rows=await listUserOrders(ctx.from.id);
-  if(!rows.length)return ctx.reply('هنوز سفارشی ندارید.',Markup.inlineKeyboard([[Markup.button.callback('🎁 مشاهده کمپین‌ها','user:campaigns')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
-  const {current,pages,keyboard}=userOrdersKeyboard(rows,page);
-  return screenReply(ctx,'🧾 سفارش‌های شما\nتعداد: '+rows.length+' | صفحه '+(current+1)+' از '+pages+'\nبرای مشاهده جزئیات، یک سفارش را انتخاب کنید.',keyboard);
+  const pageSize=8,total=await countUserOrders(ctx.from.id),rows=await listUserOrders(ctx.from.id,pageSize,Math.max(0,Number(page)||0)*pageSize);
+  if(!total)return ctx.reply('هنوز سفارشی ندارید.',Markup.inlineKeyboard([[Markup.button.callback('🎁 مشاهده کمپین‌ها','user:campaigns')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
+  const {current,pages,keyboard}=userOrdersKeyboard(rows,page,total,pageSize);
+  return screenReply(ctx,'🧾 سفارش‌های شما\nتعداد: '+total+' | صفحه '+(current+1)+' از '+pages+'\nبرای مشاهده جزئیات، یک سفارش را انتخاب کنید.',keyboard);
 }
 async function showUserOrderDetail(ctx,id){
   const [[o]]=await pool.execute('SELECT o.id,o.payment_reference,o.amount,o.requested_code_count,o.currency,o.status,o.created_at,o.expires_at,o.rejection_reason,c.title campaign_title,o.card_number,o.card_holder,o.payment_instructions FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE o.id=? AND p.telegram_user_id=?',[id,String(ctx.from.id)]);
