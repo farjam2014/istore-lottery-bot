@@ -43,7 +43,7 @@ async function showUserSupportTickets(ctx,page=0){
 async function showUserCodes(ctx,page=0){
   const [rows]=await pool.execute("SELECT c.id,c.title,COUNT(cc.id) code_count FROM campaigns c JOIN campaign_entries e ON e.campaign_id=c.id JOIN participants p ON p.id=e.participant_id JOIN campaign_codes cc ON cc.campaign_entry_id=e.id AND cc.status='active' WHERE p.telegram_user_id=? GROUP BY c.id,c.title ORDER BY c.id DESC",[String(ctx.from.id)]);
   const limit=8,pages=Math.max(1,Math.ceil(rows.length/limit)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),visible=rows.slice(current*limit,(current+1)*limit);
-  if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());
+  if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',Markup.inlineKeyboard([[Markup.button.callback('🎁 مشاهده کمپین‌ها','user:campaigns')],[Markup.button.callback('📚 سوابق شرکت','user:history')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
   const buttons=visible.map(r=>[Markup.button.callback('🎟 '+String(r.title).slice(0,28)+' | '+Number(r.code_count)+' کد','user:codes:campaign:'+r.id)]);
   const nav=[];if(current>0)nav.push(Markup.button.callback('⬅️ قبلی','user:codes:page:'+(current-1)));if(current+1<pages)nav.push(Markup.button.callback('بعدی ➡️','user:codes:page:'+(current+1)));if(nav.length)buttons.push(nav);
   buttons.push([Markup.button.callback('🏠 منوی اصلی','user:home')]);
@@ -95,8 +95,8 @@ export function registerUserHandlers(bot){
     try{
       const result=await joinFreeCampaign({telegramUserId:ctx.from.id,campaignId:Number(ctx.match[1])});
       const heading=result.alreadyJoined?'شما قبلاً در این کمپین ثبت‌نام شده‌اید.':'ثبت‌نام شما با موفقیت انجام شد.';
-      return screenReply(ctx,`${heading}\n\nکدهای اختصاصی شما:\n${result.codes.join('\n')}`,userMenuKeyboard());
-    }catch(error){return screenReply(ctx,error.message||'ثبت‌نام در کمپین انجام نشد.',userMenuKeyboard());}
+      return screenReply(ctx,`${heading}\n\nکدهای اختصاصی شما:\n${result.codes.join('\n')}`,Markup.inlineKeyboard([[Markup.button.callback('🎟 کدهای من','user:codes')],[Markup.button.callback('📚 سوابق شرکت','user:history')],[Markup.button.callback('🎁 کمپین‌های دیگر','user:campaigns')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
+    }catch(error){return screenReply(ctx,error.message||'ثبت‌نام در کمپین انجام نشد.',Markup.inlineKeyboard([[Markup.button.callback('🔙 بازگشت به کمپین','campaign:view:'+Number(ctx.match[1]))],[Markup.button.callback('🎁 کمپین‌ها','user:campaigns')],[Markup.button.callback('💬 پشتیبانی','user:support')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));}
   });
   bot.action(/^user:history:codes:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const entryId=Number(ctx.match[1]);const [rows]=await pool.execute("SELECT cc.code,c.title FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE e.id=? AND p.telegram_user_id=? AND e.status='eligible' AND cc.status='active' ORDER BY cc.id",[entryId,String(ctx.from.id)]);if(!rows.length)return screenReply(ctx,'برای این شرکت کدی صادر نشده است.',Markup.inlineKeyboard([[Markup.button.callback('🔙 سوابق شرکت','user:history')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));return screenReply(ctx,'کدهای کمپین «'+rows[0].title+'»:\n'+rows.map(x=>x.code).join('\n'),Markup.inlineKeyboard([[Markup.button.callback('بازگشت به سوابق','user:history')]]));});
   bot.action(/^user:history:detail:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserHistoryDetail(ctx,Number(ctx.match[1]));});
@@ -143,7 +143,7 @@ async function showUserHistoryDetail(ctx,entryId){
 }
 async function showCampaignPage(ctx,page){
   const limit=6;const rows=await listOpenCampaigns({limit:limit+1,offset:page*limit});const hasNext=rows.length>limit;const visible=rows.slice(0,limit);
-  if(!visible.length)return screenReply(ctx,'در حال حاضر کمپین فعالی وجود ندارد.',userMenuKeyboard());
+  if(!visible.length)return screenReply(ctx,'در حال حاضر کمپین فعالی وجود ندارد.',Markup.inlineKeyboard([[Markup.button.callback('📚 سوابق شرکت','user:history')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
   const buttons=[];
   for(const campaign of visible){
     const label='🎁 '+String(campaign.title).slice(0,28)+' | '+(campaign.participation_type==='free'?'رایگان':Number(campaign.entry_price||0).toLocaleString('fa-IR')+' ریال');
