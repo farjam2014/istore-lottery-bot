@@ -1,4 +1,5 @@
 name: CI
+# UX refactor branch validation: run syntax and regression checks after each navigation fix; latest receipt-resume recovery and draw-cancellation navigation update.
 on:
   push:
     branches:
@@ -10,12 +11,14 @@ on:
       - release/ustore-unified
       - audit/fix-release-blockers
       - audit/installer-preflight-stacked
+      - ux/unified-navigation-six-phase
   pull_request:
     branches:
       - rebuild/telegram-native-v1
       - install/resumable-ubuntu-v2
       - audit/pr64-clean-rebuild
       - release/ustore-unified
+      - ux/production-base-ed490
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -114,7 +114,8 @@ export async function expirePendingOrders({limit=100}={}){
     }
   }
   return expiredCount;
-}export async function listUserOrders(uid){const [r]=await pool.execute("SELECT o.id,o.payment_reference,o.amount,o.requested_code_count,o.currency,o.status,o.created_at,o.expires_at,o.rejection_reason,c.title campaign_title FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE p.telegram_user_id=? ORDER BY o.id DESC LIMIT 20",[String(uid)]);return r;}
+}export async function listUserOrders(uid,limit=8,offset=0){const safeLimit=Math.max(1,Math.min(20,Number(limit)||8)),safeOffset=Math.max(0,Number(offset)||0);const [r]=await pool.execute("SELECT o.id,o.payment_reference,o.amount,o.requested_code_count,o.currency,o.status,o.created_at,o.expires_at,o.rejection_reason,c.title campaign_title FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id WHERE p.telegram_user_id=? ORDER BY o.id DESC LIMIT ? OFFSET ?",[String(uid),safeLimit,safeOffset]);return r;}
+export async function countUserOrders(uid){const [[r]]=await pool.execute('SELECT COUNT(*) total FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE p.telegram_user_id=?',[String(uid)]);return Number(r.total||0);}
 export async function getUserOrder(id,uid){const [r]=await pool.execute('SELECT o.id,o.amount,o.requested_code_count,o.status,o.expires_at,(o.expires_at IS NOT NULL AND o.expires_at<=UTC_TIMESTAMP()) AS is_expired,o.card_number,o.card_holder FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE o.id=? AND p.telegram_user_id=?',[id,String(uid)]);return r[0]??null;}
 
 export async function recordPaymentCardDelivery({telegramUserId,orderId}){
