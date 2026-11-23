@@ -4,7 +4,7 @@ import {logger} from '../../shared/logger.js';
 import {hasPermission} from '../../modules/admin/admin-role.service.js';
 import {pool} from '../../database/pool.js';
 import {paymentApproveAction,paymentRejectAction} from '../../modules/payments/payment-callbacks.js';
-import {createOrGetOrder,getUserCampaignCodeAllowance,submitReceipt,listUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings,recordPaymentCardDelivery} from '../../modules/payments/payment.service.js';
+import {createOrGetOrder,getUserCampaignCodeAllowance,submitReceipt,listUserOrders,countUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings,recordPaymentCardDelivery} from '../../modules/payments/payment.service.js';
 import {formatTehranDateTime} from '../../shared/datetime.js';
 const can=async(ctx,permission)=>hasPermission(ctx.from?.id,permission);
 const money=n=>Number(n||0).toLocaleString('fa-IR');
