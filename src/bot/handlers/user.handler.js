@@ -39,7 +39,8 @@ async function showUserSupportTickets(ctx,page=0){
   buttons.push([Markup.button.callback('➕ درخواست جدید','support:user:new')],[Markup.button.callback('🏠 منوی اصلی','user:home')]);
   return screenReply(ctx,'📂 تیکت‌های شما\nبرای مشاهده جزئیات، یک تیکت را انتخاب کنید.',Markup.inlineKeyboard(buttons));
 }
-\nasync function showUserCodes(ctx,page=0){
+
+async function showUserCodes(ctx,page=0){
   const [rows]=await pool.execute("SELECT c.id,c.title,COUNT(cc.id) code_count FROM campaigns c JOIN campaign_entries e ON e.campaign_id=c.id JOIN participants p ON p.id=e.participant_id JOIN campaign_codes cc ON cc.campaign_entry_id=e.id AND cc.status='active' WHERE p.telegram_user_id=? GROUP BY c.id,c.title ORDER BY c.id DESC",[String(ctx.from.id)]);
   const limit=8,pages=Math.max(1,Math.ceil(rows.length/limit)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),visible=rows.slice(current*limit,(current+1)*limit);
   if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());
