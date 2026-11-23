@@ -229,7 +229,7 @@ export function registerAdminHandlers(bot){
       return await showCampaignDetail(ctx,campaignId);
     }catch(error){
       logger.error({err:error,campaignId,adminTelegramId:ctx.from?.id},'Admin campaign detail could not be opened');
-      return ctx.reply('نمایش جزئیات کمپین با خطا مواجه شد. خطا در گزارش سامانه ثبت شد؛ دوباره تلاش کنید.');
+      return ctx.reply('نمایش جزئیات کمپین با خطا مواجه شد. خطا در گزارش سامانه ثبت شد؛ دوباره تلاش کنید.',Markup.inlineKeyboard([[Markup.button.callback('📋 فهرست کمپین‌ها','admin:campaign:list')],[Markup.button.callback('🏠 مدیریت','admin:home')]]));
     }
   });
   bot.action(/^admin:campaign:draw:prepare:(\d+)$/,async ctx=>{
@@ -550,7 +550,7 @@ export function registerAdminHandlers(bot){
     const rows=reportRows(report);
     const columns=['campaign_id','title','status','type','entry_price','entries','eligible','approved_orders','revenue_irr'];
     const csv=toCsv(rows,columns);
-    return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-financial-report.csv'},{caption:'گزارش کمپین‌ها؛ درآمد فقط شامل سفارش‌های تأییدشده است. مبلغ‌ها به ریال هستند.'});
+    return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'campaign-financial-report.csv'},{caption:'گزارش کمپین‌ها؛ درآمد فقط شامل سفارش‌های تأییدشده است. مبلغ‌ها به ریال هستند.',reply_markup:{inline_keyboard:[[{text:'📊 بازگشت به گزارش‌ها',callback_data:'admin:reports'}],[{text:'🏠 مدیریت',callback_data:'admin:home'}]]}});
   });
   bot.on('photo',async(ctx,next)=>{if(!await isAdmin(ctx))return next();const wizard=await getWizard(ctx.from.id);if(!wizard||wizard.step!=='poster')return next();const photo=ctx.message.photo.at(-1);wizard.payload.posterFileId=photo.file_id;await saveWizard(ctx.from.id,'prize_title',wizard.payload);return respond(ctx,'پوستر دریافت شد. نام جایزه را وارد کنید (برای نداشتن جایزه «-»).');});
   bot.on('text',async(ctx,next)=>{
