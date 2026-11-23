@@ -77,9 +77,9 @@ export function userOrderDetailKeyboard(order){
   return Markup.inlineKeyboard(buttons);
 }
 async function showUserOrders(ctx,page=0){
-  const pageSize=8,total=await countUserOrders(ctx.from.id),rows=await listUserOrders(ctx.from.id,pageSize,Math.max(0,Number(page)||0)*pageSize);
+  const pageSize=8,total=await countUserOrders(ctx.from.id),pages=Math.max(1,Math.ceil(total/pageSize)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),rows=await listUserOrders(ctx.from.id,pageSize,current*pageSize);
   if(!total)return ctx.reply('هنوز سفارشی ندارید.',Markup.inlineKeyboard([[Markup.button.callback('🎁 مشاهده کمپین‌ها','user:campaigns')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
-  const {current,pages,keyboard}=userOrdersKeyboard(rows,page,total,pageSize);
+  const {keyboard}=userOrdersKeyboard(rows,current,total,pageSize);
   return screenReply(ctx,'🧾 سفارش‌های شما\nتعداد: '+total+' | صفحه '+(current+1)+' از '+pages+'\nبرای مشاهده جزئیات، یک سفارش را انتخاب کنید.',keyboard);
 }
 async function showUserOrderDetail(ctx,id){
