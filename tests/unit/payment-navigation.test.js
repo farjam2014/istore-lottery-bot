@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
+import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
 
 const callbacks=keyboard=>keyboard.reply_markup.inline_keyboard.flat().map(button=>button.callback_data);
 
@@ -37,4 +37,16 @@ test('order detail actions depend on order state',()=>{
     assert.ok(data.includes('user:orders'));
     assert.ok(data.includes('user:home'));
   }
+});
+
+test('payment navigation callback patterns accept numeric IDs and pages',()=>{
+  const actions=[];
+  const bot={action:(pattern,handler)=>actions.push(pattern),on:()=>{},command:()=>{}};
+  registerPaymentHandlers(bot);
+  const page=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('user:orders:page'));
+  const order=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('payment:order'));
+  assert.ok(page,'orders pagination callback is registered');
+  assert.ok(order,'order detail callback is registered');
+  assert.ok(page.test('user:orders:page:2'));
+  assert.ok(order.test('payment:order:123'));
 });
