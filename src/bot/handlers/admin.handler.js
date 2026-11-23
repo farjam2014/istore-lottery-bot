@@ -324,9 +324,9 @@ export function registerAdminHandlers(bot){
     if(!row||row.status!=='draft')return ctx.answerCbQuery('فقط کمپین پیش‌نویس قابل ویرایش است.',{show_alert:true});
     if(field==='entry_price'&&row.participation_type!=='paid')return ctx.answerCbQuery('کمپین رایگان مبلغ شرکت ندارد.',{show_alert:true});
     await saveWizard(ctx.from.id,'campaign_edit_value',{campaignId:id,field});await ctx.answerCbQuery();
-    return respond(ctx,field==='entry_price'?'قیمت جدید هر کد را به ریال ارسال کنید.':field==='capacity'?'ظرفیت کل کدهای کمپین را ارسال کنید؛ ۰ یعنی نامحدود.':field==='codes_per_entry'?(row.participation_type==='paid'?'حداکثر کد قابل خرید هر نفر را ارسال کنید (۱ تا ۱۰۰).':'تعداد کد ثابت هر نفر را ارسال کنید (۱ تا ۱۰۰).'):'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.');
+    return respond(ctx,field==='entry_price'?'قیمت جدید هر کد را به ریال ارسال کنید.':field==='capacity'?'ظرفیت کل کدهای کمپین را ارسال کنید؛ ۰ یعنی نامحدود.':field==='codes_per_entry'?(row.participation_type==='paid'?'حداکثر کد قابل خرید هر نفر را ارسال کنید (۱ تا ۱۰۰).':'تعداد کد ثابت هر نفر را ارسال کنید (۱ تا ۱۰۰).'):'مقدار جدید را ارسال کنید. برای پاک‌کردن فیلدهای متنی «-» بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('❌ لغو و بازگشت به جزئیات','admin:campaign:edit:cancel:'+id)],[Markup.button.callback('🏠 مدیریت','admin:home')]]));
   });
-  bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:edit:cancel:(\d+)$/,async ctx=>{\n    if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);\n    const id=Number(ctx.match[1]);await clearWizard(ctx.from.id);await ctx.answerCbQuery('ویرایش لغو شد.');return showCampaignDetail(ctx,id);\n  });\n  bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]);const [[source]]=await pool.execute('SELECT * FROM campaigns WHERE id=?',[id]);
     if(!source)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
