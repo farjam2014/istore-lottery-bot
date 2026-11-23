@@ -258,7 +258,7 @@ export function registerAdminHandlers(bot){
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
     const drawId=Number(ctx.match[1]);const wizard=await getWizard(ctx.from.id);
     if(wizard&&['draw_publication_reference','draw_publication_confirm'].includes(wizard.step)&&Number(wizard.payload?.drawId)===drawId)await clearWizard(ctx.from.id);
-    await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ثبت انتشار لغو شد.');
+    await ctx.answerCbQuery('لغو شد.');return respond(ctx,'ثبت انتشار لغو شد.',Markup.inlineKeyboard([[Markup.button.callback('🏠 مدیریت','admin:home')]]));
   });
   bot.action(/^admin:campaign:draw:publication-confirm:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.draw'))return deny(ctx);
