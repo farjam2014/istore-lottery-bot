@@ -52,7 +52,7 @@ test('payment navigation callback patterns accept numeric IDs and pages',()=>{
   assert.ok(order.test('payment:order:123'));
 });
 
-test('handler callback regexes do not contain double-escaped digit tokens',()=>{
+test('user support cancellation callback is registered',()=>{\n  const actions=[];\n  const bot={action:(pattern,handler)=>actions.push(pattern),on:()=>{},command:()=>{}};\n  registerUserHandlers(bot);\n  assert.ok(actions.includes('support:user:cancel'));\n});\n\ntest('handler callback regexes do not contain double-escaped digit tokens',()=>{
   for(const path of ['src/bot/handlers/user.handler.js','src/bot/handlers/payment.handler.js','src/bot/handlers/admin.handler.js']){
     const source=readFileSync(new URL('../../'+path,import.meta.url),'utf8');
     assert.doesNotMatch(source,/\\\\d\+/,{message:path+' contains a double-escaped digit regex'});
