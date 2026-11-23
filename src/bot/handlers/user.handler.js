@@ -39,6 +39,20 @@ async function showUserSupportTickets(ctx,page=0){
   buttons.push([Markup.button.callback('➕ درخواست جدید','support:user:new')],[Markup.button.callback('🏠 منوی اصلی','user:home')]);
   return screenReply(ctx,'📂 تیکت‌های شما\nبرای مشاهده جزئیات، یک تیکت را انتخاب کنید.',Markup.inlineKeyboard(buttons));
 }
+\nasync function showUserCodes(ctx,page=0){
+  const [rows]=await pool.execute("SELECT c.id,c.title,COUNT(cc.id) code_count FROM campaigns c JOIN campaign_entries e ON e.campaign_id=c.id JOIN participants p ON p.id=e.participant_id JOIN campaign_codes cc ON cc.campaign_entry_id=e.id AND cc.status='active' WHERE p.telegram_user_id=? GROUP BY c.id,c.title ORDER BY c.id DESC",[String(ctx.from.id)]);
+  const limit=8,pages=Math.max(1,Math.ceil(rows.length/limit)),current=Math.max(0,Math.min(pages-1,Number(page)||0)),visible=rows.slice(current*limit,(current+1)*limit);
+  if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());
+  const buttons=visible.map(r=>[Markup.button.callback('🎟 '+String(r.title).slice(0,28)+' | '+Number(r.code_count)+' کد','user:codes:campaign:'+r.id)]);
+  const nav=[];if(current>0)nav.push(Markup.button.callback('⬅️ قبلی','user:codes:page:'+(current-1)));if(current+1<pages)nav.push(Markup.button.callback('بعدی ➡️','user:codes:page:'+(current+1)));if(nav.length)buttons.push(nav);
+  buttons.push([Markup.button.callback('🏠 منوی اصلی','user:home')]);
+  return screenReply(ctx,'🎟 کدهای شما\nکدها بر اساس کمپین دسته‌بندی شده‌اند. کمپین را انتخاب کنید.',Markup.inlineKeyboard(buttons));
+}
+async function showUserCampaignCodes(ctx,campaignId){
+  const [rows]=await pool.execute("SELECT c.title,cc.code FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id JOIN campaigns c ON c.id=e.campaign_id WHERE c.id=? AND p.telegram_user_id=? AND cc.status='active' ORDER BY cc.id",[campaignId,String(ctx.from.id)]);
+  if(!rows.length)return screenReply(ctx,'کدی برای این کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('🔙 کدهای من','user:codes')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
+  return screenReply(ctx,'🎟 کدهای کمپین «'+rows[0].title+'»\n\n'+rows.map(r=>r.code).join('\n'),Markup.inlineKeyboard([[Markup.button.callback('🔙 کدهای من','user:codes')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));
+}
 \nexport function registerUserHandlers(bot){
   bot.action('user:home',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'منوی اصلی حساب کاربری:',userMenuKeyboard());});
   bot.action('user:campaigns',async ctx=>{await ctx.answerCbQuery();return showCampaignPage(ctx,0);});
@@ -86,7 +100,7 @@ async function showUserSupportTickets(ctx,page=0){
   bot.action(/^user:history:detail:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserHistoryDetail(ctx,Number(ctx.match[1]));});
   bot.action('user:history',async ctx=>{await ctx.answerCbQuery();return showUserHistory(ctx,0);});
   bot.action(/^user:history:page:(\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserHistory(ctx,Number(ctx.match[1]));});
-  bot.action('user:codes',async ctx=>{await ctx.answerCbQuery();const rows=await listParticipantCodes(ctx.from.id);if(!rows.length)return screenReply(ctx,'هنوز کدی برای شما صادر نشده است.',userMenuKeyboard());return screenReply(ctx,'کدهای شما:\n'+rows.map(x=>`${x.code} — ${x.campaign_title}`).join('\n'),userMenuKeyboard());});
+  bot.action('user:codes',async ctx=>{await ctx.answerCbQuery();return showUserCodes(ctx,0);});\n  bot.action(/^user:codes:page:(\\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserCodes(ctx,Number(ctx.match[1]));});\n  bot.action(/^user:codes:campaign:(\\d+)$/,async ctx=>{await ctx.answerCbQuery();return showUserCampaignCodes(ctx,Number(ctx.match[1]));});
   bot.action('user:account',async ctx=>{await ctx.answerCbQuery();const p=ctx.state.profile;return screenReply(ctx,`نام: ${p.full_name}\nموبایل: ${p.phone}\nاینستاگرام: @${p.instagram_handle}`,Markup.inlineKeyboard([[Markup.button.callback('✏️ درخواست اصلاح اطلاعات','user:profile:edit')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
 
   bot.action('user:profile:edit',async ctx=>{await ctx.answerCbQuery();return screenReply(ctx,'کدام اطلاعات را می‌خواهید اصلاح کنید؟',Markup.inlineKeyboard([[Markup.button.callback('نام و نام خانوادگی','user:profile:field:full_name')],[Markup.button.callback('شماره موبایل','user:profile:field:phone')],[Markup.button.callback('آیدی اینستاگرام','user:profile:field:instagram_handle')],[Markup.button.callback('🏠 منوی اصلی','user:home')]]));});
