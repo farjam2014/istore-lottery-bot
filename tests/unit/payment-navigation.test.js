@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
+import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';\nimport {registerUserHandlers} from '../../src/bot/handlers/user.handler.js';
 
 const callbacks=keyboard=>keyboard.reply_markup.inline_keyboard.flat().map(button=>button.callback_data);
 
