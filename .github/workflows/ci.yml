@@ -10,6 +10,7 @@ on:
       - release/ustore-unified
       - audit/fix-release-blockers
       - audit/installer-preflight-stacked
+      - ux/unified-navigation-six-phase
   pull_request:
     branches:
       - rebuild/telegram-native-v1
