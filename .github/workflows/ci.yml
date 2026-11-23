@@ -1,5 +1,5 @@
 name: CI
-# UX refactor branch validation: run syntax and regression checks after each navigation fix.
+# UX refactor branch validation: run syntax and regression checks after each navigation fix; latest receipt-resume recovery update.
 on:
   push:
     branches:
