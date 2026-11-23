@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
 import {registerUserHandlers} from '../../src/bot/handlers/user.handler.js';
+import {registerAdminHandlers} from '../../src/bot/handlers/admin.handler.js';
 
 const callbacks=keyboard=>keyboard.reply_markup.inline_keyboard.flat().map(button=>button.callback_data);
 
@@ -58,6 +59,20 @@ test('user support cancellation callback is registered',()=>{
   const bot={action:(pattern,handler)=>actions.push(pattern),on:()=>{},command:()=>{}};
   registerUserHandlers(bot);
   assert.ok(actions.includes('support:user:cancel'));
+});
+
+test('admin campaign edit cancellation callback is registered with numeric ID',()=>{
+  const actions=[];
+  const bot={action:(pattern,handler)=>actions.push(pattern),on:()=>{},command:()=>{}};
+  registerAdminHandlers(bot);
+  const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('admin:campaign:edit:cancel'));
+  assert.ok(cancel);
+  assert.ok(cancel.test('admin:campaign:edit:cancel:42'));
+});
+
+test('participant block callback enforces participant.manage permission',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(source,/admin:participant:\(block\|unblock\).*hasPermission\(ctx\.from\.id,'participant\.manage'\)/s);
 });
 
 test('handler callback regexes do not contain double-escaped digit tokens',()=>{
