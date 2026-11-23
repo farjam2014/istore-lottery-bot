@@ -5,8 +5,8 @@ import {userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers
 const callbacks=keyboard=>keyboard.reply_markup.inline_keyboard.flat().map(button=>button.callback_data);
 
 test('order list keyboard uses one compact button per order and pagination',()=>{
-  const rows=Array.from({length:10},(_,i)=>({id:i+1,status:i===0?'rejected':'under_review',campaign_title:'Campaign '+(i+1),requested_code_count:2}));
-  const first=userOrdersKeyboard(rows,0,8);
+  const rows=Array.from({length:8},(_,i)=>({id:i+1,status:i===0?'rejected':'under_review',campaign_title:'Campaign '+(i+1),requested_code_count:2}));
+  const first=userOrdersKeyboard(rows,0,10,8);
   assert.equal(first.visible.length,8);
   const data=callbacks(first.keyboard);
   assert.ok(data.includes('payment:order:1'));
@@ -17,8 +17,8 @@ test('order list keyboard uses one compact button per order and pagination',()=>
 });
 
 test('last order page does not expose next-page callback',()=>{
-  const rows=Array.from({length:9},(_,i)=>({id:i+1,status:'approved',campaign_title:'Campaign',requested_code_count:1}));
-  const last=userOrdersKeyboard(rows,1,8);
+  const rows=[{id:9,status:'approved',campaign_title:'Campaign',requested_code_count:1}];
+  const last=userOrdersKeyboard(rows,1,9,8);
   assert.equal(last.visible.length,1);
   const data=callbacks(last.keyboard);
   assert.ok(data.includes('user:orders:page:0'));
