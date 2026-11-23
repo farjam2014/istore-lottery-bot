@@ -18,6 +18,7 @@ on:
       - install/resumable-ubuntu-v2
       - audit/pr64-clean-rebuild
       - release/ustore-unified
+      - ux/production-base-ed490
 jobs:
   test:
     runs-on: ubuntu-latest
