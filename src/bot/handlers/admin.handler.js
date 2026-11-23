@@ -434,7 +434,7 @@ export function registerAdminHandlers(bot){
     return respond(ctx,message,Markup.inlineKeyboard(buttons));
   });
   bot.action(/^admin:participant:(block|unblock):(\d+)(?::(\d+))?$/,async ctx=>{
-    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    if(!await hasPermission(ctx.from.id,'participant.manage'))return deny(ctx);
     const id=Number(ctx.match[2]),action=ctx.match[1],page=Number(ctx.match[3])||0,status=action==='block'?'blocked':'active';
     const c=await pool.getConnection();try{await c.beginTransaction();const [[p]]=await c.execute('SELECT id,status FROM participants WHERE id=? FOR UPDATE',[id]);if(!p){await c.rollback();return ctx.answerCbQuery('شرکت‌کننده پیدا نشد.',{show_alert:true});}if(p.status!==status){await c.execute('UPDATE participants SET status=? WHERE id=?',[status,id]);await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'participant.'+action,'participant',id,JSON.stringify({from:p.status,to:status})]);}await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}
     await ctx.answerCbQuery(action==='block'?'کاربر مسدود شد.':'مسدودی برداشته شد.');return respond(ctx,action==='block'?'حساب شرکت‌کننده مسدود شد.':'حساب شرکت‌کننده دوباره فعال شد.',Markup.inlineKeyboard([[Markup.button.callback('👤 مشاهده پروفایل','admin:participant:view:'+id+':'+page)],[Markup.button.callback('↩️ فهرست شرکت‌کنندگان','admin:participants:page:'+page)],[Markup.button.callback('🏠 مدیریت','admin:home')]]));
