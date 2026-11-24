@@ -10,7 +10,7 @@ const base={
 
 test('production configuration requires a published privacy notice URL and version',()=>{
   assert.equal(envSchema.safeParse(base).success,false);
-  assert.equal(envSchema.safeParse({...base,PRIVACY_NOTICE_URL:'https://example.com/privacy',PRIVACY_NOTICE_VERSION:'v1'}).success,true);
+  assert.equal(envSchema.safeParse({...base,PRIVACY_NOTICE_URL:'https://ustore.ir/privacy-notice',PRIVACY_NOTICE_VERSION:'v1'}).success,true);
 });
 
 test('non-production configuration can omit the privacy notice while developing',()=>{
