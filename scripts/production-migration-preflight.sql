@@ -25,6 +25,11 @@ SELECT 'telegram_update_inbox' AS table_name, COUNT(*) AS table_exists
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_update_inbox';
 
+-- Admin idempotency table presence.
+SELECT 'admin_action_idempotency' AS table_name, COUNT(*) AS table_exists
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_action_idempotency';
+
 -- Exact campaign code ownership mismatches. Migration 001 adds a composite
 -- FK from (campaign_entry_id,campaign_id) to campaign_entries(id,campaign_id).
 SELECT COUNT(*) AS campaign_code_entry_campaign_mismatches
@@ -69,7 +74,7 @@ FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
 
--- Migration history and presence of all ten release migrations.
+-- Migration history and presence of all fourteen release migrations.
 SELECT version, checksum, applied_at
 FROM schema_migrations
 ORDER BY version;
@@ -89,6 +94,10 @@ FROM (
   UNION ALL SELECT '20261118_002_paid_code_quantity.sql'
   UNION ALL SELECT '20261119_001_campaign_edit_wizard_step.sql'
   UNION ALL SELECT '20261119_002_telegram_update_inbox.sql'
+  UNION ALL SELECT '20261124_001_admin_action_idempotency.sql'
+  UNION ALL SELECT '20261124_002_privacy_consent.sql'
+  UNION ALL SELECT '20261124_003_registration_session_replay.sql'
+  UNION ALL SELECT '20261124_004_admin_wizard_replay.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
@@ -105,7 +114,10 @@ WHERE table_schema=DATABASE()
     OR (table_name='campaign_code_counters' AND column_name='campaign_id')
     OR (table_name='admin_search_sessions' AND column_name IN ('campaign_id','step','query_text'))
     OR (table_name='payment_orders' AND column_name='requested_code_count')
-    OR (table_name='admin_wizards' AND column_name='step')
+    OR (table_name='admin_wizards' AND column_name IN ('step','last_update_id'))
+    OR (table_name='telegram_user_sessions' AND column_name='last_update_id')
+    OR (table_name='participants' AND column_name IN ('privacy_consent_version','privacy_consent_at'))
+    OR (table_name='admin_action_idempotency' AND column_name IN ('idempotency_key','action_type','actor_telegram_id','entity_id','created_at'))
     OR (table_name='telegram_update_inbox' AND column_name IN ('update_id','payload','status','attempts','available_at','locked_at','lease_token','completed_at','last_error'))
   )
 ORDER BY table_name, ordinal_position;
