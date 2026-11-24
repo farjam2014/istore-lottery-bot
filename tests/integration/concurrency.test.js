@@ -104,3 +104,96 @@ test('MySQL integration: support session is consumed once after concurrent reade
     if(participantId){await pool.execute('DELETE FROM support_messages WHERE ticket_id IN (SELECT id FROM support_tickets WHERE participant_id=?)',[participantId]);await pool.execute('DELETE FROM support_tickets WHERE participant_id=?',[participantId]);await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);}
   }
 });
+
+test('MySQL integration: campaign edit wizard is consumed once under concurrent messages',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  await migrate();
+  const actorId=String(7330000000000n+(BigInt(Date.now())%100000000000n));
+  const slug='edit-wizard-'+actorId;
+  let campaignId=null;
+  try{
+    const [created]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'draft','free',1)",[slug,'Edit Wizard '+actorId]);
+    campaignId=created.insertId;
+    await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?)',[actorId,'campaign_edit_value',JSON.stringify({campaignId,field:'title'})]);
+    let readers=0,releaseReaders;
+    const bothObserved=new Promise(resolve=>{releaseReaders=resolve;});
+    async function attemptEdit(title){
+      const [[observed]]=await pool.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+      if(!observed)return false;
+      readers++;if(readers===2)releaseReaders();await bothObserved;
+      const connection=await pool.getConnection();
+      try{
+        await connection.beginTransaction();
+        const [[wizard]]=await connection.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[actorId]);
+        const payload=wizard?(typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload):null;
+        if(!wizard||wizard.step!=='campaign_edit_value'||Number(payload?.campaignId)!==campaignId||payload?.field!=='title')throw new Error('Wizard changed.');
+        const [[campaign]]=await connection.execute('SELECT status FROM campaigns WHERE id=? FOR UPDATE',[campaignId]);
+        if(!campaign||campaign.status!=='draft')throw new Error('Campaign not editable.');
+        await connection.execute('UPDATE campaigns SET title=? WHERE id=?',[title,campaignId]);
+        await connection.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,NULL,?,?,?,?)',[actorId,'campaign.field_updated','campaign',campaignId,JSON.stringify({field:'title'})]);
+        await connection.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+        await connection.commit();return true;
+      }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+    }
+    const results=await Promise.allSettled([attemptEdit('Edit Winner A '+actorId),attemptEdit('Edit Winner B '+actorId)]);
+    assert.equal(results.filter(x=>x.status==='fulfilled'&&x.value===true).length,1);
+    assert.equal(results.filter(x=>x.status==='rejected').length,1);
+    const [[auditCount]]=await pool.execute("SELECT COUNT(*) total FROM admin_audit_log WHERE action='campaign.field_updated' AND entity_id=?",[campaignId]);
+    assert.equal(Number(auditCount.total),1);
+  }finally{
+    await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+    if(campaignId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[campaignId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
+  }
+});
+
+test('MySQL integration: draw publication wizard update and audit are atomic under replay',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  await migrate();
+  const actorId=String(7340000000000n+(BigInt(Date.now())%100000000000n));
+  const slug='draw-publish-'+actorId;
+  let campaignId=null,drawId=null;
+  try{
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'draft','free',1)",[slug,'Draw Publish '+actorId]);
+    campaignId=campaign.insertId;
+    const [draw]=await pool.execute("INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','hmac-sha256-v1,','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,?)",[campaignId,actorId]);
+    drawId=draw.insertId;
+    await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?)',[actorId,'draw_publication_confirm',JSON.stringify({drawId,reference:'https://proof.example.org/draw/'+drawId})]);
+    let readers=0,releaseReaders;
+    const bothObserved=new Promise(resolve=>{releaseReaders=resolve;});
+    async function attemptPublish(reference){
+      const [[observed]]=await pool.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+      if(!observed)return false;
+      readers++;if(readers===2)releaseReaders();await bothObserved;
+      const connection=await pool.getConnection();
+      try{
+        await connection.beginTransaction();
+        const [[wizard]]=await connection.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[actorId]);
+        const payload=wizard?(typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload):null;
+        if(!wizard||wizard.step!=='draw_publication_confirm'||Number(payload?.drawId)!==drawId)throw new Error('Wizard changed.');
+        const [[lockedDraw]]=await connection.execute('SELECT campaign_id,status,commitment_published_at FROM campaign_draws WHERE id=? FOR UPDATE',[drawId]);
+        if(!lockedDraw||lockedDraw.status!=='prepared'||lockedDraw.commitment_published_at)throw new Error('Draw not publishable.');
+        const [updated]=await connection.execute("UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=? AND status='prepared' AND commitment_published_at IS NULL",[reference,actorId,drawId]);
+        if(!updated.affectedRows)throw new Error('Draw already published.');
+        await connection.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,NULL,?,?,?,?)',[actorId,'draw.commitment_published','campaign_draw',drawId,JSON.stringify({reference})]);
+        await connection.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+        await connection.commit();return true;
+      }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+    }
+    const results=await Promise.allSettled([
+      attemptPublish('https://proof.example.org/draw/'+drawId+'/a'),
+      attemptPublish('https://proof.example.org/draw/'+drawId+'/b')
+    ]);
+    assert.equal(results.filter(x=>x.status==='fulfilled'&&x.value===true).length,1);
+    assert.equal(results.filter(x=>x.status==='rejected').length,1);
+    const [[published]]=await pool.execute('SELECT commitment_publication_reference FROM campaign_draws WHERE id=?',[drawId]);
+    assert.match(published.commitment_publication_reference,/\/a$|\/b$/);
+    const [[auditCount]]=await pool.execute("SELECT COUNT(*) total FROM admin_audit_log WHERE action='draw.commitment_published' AND entity_id=?",[drawId]);
+    assert.equal(Number(auditCount.total),1);
+  }finally{
+    await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+    if(drawId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign_draw' AND entity_id=?",[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+  }
+});
