@@ -1,19 +1,36 @@
 import {Markup} from 'telegraf';
-import {completeRegistration,getSession,saveSession,clearSession,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
+import {completeRegistration,getSession,saveSession,clearSession,findProfile,updatePrivacyConsent,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
 import {promptFor} from './start.handler.js';
-import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard} from '../keyboards/user.keyboard.js';
+import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
 
 export function registerRegistrationHandlers(bot){
   bot.action('registration:start',async ctx=>{
-    await ctx.answerCbQuery();
+    const profile=await findProfile(ctx.from.id);
+    if(profile){await ctx.answerCbQuery('حساب شما قبلاً ثبت شده است.');return ctx.reply('حساب شما قبلاً ثبت شده است.',userMenuKeyboard());}
     const s=await getSession(ctx.from.id);
-    if(!s)await saveSession(ctx.from.id,'awaiting_name',{});
-    const step=s?.step||'awaiting_name';
-    if(step==='awaiting_phone'){
+    if(!s||s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION){
+      await ctx.answerCbQuery();
+      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    }
+    await ctx.answerCbQuery();
+    if(s.step==='awaiting_phone'){
       return ctx.reply('برای تأیید مالکیت شماره، از دکمه «اشتراک‌گذاری شماره موبایل» استفاده کنید. شماره‌ای که دستی تایپ شود پذیرفته نیست.',phoneShareKeyboard());
     }
-    await ctx.reply(promptFor(step),cancelKeyboard());
+    return ctx.reply(promptFor(s.step),cancelKeyboard());
+  });
+  bot.action('privacy:accept',async ctx=>{
+    const version=config.PRIVACY_NOTICE_VERSION;
+    if(!version||!config.PRIVACY_NOTICE_URL)return ctx.answerCbQuery('اطلاعیه حریم خصوصی هنوز پیکربندی نشده است.',{show_alert:true});
+    const profile=await findProfile(ctx.from.id);
+    if(profile){
+      await updatePrivacyConsent(ctx.from.id,version);
+      await ctx.answerCbQuery('تأیید شما ثبت شد.');
+      return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
+    }
+    await saveSession(ctx.from.id,'awaiting_name',{privacyConsentVersion:version});
+    await ctx.answerCbQuery('تأیید شما ثبت شد.');
+    return ctx.reply(promptFor('awaiting_name'),cancelKeyboard());
   });
   bot.action('registration:cancel',async ctx=>{
     await clearSession(ctx.from.id);
@@ -29,6 +46,7 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
     const contact=ctx.message.contact;
     if(!contact.user_id||String(contact.user_id)!==String(ctx.from.id)){
       return ctx.reply('این شماره به‌عنوان مخاطب حساب تلگرام شما تأیید نشد. لطفاً فقط دکمه اشتراک‌گذاری شماره خودتان را بزنید.',phoneShareKeyboard());
@@ -46,11 +64,9 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     const value=ctx.message.text.trim();
-    if(!s&&value==='ثبت‌نام'){
-      await saveSession(ctx.from.id,'awaiting_name',{});
-      return ctx.reply(promptFor('awaiting_name'),cancelKeyboard());
-    }
+    if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
     if(!s)return next();
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
     const data=s.payload||{};
     if(s.step==='awaiting_phone'&&value==='❌ انصراف از ثبت‌نام'){
       await clearSession(ctx.from.id);
