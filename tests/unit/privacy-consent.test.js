@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {envSchema} from '../../src/config/env-schema.js';
 import {isRegistrationUpdateAllowed} from '../../src/bot/middleware/registration-gate.js';
-import {buildPrivacyAcceptedSession} from '../../src/bot/handlers/registration.handler.js';
+import {buildPrivacyAcceptedSession,isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
 
 const base={
   NODE_ENV:'production',BOT_TOKEN:'12345678901234567890:test-token',BOT_ADMIN_IDS:'123',
@@ -32,4 +32,12 @@ test('re-accepting a privacy notice preserves an in-progress registration step a
 
 test('first privacy acceptance starts a new registration at the name step',()=>{
   assert.deepEqual(buildPrivacyAcceptedSession(null,'v1'),{step:'awaiting_name',payload:{privacyConsentVersion:'v1'}});
+});
+
+test('an older retried registration message cannot be mistaken for input to a later step',()=>{
+  const session={step:'awaiting_instagram',lastUpdateId:101};
+  assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:100}},session),true);
+  assert.equal(isOlderRegistrationReplay({state:{durableReplay:false},update:{update_id:100}},session),false);
+  assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:102}},session),false);
+  assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:101}},session),false);
 });
