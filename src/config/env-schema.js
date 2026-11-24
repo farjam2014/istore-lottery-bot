@@ -13,7 +13,14 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DRAW_SEED_ENCRYPTION_KEYS: z.string().optional(),
   DRAW_SEED_ENCRYPTION_KEY: z.string().optional(),
-  DRAW_SEED_ACTIVE_KEY_ID: z.string().optional()
+  DRAW_SEED_ACTIVE_KEY_ID: z.string().optional(),
+  PRIVACY_NOTICE_URL: z.string().url().optional(),
+  PRIVACY_NOTICE_VERSION: z.string().min(1).max(40).optional()
+}).superRefine((value,ctx)=>{
+  if(value.NODE_ENV==='production'){
+    if(!value.PRIVACY_NOTICE_URL)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'A published privacy notice URL is required in production.'});
+    if(!value.PRIVACY_NOTICE_VERSION)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_VERSION'],message:'A privacy notice version is required in production.'});
+  }
 });
 
 export function parseEnvironment(environment) {
