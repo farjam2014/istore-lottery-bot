@@ -1,13 +1,13 @@
 import {pool} from '../../database/pool.js';
 
-async function updateAdminAccess({targetId,actorId,role,isActive}){
+async function updateAdminAccess({targetId,actorId,role,isActive,expectedActive}){
   const c=await pool.getConnection();
   try{
     await c.beginTransaction();
     const [[target]]=await c.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[String(targetId)]);
     if(!target)throw new Error('مدیر پیدا نشد.');
     const nextRole=role??target.role;
-    const nextActive=isActive==='toggle'?(Number(target.is_active)?0:1):isActive===undefined?Number(target.is_active):Number(isActive);
+    const currentActive=Number(target.is_active);\n    if(expectedActive!==undefined&&currentActive!==Number(expectedActive))throw new Error('وضعیت مدیر از زمان نمایش این دکمه تغییر کرده است؛ فهرست مدیران را تازه‌سازی کنید.');\n    const nextActive=isActive===undefined?currentActive:Number(isActive);\n    if(![0,1].includes(nextActive))throw new Error('وضعیت جدید مدیر معتبر نیست.');
     if(target.role==='super_admin'&&Number(target.is_active)===1&&(nextRole!=='super_admin'||nextActive!==1)){
       const [activeSuperAdmins]=await c.execute("SELECT telegram_user_id FROM admin_users WHERE role='super_admin' AND is_active=1 FOR UPDATE");
       if(activeSuperAdmins.length<=1)throw new Error('غیرفعال‌سازی یا تغییر نقش آخرین مدیر کل فعال مجاز نیست.');
