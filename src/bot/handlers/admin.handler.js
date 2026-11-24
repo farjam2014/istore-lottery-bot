@@ -361,7 +361,7 @@ export function registerAdminHandlers(bot){
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]);
     let result;
-    try{result=await copyCampaign({campaignId:id,actorId:String(ctx.from.id),idempotencyKey:createHash('sha256').update(String(ctx.callbackQuery.id)).digest('hex')});}
+    try{result=await copyCampaign({campaignId:id,actorId:String(ctx.from.id),idempotencyKey:createHash('sha256').update(['campaign.copy',ctx.from.id,id,ctx.callbackQuery?.message?.chat?.id,ctx.callbackQuery?.message?.message_id].join(':')).digest('hex')});}
     catch(error){return ctx.answerCbQuery(error.message||'کپی کمپین انجام نشد.',{show_alert:true});}
     await ctx.answerCbQuery(result.alreadyProcessed?'این درخواست قبلاً پردازش شده است.':'پیش‌نویس کپی ساخته شد.');
     return showCampaignDetail(ctx,result.campaignId);
