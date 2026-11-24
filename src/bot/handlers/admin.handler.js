@@ -37,7 +37,8 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:support:reply'))return hasPermission(id,'support.reply');
     if(data.startsWith('admin:support:assign')||data.startsWith('admin:support:status')||data.startsWith('admin:support:priority'))return hasPermission(id,'support.manage');
     if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
-    if(data.startsWith('admin:payments')||data.startsWith('admin:payment:order:')||data==='admin:payment:export'||data==='admin:payment:search')return hasPermission(id,'payment.read');
+    if(data==='admin:payment:export')return hasPermission(id,'payment.export');
+    if(data.startsWith('admin:payments')||data.startsWith('admin:payment:order:')||data==='admin:payment:search')return hasPermission(id,'payment.read');
     if(data==='admin:payment-settings'||data==='admin:payment-cards'||data.startsWith('admin:payment-card:'))return hasPermission(id,'payment.settings');
     if(data==='admin:stats'||data.startsWith('admin:reports')||data.startsWith('admin:report:'))return hasPermission(id,'report.read');
     if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
@@ -93,7 +94,7 @@ const menu=role=>{
 const rolePermissionsForMenu={
   campaign_manager:['campaign.write','participant.read'],
   finance_manager:['payment.read','payment.settings','report.read','participant.read'],
-  support_agent:['support.read','participant.read']
+  support_agent:['support.read']
 };
 
 const campaignMenu=()=>Markup.inlineKeyboard([
@@ -161,11 +162,13 @@ async function showCampaignDetail(ctx,id){
   if(!c)return respond(ctx,'کمپین پیدا نشد.',Markup.inlineKeyboard([[Markup.button.callback('↩️ بازگشت به فهرست','admin:campaign:list')]]));
   const actions=[];
   const canDraw=await hasPermission(ctx.from?.id,'campaign.draw');
+  const canExportParticipantData=await hasPermission(ctx.from?.id,'participant.export');
   if(['draft','scheduled','paused','open'].includes(c.status)){const action=c.status==='open'?'pause':'activate';actions.push([Markup.button.callback(action==='pause'?'⏸ توقف کمپین':'▶️ فعال‌سازی کمپین','admin:campaign:toggle:'+c.id+':'+action+':'+c.status)]);}
   if(['open','paused','scheduled'].includes(c.status))actions.push([Markup.button.callback('🔒 بستن کمپین و آماده‌سازی قرعه‌کشی','admin:campaign:close:'+c.id)]);
   if(c.status==='draft')actions.push([Markup.button.callback('✏️ ویرایش مشخصات','admin:campaign:edit-menu:'+c.id)]);
   actions.push([Markup.button.callback('📄 کپی به‌عنوان پیش‌نویس','admin:campaign:copy:'+c.id)]);
-  actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id),Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
+  actions.push([Markup.button.callback('🔎 جست‌وجوی کدهای کمپین','admin:campaign:codes:search:'+c.id)]);
+  if(canExportParticipantData)actions.push([Markup.button.callback('📥 خروجی CSV کدها','admin:campaign:codes:export:'+c.id)]);
   if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&!c.commitment_published_at)actions.push([Markup.button.callback('🔗 ثبت انتشار Commitment','admin:campaign:draw:publish:'+c.prepared_draw_id)]);
   else if(canDraw&&c.status==='closed'&&c.prepared_draw_id&&c.commitment_published_at)actions.push([Markup.button.callback('▶️ اجرای قرعه‌کشی آماده‌شده','admin:campaign:draw:complete:'+c.prepared_draw_id)]);
   else if(canDraw&&c.status==='closed')actions.push([Markup.button.callback('🎲 آماده‌سازی قرعه‌کشی','admin:campaign:draw:prepare:'+c.id)]);
@@ -374,7 +377,7 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action(/^admin:campaign:codes:search:(\d+)$/,async ctx=>{
-    if(!hasPermission(ctx.from.id,'campaign.write')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    if(!hasPermission(ctx.from.id,'campaign.read')||!hasPermission(ctx.from.id,'participant.export'))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
@@ -443,6 +446,7 @@ export function registerAdminHandlers(bot){
     const [rows]=await pool.execute('SELECT id,telegram_user_id,telegram_username,full_name,phone,instagram_handle,status,created_at FROM participants ORDER BY id DESC LIMIT 10000');
     const columns=['id','telegram_user_id','telegram_username','full_name','phone','instagram_handle','status','created_at'];
     const csv=toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at)})),columns);
+    await audit(ctx.from.id,'participants.exported','participants',null,{count:rows.length,limit:10000});
     return ctx.replyWithDocument({source:Buffer.from(csv,'utf8'),filename:'participants-export.csv'},{caption:`خروجی شرکت‌کنندگان: ${rows.length} رکورد (حداکثر ۱۰٬۰۰۰ رکورد)`});
   });
   bot.action('admin:support',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showSupportQueue(ctx,0,'all');});
@@ -481,6 +485,7 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery('در حال ساخت خروجی...');
     const rows=await exportManagedOrders({limit:10000});
     const columns=['id','payment_reference','requested_code_count','amount','currency','status','campaign_id','campaign_title','telegram_user_id','full_name','phone','instagram_handle','created_at','expires_at','approved_at'];
+    await audit(ctx.from.id,'payment.orders_exported','payment_order',null,{count:rows.length,limit:10000});
     return ctx.replyWithDocument({source:Buffer.from(toCsv(rows.map(row=>({...row,created_at:formatTehranDateTime(row.created_at),expires_at:formatTehranDateTime(row.expires_at),approved_at:formatTehranDateTime(row.approved_at)})),columns),'utf8'),filename:'payment-orders.csv'},{caption:'گزارش سفارش‌ها؛ حداکثر ۱۰٬۰۰۰ سفارش اخیر. مبلغ‌ها به واحد ریال هستند.'});
   });
   bot.action('admin:payment-settings',async ctx=>{if(!await isAdmin(ctx))return deny(ctx);await clearWizard(ctx.from.id);await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery();return showPaymentCards(ctx);});
@@ -736,7 +741,9 @@ async function showManagedOrders(ctx,status,page){
   for(const o of r.rows)buttons.push([Markup.button.callback('#'+o.id+' | '+Number(o.requested_code_count||1)+' کد | '+Number(o.amount).toLocaleString('fa-IR')+' ریال','admin:payment:order:'+o.id)]);
   const pages=Math.max(1,Math.ceil(r.total/r.limit));
   const nav=[];if(page>0)nav.push(Markup.button.callback('صفحه قبل','admin:payments:page:'+status+':'+(page-1)));if(page+1<pages)nav.push(Markup.button.callback('صفحه بعد','admin:payments:page:'+status+':'+(page+1)));if(nav.length)buttons.push(nav);
-  buttons.push([Markup.button.callback('🔎 جست‌وجوی سفارش','admin:payment:search'),Markup.button.callback('📥 خروجی CSV','admin:payment:export')]);
+  const paymentActions=[Markup.button.callback('🔎 جست‌وجوی سفارش','admin:payment:search')];
+  if(await hasPermission(ctx.from.id,'payment.export'))paymentActions.push(Markup.button.callback('📥 خروجی CSV','admin:payment:export'));
+  buttons.push(paymentActions);
   buttons.push([Markup.button.callback('بازگشت به مدیریت','admin:home')]);
   const text='🧾 مرکز سفارش‌ها و پرداخت‌ها\nفیلتر: '+names[status]+'\nتعداد کل: '+Number(r.total).toLocaleString('fa-IR')+'\nصفحه: '+(page+1)+' از '+pages+'\n\n'+(r.rows.length?r.rows.map(o=>'#'+o.id+' | '+o.full_name+' | '+o.campaign_title+' | '+Number(o.requested_code_count||1)+' کد | '+Number(o.amount).toLocaleString('fa-IR')+' ریال | '+o.status).join('\n'):'سفارشی در این فیلتر وجود ندارد.');
   return respond(ctx,text,Markup.inlineKeyboard(buttons));
