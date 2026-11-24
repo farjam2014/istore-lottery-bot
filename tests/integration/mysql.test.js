@@ -100,6 +100,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
       '20261124_003_registration_session_replay.sql',
+      '20261124_003_registration_session_replay.sql',
       '20261124_003_registration_session_replay.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
