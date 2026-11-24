@@ -19,6 +19,7 @@ on:
       - audit/fix-release-blockers
       - audit/installer-preflight-stacked
       - 'remediation/**'
+      - 'fix/**'
       - ux/unified-navigation-six-phase
   pull_request:
     branches:
@@ -27,6 +28,7 @@ on:
       - audit/pr64-clean-rebuild
       - release/ustore-unified
       - ux/production-base-ed490
+      - 'remediation/**'
 jobs:
   test:
     runs-on: ubuntu-latest
