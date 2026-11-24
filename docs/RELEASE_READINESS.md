@@ -66,7 +66,7 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
 22. `20261124_002_privacy_consent.sql` — adds participant privacy notice version and acceptance timestamp; existing profiles remain unconsented until they accept the published notice.
 23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact session, preventing duplicate step advancement on replay.
-24. `20261124_004_admin_wizard_replay.sql` — records the Telegram update ID that advanced an admin campaign wizard, preventing stale message replays from being interpreted as input for a later step.
+24. `20261124_004_admin_wizard_replay.sql` — records Telegram update IDs for admin campaign and payment-card wizards, preventing stale message replays from being interpreted as input for a later step.
 
 Important migration properties:
 
