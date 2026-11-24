@@ -114,14 +114,23 @@ function validateCampaignWizardPayload(payload){
   if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1||capacity>10000000))throw new Error('ظرفیت کمپین معتبر نیست.');
   const price=payload.type==='paid'?Number(payload.price):0;
   if(payload.type==='paid'&&(!Number.isSafeInteger(price)||price<1||price>1000000000000))throw new Error('قیمت کمپین معتبر نیست.');
+  const description=String(payload.description||'');
+  const prizeTitle=String(payload.prizeTitle||'')||null;
+  const prizeDescription=String(payload.prizeDescription||'')||null;
+  const terms=String(payload.terms||'')||null;
+  if(description.length>3000||prizeTitle?.length>180||prizeDescription?.length>2000||terms?.length>8000)throw new Error('طول یکی از فیلدهای کمپین از حد مجاز بیشتر است.');
+  const posterFileId=payload.posterFileId?String(payload.posterFileId):null;
+  if(posterFileId&&posterFileId.length>255)throw new Error('شناسه پوستر کمپین معتبر نیست.');
+  const rawPrizeValue=payload.prizeValue===null||payload.prizeValue===undefined?null:Number(payload.prizeValue);
+  if(rawPrizeValue!==null&&(!Number.isSafeInteger(rawPrizeValue)||rawPrizeValue<0||rawPrizeValue>100000000000000))throw new Error('ارزش جایزه کمپین معتبر نیست.');
   const startsAt=payload.starts_at||null,endsAt=payload.ends_at||null,drawAt=payload.draw_at||null;
   if(startsAt&&endsAt&&parseUtcDateTime(startsAt).getTime()>=parseUtcDateTime(endsAt).getTime())throw new Error('زمان پایان باید بعد از شروع باشد.');
   if(drawAt&&endsAt&&parseUtcDateTime(drawAt).getTime()<parseUtcDateTime(endsAt).getTime())throw new Error('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.');
-  return {title,description:String(payload.description||''),posterFileId:payload.posterFileId||null,
-    prizeTitle:String(payload.prizeTitle||'')||null,prizeDescription:String(payload.prizeDescription||'')||null,
-    prizeValue:payload.prizeValue===null||payload.prizeValue===undefined?null:Number(payload.prizeValue)||null,
+  return {title,description,posterFileId,
+    prizeTitle,prizeDescription,
+    prizeValue:rawPrizeValue,
     type:payload.type,price,paymentMethods:payload.type==='paid'?['card_transfer']:[],
-    startsAt,endsAt,drawAt,terms:String(payload.terms||'')||null,capacity,codes};
+    startsAt,endsAt,drawAt,terms,capacity,codes};
 }
 
 export async function createCampaignFromWizard({telegramUserId,actorId,database=pool}={}){
@@ -157,13 +166,14 @@ export async function copyCampaign({campaignId,actorId,idempotencyKey,database=p
   const connection=await database.getConnection();
   try{
     await connection.beginTransaction();
-    await connection.execute("INSERT IGNORE INTO admin_action_idempotency(idempotency_key,action_type,actor_telegram_id) VALUES(?,'campaign.copy',?)",[key,String(actorId)]);
+    const [claim]=await connection.execute("INSERT IGNORE INTO admin_action_idempotency(idempotency_key,action_type,actor_telegram_id) VALUES(?,'campaign.copy',?)",[key,String(actorId)]);
     const [[request]]=await connection.execute('SELECT action_type,actor_telegram_id,entity_id FROM admin_action_idempotency WHERE idempotency_key=? FOR UPDATE',[key]);
     if(!request||request.action_type!=='campaign.copy'||String(request.actor_telegram_id)!==String(actorId))throw new Error('درخواست تکراری کپی کمپین معتبر نیست.');
     if(request.entity_id!==null&&request.entity_id!==undefined){
       await connection.commit();
       return {campaignId:Number(request.entity_id),alreadyProcessed:true};
     }
+    if(Number(claim?.affectedRows)!==1)throw new Error('درخواست قبلی کپی کمپین وضعیت ناقص دارد؛ برای جلوگیری از ایجاد نسخه تکراری، عملیات متوقف شد.');
     const [[source]]=await connection.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE',[id]);
     if(!source)throw new Error('کمپین پیدا نشد.');
     const title=String(source.title||'')+' (نسخه کپی)';
