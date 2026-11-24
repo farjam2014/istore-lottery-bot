@@ -1,4 +1,7 @@
+import {randomBytes} from 'node:crypto';
 import {pool} from '../../database/pool.js';
+import {getCorrelationId} from '../../shared/request-context.js';
+import {parseUtcDateTime} from '../../shared/datetime.js';
 
 export async function archiveCampaign({campaignId,actorId}={}){
   const id=Number(campaignId);
@@ -91,6 +94,80 @@ export async function setCampaignStatus({campaignId,actorId,expectedStatus,actio
     }
     await connection.commit();
     return {campaignId:id,from:campaign.status,to:nextStatus,changed};
+  }catch(error){await connection.rollback();throw error;}
+  finally{connection.release();}
+}
+
+function makeCampaignSlug(title){
+  const suffix=randomBytes(3).toString('hex');
+  const base=String(title).toLowerCase().replace(/[^a-z0-9\\u0600-\\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';
+  return `${base}-${suffix}`;
+}
+
+function validateCampaignWizardPayload(payload){
+  if(!payload||!['free','paid'].includes(payload.type))throw new Error('نوع کمپین در فرایند ساخت معتبر نیست.');
+  const title=String(payload.title??'').trim();
+  if(title.length<3||title.length>180)throw new Error('عنوان کمپین معتبر نیست.');
+  const codes=Number(payload.codes);
+  if(!Number.isSafeInteger(codes)||codes<1||codes>100)throw new Error('تعداد کد کمپین باید بین ۱ تا ۱۰۰ باشد.');
+  const capacity=payload.capacity===null||payload.capacity===undefined?null:Number(payload.capacity);
+  if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1||capacity>10000000))throw new Error('ظرفیت کمپین معتبر نیست.');
+  const price=payload.type==='paid'?Number(payload.price):0;
+  if(payload.type==='paid'&&(!Number.isSafeInteger(price)||price<1||price>1000000000000))throw new Error('قیمت کمپین معتبر نیست.');
+  const startsAt=payload.starts_at||null,endsAt=payload.ends_at||null,drawAt=payload.draw_at||null;
+  if(startsAt&&endsAt&&parseUtcDateTime(startsAt).getTime()>=parseUtcDateTime(endsAt).getTime())throw new Error('زمان پایان باید بعد از شروع باشد.');
+  if(drawAt&&endsAt&&parseUtcDateTime(drawAt).getTime()<parseUtcDateTime(endsAt).getTime())throw new Error('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.');
+  return {title,description:String(payload.description||''),posterFileId:payload.posterFileId||null,
+    prizeTitle:String(payload.prizeTitle||'')||null,prizeDescription:String(payload.prizeDescription||'')||null,
+    prizeValue:payload.prizeValue===null||payload.prizeValue===undefined?null:Number(payload.prizeValue)||null,
+    type:payload.type,price,paymentMethods:payload.type==='paid'?['card_transfer']:[],
+    startsAt,endsAt,drawAt,terms:String(payload.terms||'')||null,capacity,codes};
+}
+
+export async function createCampaignFromWizard({telegramUserId,actorId,database=pool}={}){
+  if(!/^\\d+$/.test(String(telegramUserId??''))||!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign creator must be a numeric Telegram user ID.');
+  const connection=await database.getConnection();
+  try{
+    await connection.beginTransaction();
+    const [[wizard]]=await connection.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
+    if(!wizard||wizard.step!=='confirm')throw new Error('فرایند ساخت کمپین منقضی شده است.');
+    const payload=typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload;
+    const value=validateCampaignWizardPayload(payload);
+    const [created]=await connection.execute(
+      "INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",
+      [makeCampaignSlug(value.title),value.title,value.description,value.posterFileId,value.prizeTitle,value.prizeDescription,value.prizeValue,value.type,value.price,JSON.stringify(value.paymentMethods),value.startsAt,value.endsAt,value.drawAt,value.terms,value.capacity,value.codes]
+    );
+    await connection.execute(
+      'INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',
+      [String(actorId),getCorrelationId(),'campaign.created','campaign',created.insertId,JSON.stringify({type:value.type,title:value.title})]
+    );
+    await connection.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(telegramUserId)]);
+    await connection.commit();
+    return {campaignId:created.insertId,title:value.title};
+  }catch(error){await connection.rollback();throw error;}
+  finally{connection.release();}
+}
+
+export async function copyCampaign({campaignId,actorId,database=pool}={}){
+  const id=Number(campaignId);
+  if(!Number.isSafeInteger(id)||id<1)throw new TypeError('Campaign ID must be a positive safe integer.');
+  if(!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
+  const connection=await database.getConnection();
+  try{
+    await connection.beginTransaction();
+    const [[source]]=await connection.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE',[id]);
+    if(!source)throw new Error('کمپین پیدا نشد.');
+    const title=String(source.title||'')+' (نسخه کپی)';
+    const [created]=await connection.execute(
+      "INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",
+      [makeCampaignSlug(String(source.title||'')+'-copy'),title,source.description,source.poster_file_id,source.prize_title,source.prize_description,source.prize_value,source.participation_type,source.entry_price,source.payment_methods,source.starts_at,source.ends_at,source.draw_at,source.terms,source.capacity,source.codes_per_entry]
+    );
+    await connection.execute(
+      'INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',
+      [String(actorId),getCorrelationId(),'campaign.copied','campaign',created.insertId,JSON.stringify({sourceCampaignId:id})]
+    );
+    await connection.commit();
+    return {campaignId:created.insertId,title};
   }catch(error){await connection.rollback();throw error;}
   finally{connection.release();}
 }
