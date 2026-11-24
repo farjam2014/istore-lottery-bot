@@ -96,7 +96,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261117_006_draw_relational_integrity.sql',
       '20261118_001_participant_search_state.sql',
       '20261118_002_paid_code_quantity.sql',
-      '20261119_001_campaign_edit_wizard_step.sql'
+      '20261119_001_campaign_edit_wizard_step.sql',
+      '20261124_001_admin_action_idempotency.sql',
+      '20261124_002_privacy_consent.sql',
+      '20261124_003_message_session_idempotency.sql',
+      '20261124_003_message_session_idempotency.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
