@@ -84,6 +84,10 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index!==0)throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
     return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
   }
+  if(file==='20261124_004_admin_wizard_replay.sql'){
+    if(index!==0)throw new Error('Unexpected statement index in 20261124_004_admin_wizard_replay.sql.');
+    return hasNullableBigintColumn(connection,'admin_wizards','last_update_id');
+  }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
       hasColumn(connection,'participants','privacy_consent_version'),
