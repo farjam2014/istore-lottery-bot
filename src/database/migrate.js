@@ -11,6 +11,7 @@ const LOCK_NAME='ustore_telegram_bot_schema_migrations';
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
 import {assertMigrationHistoryIntegrity} from './migration-integrity.js';
+import {releaseMigrationConnection} from './migration-lock.js';
 
 async function hasIndex(connection,table,index){
   const [[row]]=await connection.execute(
@@ -256,9 +257,10 @@ export async function migrate(){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
-  let lockAcquired=false;
+  let lockAcquisitionResolved=false,lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
+    lockAcquisitionResolved=true;
     lockAcquired=Number(lock?.acquired)===1;
     if(!lockAcquired)throw new Error('Could not acquire the database migration lock within 30 seconds.');
 
@@ -292,9 +294,6 @@ export async function migrate(){
       await c.execute('INSERT INTO schema_migrations(version,checksum) VALUES(?,?)',[file,checksum]);
     }
   }finally{
-    if(lockAcquired){
-      try{await c.query('SELECT RELEASE_LOCK(?)',[LOCK_NAME]);}catch{}
-    }
-    c.release();
+    await releaseMigrationConnection(c,{lockAcquisitionResolved,lockAcquired,lockName:LOCK_NAME});
   }
 }
