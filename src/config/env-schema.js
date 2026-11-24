@@ -10,7 +10,10 @@ export const envSchema = z.object({
   MYSQL_USER: z.string().min(1),
   MYSQL_PASSWORD: z.string(),
   MYSQL_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  DRAW_SEED_ENCRYPTION_KEYS: z.string().optional(),
+  DRAW_SEED_ENCRYPTION_KEY: z.string().optional(),
+  DRAW_SEED_ACTIVE_KEY_ID: z.string().optional()
 });
 
 export function parseEnvironment(environment) {
