@@ -157,7 +157,7 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
   try{
     const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,codes_per_entry) VALUES(?,?,'draft','free',1)",[slug,'Draw Publish '+actorId]);
     campaignId=campaign.insertId;
-    const [draw]=await pool.execute("INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','hmac-sha256-v1,','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,?)",[campaignId,actorId]);
+    const [draw]=await pool.execute("INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','hmac-sha256-v1','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,?)",[campaignId,actorId]);
     drawId=draw.insertId;
     await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?)',[actorId,'draw_publication_confirm',JSON.stringify({drawId,reference:'https://proof.example.org/draw/'+drawId})]);
     let readers=0,releaseReaders;
