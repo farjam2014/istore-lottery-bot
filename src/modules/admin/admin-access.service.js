@@ -1,7 +1,7 @@
 import {pool} from '../../database/pool.js';
 
-async function updateAdminAccess({targetId,actorId,role,isActive,expectedActive}){
-  const c=await pool.getConnection();
+async function updateAdminAccess({targetId,actorId,role,isActive,expectedActive,database=pool}){
+  const c=await database.getConnection();
   try{
     await c.beginTransaction();
     const [[target]]=await c.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[String(targetId)]);
