@@ -10,7 +10,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   assert.match(db,/_ci$|_test$/,'Integration tests only run against a database ending in _ci or _test');
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
-  const {createProfile,findByTelegramId}=await import('../../src/modules/participants/participant.repository.js');
+  const {createProfile,findByTelegramId,updatePrivacyConsent}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
   let participantId;let secondParticipantId;const campaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;
   try{
@@ -142,6 +142,13 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
     assert.equal(profile.privacy_consent_version,'ci-v1');assert.ok(profile.privacy_consent_at,'Consent acceptance timestamp must be persisted.');
+    await updatePrivacyConsent(telegramId,'ci-v2');
+    const consentUpdated=await findByTelegramId(telegramId);
+    assert.equal(consentUpdated.privacy_consent_version,'ci-v2');
+    const firstAcceptance=consentUpdated.privacy_consent_at;
+    await updatePrivacyConsent(telegramId,'ci-v2');
+    const consentReplayed=await findByTelegramId(telegramId);
+    assert.equal(consentReplayed.privacy_consent_at.getTime(),firstAcceptance.getTime(),'Replayed consent callback must not refresh the first acceptance timestamp.');
     assert.equal(String(profile.telegram_user_id),telegramId);
     await assert.rejects(
       pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Duplicate Tester','+989121234567','duplicate_user']),
