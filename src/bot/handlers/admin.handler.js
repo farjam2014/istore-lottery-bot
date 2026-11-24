@@ -20,7 +20,7 @@ import {formatTehranDateTime,parseJalaliDateTime,parseUtcDateTime} from '../../s
 import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.service.js';
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
-import {archiveCampaign,closeCampaign,setCampaignStatus} from '../../modules/campaigns/campaign-admin.service.js';
+import {archiveCampaign,closeCampaign,setCampaignStatus,createCampaignFromWizard,copyCampaign} from '../../modules/campaigns/campaign-admin.service.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -335,13 +335,12 @@ export function registerAdminHandlers(bot){
   });
   bot.action(/^admin:campaign:copy:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
-    const id=Number(ctx.match[1]);const [[source]]=await pool.execute('SELECT * FROM campaigns WHERE id=?',[id]);
-    if(!source)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
-    const slug=slugify(source.title+'-copy');
-    const [created]=await pool.execute("INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",[slug,source.title+' (نسخه کپی)',source.description,source.poster_file_id,source.prize_title,source.prize_description,source.prize_value,source.participation_type,source.entry_price,source.payment_methods,source.starts_at,source.ends_at,source.draw_at,source.terms,source.capacity,source.codes_per_entry]);
-    await audit(ctx.from.id,'campaign.copied','campaign',created.insertId,{sourceCampaignId:id});
+    const id=Number(ctx.match[1]);
+    let result;
+    try{result=await copyCampaign({campaignId:id,actorId:String(ctx.from.id)});}
+    catch(error){return ctx.answerCbQuery(error.message||'کپی کمپین انجام نشد.',{show_alert:true});}
     await ctx.answerCbQuery('پیش‌نویس کپی ساخته شد.');
-    return showCampaignDetail(ctx,created.insertId);
+    return showCampaignDetail(ctx,result.campaignId);
   });
   bot.action(/^admin:campaign:archive:(\d+)$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
@@ -453,9 +452,41 @@ export function registerAdminHandlers(bot){
   bot.action(/^admin:support:page:(all|new|in_progress|answered|closed):(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showSupportQueue(ctx,Number(ctx.match[2]),ctx.match[1]);});
   bot.action(/^admin:support:filter:(all|new|in_progress|answered|closed)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return showSupportQueue(ctx,0,ctx.match[1]);});
   bot.action(/^admin:support:view:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();const id=Number(ctx.match[1]);const [[t]]=await pool.execute('SELECT t.*,p.full_name,p.phone,p.telegram_user_id,p.instagram_handle FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=?',[id]);if(!t)return respond(ctx,'تیکت پیدا نشد.');const [messages]=await pool.execute('SELECT sender_type,body,created_at FROM support_messages WHERE ticket_id=? ORDER BY id DESC LIMIT 12',[id]);const transcript=messages.reverse().map(m=>formatTehranDateTime(m.created_at)+' | '+(m.sender_type==='admin'?'اپراتور':m.sender_type==='system'?'سیستم':'مشتری')+': '+m.body).join('\n\n').slice(0,3000);const label={new:'جدید',in_progress:'در حال بررسی',answered:'پاسخ داده‌شده',closed:'بسته'}[t.status]||t.status;const priority={low:'کم',normal:'عادی',high:'زیاد',urgent:'فوری'}[t.priority]||t.priority;return respond(ctx,'🎫 تیکت '+t.ticket_number+'\nمشتری: '+t.full_name+'\nموبایل: '+t.phone+'\nتلگرام: '+t.telegram_user_id+'\nاینستاگرام: @'+t.instagram_handle+'\nموضوع: '+t.category+'\nعنوان: '+t.subject+'\nوضعیت: '+label+'\nاولویت: '+priority+'\nمسئول: '+(t.assigned_admin_id||'تخصیص‌نیافته')+'\n\n'+(transcript||'بدون پیام'),Markup.inlineKeyboard([[Markup.button.callback('✍️ پاسخ به مشتری','admin:support:reply:'+id)],[Markup.button.callback('👤 تخصیص به من','admin:support:assign:'+id)],[Markup.button.callback(t.status==='closed'?'بازگشایی':'بستن تیکت','admin:support:status:'+id+':'+(t.status==='closed'?'new':'closed'))],[Markup.button.callback('اولویت: زیاد','admin:support:priority:'+id+':high'),Markup.button.callback('اولویت: فوری','admin:support:priority:'+id+':urgent')],[Markup.button.callback('↩️ صف تیکت‌ها','admin:support')]]));});
-  bot.action(/^admin:support:assign:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const id=Number(ctx.match[1]);await pool.execute("UPDATE support_tickets SET assigned_admin_id=?,status=IF(status='new','in_progress',status) WHERE id=?",[String(ctx.from.id),id]);await audit(ctx.from.id,'support.assigned','support_ticket',id,{});await ctx.answerCbQuery('تیکت به شما تخصیص یافت.');return respond(ctx,'تیکت به شما تخصیص یافت.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)]]));});
+  bot.action(/^admin:support:assign:(\d+)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const id=Number(ctx.match[1]),c=await pool.getConnection();
+    try{
+      await c.beginTransaction();
+      const [[ticket]]=await c.execute('SELECT id,assigned_admin_id,status FROM support_tickets WHERE id=? FOR UPDATE',[id]);
+      if(!ticket)throw new Error('تیکت پیدا نشد.');
+      if(String(ticket.assigned_admin_id||'')!==String(ctx.from.id)||ticket.status==='new'){
+        await c.execute("UPDATE support_tickets SET assigned_admin_id=?,status=IF(status='new','in_progress',status) WHERE id=?",[String(ctx.from.id),id]);
+        await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(ctx.from.id),getCorrelationId(),'support.assigned','support_ticket',id,JSON.stringify({previousAssignee:ticket.assigned_admin_id||null})]);
+      }
+      await c.commit();
+    }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'تخصیص تیکت ناموفق بود.',{show_alert:true});}
+    finally{c.release();}
+    await ctx.answerCbQuery('تیکت به شما تخصیص یافت.');
+    return respond(ctx,'تیکت به شما تخصیص یافت.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)]]));
+  });
   bot.action(/^admin:support:status:(\d+):(new|in_progress|answered|closed)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const id=Number(ctx.match[1]),status=ctx.match[2],c=await pool.getConnection();const labels={new:'جدید',in_progress:'در حال بررسی',answered:'پاسخ داده‌شده',closed:'بسته'};try{await c.beginTransaction();const [[ticket]]=await c.execute('SELECT t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE',[id]);if(!ticket)throw new Error('تیکت پیدا نشد.');if(ticket.status!==status){await c.execute('UPDATE support_tickets SET status=? WHERE id=?',[status,id]);await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',[String(ctx.from.id),'support.status_changed','support_ticket',id,JSON.stringify({from:ticket.status,to:status})]);await enqueueTelegramNotification({chatId:ticket.telegram_user_id,text:'وضعیت تیکت '+ticket.ticket_number+' به «'+labels[status]+'» تغییر کرد.',executor:c});}await c.commit();}catch(e){await c.rollback();return ctx.answerCbQuery(e.message||'تغییر وضعیت ناموفق بود.',{show_alert:true});}finally{c.release();}await ctx.answerCbQuery('وضعیت تغییر کرد.');return respond(ctx,'وضعیت تیکت به‌روزرسانی شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('صف تیکت‌ها','admin:support')],[Markup.button.callback('مدیریت','admin:home')]]));});
-  bot.action(/^admin:support:priority:(\d+):(low|normal|high|urgent)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const id=Number(ctx.match[1]),priority=ctx.match[2];await pool.execute('UPDATE support_tickets SET priority=? WHERE id=?',[priority,id]);await audit(ctx.from.id,'support.priority_changed','support_ticket',id,{priority});await ctx.answerCbQuery('اولویت تغییر کرد.');return respond(ctx,'اولویت تیکت تغییر کرد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('صف تیکت‌ها','admin:support')],[Markup.button.callback('مدیریت','admin:home')]]));});
+  bot.action(/^admin:support:priority:(\d+):(low|normal|high|urgent)$/,async ctx=>{
+    if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    const id=Number(ctx.match[1]),priority=ctx.match[2],c=await pool.getConnection();
+    try{
+      await c.beginTransaction();
+      const [[ticket]]=await c.execute('SELECT id,priority FROM support_tickets WHERE id=? FOR UPDATE',[id]);
+      if(!ticket)throw new Error('تیکت پیدا نشد.');
+      if(ticket.priority!==priority){
+        await c.execute('UPDATE support_tickets SET priority=? WHERE id=?',[priority,id]);
+        await c.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(ctx.from.id),getCorrelationId(),'support.priority_changed','support_ticket',id,JSON.stringify({from:ticket.priority,to:priority})]);
+      }
+      await c.commit();
+    }catch(error){await c.rollback();return ctx.answerCbQuery(error.message||'تغییر اولویت ناموفق بود.',{show_alert:true});}
+    finally{c.release();}
+    await ctx.answerCbQuery('اولویت تغییر کرد.');
+    return respond(ctx,'اولویت تیکت تغییر کرد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('صف تیکت‌ها','admin:support')],[Markup.button.callback('مدیریت','admin:home')]]));
+  });
   bot.action(/^admin:support:reply:(\d+)$/,async ctx=>{if(!await hasPermission(ctx.from.id,'support.reply'))return deny(ctx);const id=Number(ctx.match[1]);const [rows]=await pool.execute("SELECT id FROM support_tickets WHERE id=? AND status<>'closed'",[id]);if(!rows.length)return ctx.answerCbQuery('تیکت بسته است یا وجود ندارد.',{show_alert:true});await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,ticket_id) VALUES(?,'admin_reply',?) ON DUPLICATE KEY UPDATE step='admin_reply',ticket_id=VALUES(ticket_id),category=NULL",[String(ctx.from.id),id]);await ctx.answerCbQuery();return respond(ctx,'پاسخ خود را به مشتری در یک پیام ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('❌ لغو پاسخ','admin:support:reply:cancel')],[Markup.button.callback('↩️ مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('🏠 مدیریت','admin:home')]]));});
   bot.action('admin:support:reply:cancel',async ctx=>{if(!await hasPermission(ctx.from.id,'support.reply'))return deny(ctx);await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);await ctx.answerCbQuery('پاسخ لغو شد.');return showSupportQueue(ctx,0,'all');});
   bot.action('admin:payments',async ctx=>{
@@ -673,12 +704,11 @@ export function registerAdminHandlers(bot){
   });
   bot.action('admin:campaign:confirm',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const wizard=await getWizard(ctx.from.id);if(!wizard||wizard.step!=='confirm')return ctx.answerCbQuery('فرایند ساخت کمپین منقضی شده است.',{show_alert:true});
-    const p=wizard.payload;const slug=slugify(p.title);
-    if(p.starts_at&&p.ends_at&&parseUtcDateTime(p.starts_at).getTime()>=parseUtcDateTime(p.ends_at).getTime())return ctx.answerCbQuery('زمان پایان باید بعد از شروع باشد.',{show_alert:true});if(p.draw_at&&p.ends_at&&parseUtcDateTime(p.draw_at).getTime()<parseUtcDateTime(p.ends_at).getTime())return ctx.answerCbQuery('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.',{show_alert:true});const [result]=await pool.execute("INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",[slug,p.title,p.description,p.posterFileId||null,p.prizeTitle||null,p.prizeDescription||null,p.prizeValue||null,p.type,p.type==='paid'?p.price:0,JSON.stringify(p.paymentMethods||[]),p.starts_at,p.ends_at,p.draw_at,p.terms||null,p.capacity,p.codes]);
-    await audit(ctx.from.id,'campaign.created','campaign',result.insertId,{type:p.type,title:p.title});
-    await clearWizard(ctx.from.id);await ctx.answerCbQuery('کمپین ایجاد شد.');
-    return respond(ctx,`کمپین «${p.title}» به‌صورت پیش‌نویس ایجاد شد. برای نمایش به کاربران، آن را از فهرست کمپین‌ها فعال کنید.`,campaignMenu());
+    let created;
+    try{created=await createCampaignFromWizard({telegramUserId:String(ctx.from.id),actorId:String(ctx.from.id)});}
+    catch(error){return ctx.answerCbQuery(error.message||'ساخت کمپین انجام نشد.',{show_alert:true});}
+    await ctx.answerCbQuery('کمپین ایجاد شد.');
+    return respond(ctx,`کمپین «${created.title}» به‌صورت پیش‌نویس ایجاد شد. برای نمایش به کاربران، آن را از فهرست کمپین‌ها فعال کنید.`,campaignMenu());
   });
   bot.action('admin:campaign:restart',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{});await ctx.answerCbQuery();return respond(ctx,'نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
 }
