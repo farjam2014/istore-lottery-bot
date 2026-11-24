@@ -14,12 +14,13 @@ export const envSchema = z.object({
   DRAW_SEED_ENCRYPTION_KEYS: z.string().optional(),
   DRAW_SEED_ENCRYPTION_KEY: z.string().optional(),
   DRAW_SEED_ACTIVE_KEY_ID: z.string().optional(),
-  PRIVACY_NOTICE_URL: z.string().url().optional(),
+  PRIVACY_NOTICE_URL: z.string().url().refine(value=>new URL(value).protocol==='https:').optional(),
   PRIVACY_NOTICE_VERSION: z.string().min(1).max(40).optional()
 }).superRefine((value,ctx)=>{
   if(value.NODE_ENV==='production'){
     if(!value.PRIVACY_NOTICE_URL)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'A published privacy notice URL is required in production.'});
     if(!value.PRIVACY_NOTICE_VERSION)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_VERSION'],message:'A privacy notice version is required in production.'});
+    if(value.PRIVACY_NOTICE_URL&&['example.com','www.example.com'].includes(new URL(value.PRIVACY_NOTICE_URL).hostname))ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'Replace the example privacy notice URL with the published production notice.'});
   }
 });
 
