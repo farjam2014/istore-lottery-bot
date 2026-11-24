@@ -174,3 +174,15 @@ test('failed callback updates are not replayed after callback query expiry',asyn
   assert.equal(replay.state.durableReplay,true);
   assert.equal(database.inbox.get(901).status,'completed');
 });
+
+
+test('expired callback acknowledgement does not abort a fresh callback handler',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const ctx=context({id:902,userId:'12345',callback:true});
+  ctx.answerCbQuery=async()=>{throw Object.assign(new Error('400: Bad Request: query is too old and response timeout expired or query ID is invalid'),{response:{error_code:400}});};
+  let calls=0;
+  await guard(ctx,async()=>{await ctx.answerCbQuery();calls++;});
+  assert.equal(calls,1,'business handler should continue when only callback acknowledgement expired');
+  assert.equal(database.inbox.get(902).status,'completed');
+});
