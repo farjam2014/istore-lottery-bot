@@ -72,16 +72,16 @@ async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261114_001_payment_expiry_reference.sql'){
     if(index===0){
       const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='status'");
-      const checks=await Promise.all([
-        (async()=>!(await hasIndex(connection,'payment_orders','campaign_entry_id')))(),
+      const [oldIndex,newIndex,referenceColumn,referenceUnique]=await Promise.all([
+        hasIndex(connection,'payment_orders','campaign_entry_id'),
         hasIndex(connection,'payment_orders','idx_order_entry'),
         hasColumn(connection,'payment_orders','payment_reference'),
-        hasIndex(connection,'payment_orders','uq_payment_reference'),
-        Promise.resolve(String(status?.COLUMN_TYPE||'').includes("'expired'"))
+        hasIndex(connection,'payment_orders','uq_payment_reference')
       ]);
-      if(checks.every(Boolean))return true;
-      if(checks.some(Boolean))throw new Error('Partial DDL detected in 20261114_001_payment_expiry_reference.sql statement 1. Inspect payment_orders before repair.');
-      return false;
+      const expiredStatus=String(status?.COLUMN_TYPE||'').includes("'expired'");
+      if(!oldIndex&&newIndex&&referenceColumn&&referenceUnique&&expiredStatus)return true;
+      if(oldIndex&&!newIndex&&!referenceColumn&&!referenceUnique&&!expiredStatus)return false;
+      throw new Error('Partial or incompatible DDL detected in 20261114_001_payment_expiry_reference.sql statement 1. Inspect payment_orders before repair.');
     }
     if(index===1)return false; // Deterministic payment-reference backfill is safe to replay.
     if(index===2){
