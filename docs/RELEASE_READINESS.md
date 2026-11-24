@@ -40,18 +40,29 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files by filename. The ten release migrations are applied in this order:
+The migration runner sorts SQL files lexicographically by filename. The current source contains 21 migrations, applied in this order:
 
-1. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
-2. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
-3. `20261117_003_verifiable_campaign_draws.sql` — adds draw snapshot, participant, candidate, winner, and seed fields and constraints.
-4. `20261117_004_draw_commitment_publication.sql` — adds publication attestation fields and admin workflow states.
-5. `20261117_005_draw_seed_keyring.sql` — adds `seed_key_id`, defaulting existing rows to `legacy-env`.
-6. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
-7. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
-8. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders; backfills approved orders from all issued codes and legacy pending orders from the campaign's fixed codes-per-entry setting.
-9. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`, allowing campaign field-edit callbacks to persist their wizard state without removing existing workflow values.
-10. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata for idempotent recovery.
+1. `20261114_001_payment_expiry_reference.sql` — removes the one-order-per-entry restriction, adds unique payment references, expiry metadata, and outbox delivery metadata.
+2. `20261114_002_campaign_details.sql` — adds campaign poster, prize, draw, terms, and payment-method fields and expands the campaign wizard.
+3. `20261114_003_support_tickets.sql` — creates support tickets, messages, and support-session state.
+4. `20261114_004_admin_roles.sql` — creates role-based admin access and role-event history.
+5. `20261114_005_payment_admin_sessions.sql` — adds payment administration search/review sessions.
+6. `20261114_006_admin_search_and_rate_limits.sql` — adds admin search state and persistent per-user rate-limit buckets.
+7. `20261114_007_profile_change_sessions.sql` — adds profile-change sessions and requests.
+8. `20261114_008_outbox_uncertain_delivery.sql` — adds notification lease metadata and the `uncertain` delivery state.
+9. `20261115-payment-bank-cards.sql` — creates multi-card bank destination management.
+10. `20261115_009_correlation_and_delivery_history.sql` — adds correlation IDs and delivery-attempt metadata to audit, payment, update, and outbox records.
+11. `20261117_001_campaign_code_sequence.sql` — adds per-campaign sequence metadata and counters, preserves existing codes as format version 1, and seeds counters in original code-ID order.
+12. `20261117_002_admin_campaign_code_search.sql` — adds campaign-scoped admin code search.
+13. `20261117_003_verifiable_campaign_draws.sql` — adds draw snapshot, participant, candidate, winner, and seed fields and constraints.
+14. `20261117_004_draw_commitment_publication.sql` — adds publication attestation fields and admin workflow states.
+15. `20261117_005_draw_seed_keyring.sql` — adds `seed_key_id`, defaulting existing rows to `legacy-env`.
+16. `20261117_006_draw_relational_integrity.sql` — binds each candidate to its exact campaign entry, participant, and code; binds each winner to the exact candidate identity; rejects incomplete or mismatched identity rows.
+17. `20261118_001_participant_search_state.sql` — preserves participant search query state for pagination.
+18. `20261118_002_paid_code_quantity.sql` — adds the requested code quantity snapshot to payment orders and performs guarded legacy backfills.
+19. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`.
+20. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata.
+21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
 
 Important migration properties:
 
@@ -163,5 +174,5 @@ Do not label the release READY until the latest-head CI, production read-only in
 
 - Participant profiles and payment receipts contain personal data. The application does not currently enforce automatic deletion of participant profiles, payment receipt metadata/file IDs, payment events, or audit logs.
 - Before launch, publish a privacy notice and approve retention periods for participant contact data, receipts, payment/order records, support transcripts, and audit logs.
-- Verify least-privilege export permissions: participant export is restricted to `participant.export`; campaign code export requires `campaign.write` and `participant.read`; payment export requires `payment.read`.
+- Verify least-privilege export permissions: participant export requires `participant.export`; campaign code export requires `campaign.read` and `participant.export`; payment export requires `payment.export`. Operational roles must not receive global participant-directory access unless explicitly approved.
 - Review Telegram update inbox retention: completed payloads are purged after three days; pending/failed and stale-processing payloads are purged after thirty days.
