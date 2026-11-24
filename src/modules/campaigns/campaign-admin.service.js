@@ -134,7 +134,7 @@ function validateCampaignWizardPayload(payload){
 }
 
 export async function createCampaignFromWizard({telegramUserId,actorId,database=pool}={}){
-  if(!/^\\d+$/.test(String(telegramUserId??''))||!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign creator must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(telegramUserId??''))||!/^\d+$/.test(String(actorId??'')))throw new TypeError('Campaign creator must be a numeric Telegram user ID.');
   const connection=await database.getConnection();
   try{
     await connection.beginTransaction();
@@ -160,7 +160,7 @@ export async function createCampaignFromWizard({telegramUserId,actorId,database=
 export async function copyCampaign({campaignId,actorId,idempotencyKey,database=pool}={}){
   const id=Number(campaignId);
   if(!Number.isSafeInteger(id)||id<1)throw new TypeError('Campaign ID must be a positive safe integer.');
-  if(!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
   const key=String(idempotencyKey??'');
   if(!/^[a-f0-9]{64}$/i.test(key))throw new TypeError('Campaign copy idempotency key is invalid.');
   const connection=await database.getConnection();
