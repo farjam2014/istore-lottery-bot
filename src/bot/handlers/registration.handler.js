@@ -28,9 +28,14 @@ export function registerRegistrationHandlers(bot){
       await ctx.answerCbQuery('تأیید شما ثبت شد.');
       return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
     }
-    await saveSession(ctx.from.id,'awaiting_name',{privacyConsentVersion:version});
+    const existing=await getSession(ctx.from.id);
+    const step=existing?.step||'awaiting_name';
+    const payload={...(existing?.payload||{}),privacyConsentVersion:version};
+    await saveSession(ctx.from.id,step,payload);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
-    return ctx.reply(promptFor('awaiting_name'),cancelKeyboard());
+    if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
+    if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
+    return ctx.reply(promptFor(step),cancelKeyboard());
   });
   bot.action('registration:cancel',async ctx=>{
     await clearSession(ctx.from.id);
