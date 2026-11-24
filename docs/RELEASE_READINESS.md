@@ -40,7 +40,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files lexicographically by filename. The current source contains 21 migrations, applied in this order:
+The migration runner sorts SQL files lexicographically by filename. The current source contains 22 migrations, applied in this order:
 
 1. `20261114_001_payment_expiry_reference.sql` — removes the one-order-per-entry restriction, adds unique payment references, expiry metadata, and outbox delivery metadata.
 2. `20261114_002_campaign_details.sql` — adds campaign poster, prize, draw, terms, and payment-method fields and expands the campaign wizard.
@@ -63,6 +63,7 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 19. `20261119_001_campaign_edit_wizard_step.sql` — appends `campaign_edit_value` to `admin_wizards.step`.
 20. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata.
 21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
+22. `20261124_002_privacy_consent.sql` — adds participant privacy notice version and acceptance timestamp; existing profiles remain unconsented until they accept the published notice.
 
 Important migration properties:
 
