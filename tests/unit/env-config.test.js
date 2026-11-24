@@ -7,7 +7,9 @@ const validEnvironment = {
   MYSQL_HOST: '127.0.0.1',
   MYSQL_DATABASE: 'istore_lottery',
   MYSQL_USER: 'ustorebot',
-  MYSQL_PASSWORD: 'test-password'
+  MYSQL_PASSWORD: 'test-password',
+  PRIVACY_NOTICE_URL: 'https://ustore.ir/privacy-notice',
+  PRIVACY_NOTICE_VERSION: 'v1'
 };
 
 test('environment schema preserves production defaults under Zod 4', () => {
