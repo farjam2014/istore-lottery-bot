@@ -436,7 +436,7 @@ export function registerAdminHandlers(bot){
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
   });
   bot.action('admin:participants:search:cancel',async ctx=>{
-    if(!await hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    if(!await hasPermission(ctx.from.id,'participant.directory.read'))return deny(ctx);
     await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);
     await ctx.answerCbQuery('جست‌وجو لغو شد.');
     return showParticipants(ctx,0);
