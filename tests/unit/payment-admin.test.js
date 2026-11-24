@@ -19,4 +19,6 @@ test('payment admin wizard uses the fetched wizard row for step dispatch',async(
   assert.match(source,/if\(wizard\.step==='payment_settings'\)/);
   assert.match(source,/if\(wizard\.step==='payment_reject'\)/);
   assert.doesNotMatch(source,/rows\[0\]\.step/);
+  assert.match(source,/DELETE FROM admin_wizards WHERE telegram_user_id=\\\? AND step=\\\? AND last_update_id=\\\?/);
+  assert.match(source,/\[String\(ctx\.from\.id\),wizard\.step,updateId\]/);
 });
