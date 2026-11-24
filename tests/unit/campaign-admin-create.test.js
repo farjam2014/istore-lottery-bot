@@ -61,3 +61,19 @@ test('campaign copy callback is idempotent for the same Telegram callback key',a
   assert.equal(database.state.campaigns.length,1);
   assert.equal(database.state.audits.length,1);
 });
+
+test('campaign copy rolls back both copy and idempotency claim if audit fails',async()=>{
+  const database=fakeDatabase({auditFails:true});
+  await assert.rejects(copyCampaign({campaignId:9,actorId:'123',idempotencyKey:'b'.repeat(64),database}),/audit unavailable/);
+  assert.equal(database.state.campaigns.length,0);
+  assert.equal(database.state.idempotency,null);
+  assert.equal(database.state.rollbacks,1);
+});
+
+test('campaign copy idempotency key cannot be reused by another actor',async()=>{
+  const database=fakeDatabase();
+  const key='c'.repeat(64);
+  await copyCampaign({campaignId:9,actorId:'123',idempotencyKey:key,database});
+  await assert.rejects(copyCampaign({campaignId:9,actorId:'999',idempotencyKey:key,database}),/معتبر نیست/);
+  assert.equal(database.state.campaigns.length,1);
+});
