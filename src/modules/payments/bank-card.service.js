@@ -24,12 +24,12 @@ export async function listPaymentCards({includeInactive=true}={}){
   const [rows]=await pool.execute('SELECT id,bank_name,card_number,card_holder,instructions,is_active,is_default,created_at,updated_at FROM payment_bank_cards '+where+' ORDER BY is_default DESC,is_active DESC,id DESC');
   return rows;
 }
-export async function getPaymentCard(id){
-  const [[row]]=await pool.execute('SELECT id,bank_name,card_number,card_holder,instructions,is_active,is_default FROM payment_bank_cards WHERE id=?',[id]);
+export async function getPaymentCard(id,executor=pool){
+  const [[row]]=await executor.execute('SELECT id,bank_name,card_number,card_holder,instructions,is_active,is_default FROM payment_bank_cards WHERE id=?',[id]);
   return row??null;
 }
-export async function createPaymentCard(input,adminId){
-  const v=normalizeInput(input),c=await pool.getConnection();
+export async function createPaymentCard(input,adminId,{database=pool}={}){
+  const v=normalizeInput(input),c=await database.getConnection();
   try{
     await c.beginTransaction();
     const [existing]=await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
@@ -39,8 +39,8 @@ export async function createPaymentCard(input,adminId){
     await c.commit();return {id:r.insertId,default:makeDefault};
   }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت قبلاً ثبت شده است.');throw e;}finally{c.release();}
 }
-export async function updatePaymentCard(id,input,adminId){
-  const v=normalizeInput(input),c=await pool.getConnection();
+export async function updatePaymentCard(id,input,adminId,{database=pool}={}){
+  const v=normalizeInput(input),c=await database.getConnection();
   try{
     await c.beginTransaction();
     const [[card]]=await c.execute('SELECT id FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
@@ -49,10 +49,10 @@ export async function updatePaymentCard(id,input,adminId){
     await writeCardAudit(c,adminId,'payment_card.updated',id,{bankName:v.bankName,cardLast4:v.cardNumber.slice(-4)});
     await c.commit();
   }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت برای کارت دیگری ثبت شده است.');throw e;}finally{c.release();}
-  return getPaymentCard(id);
+  return getPaymentCard(id,database);
 }
-export async function setDefaultPaymentCard(id,adminId){
-  const c=await pool.getConnection();
+export async function setDefaultPaymentCard(id,adminId,{database=pool}={}){
+  const c=await database.getConnection();
   try{
     await c.beginTransaction();
     await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
@@ -66,8 +66,8 @@ export async function setDefaultPaymentCard(id,adminId){
     await c.commit();
   }catch(e){await c.rollback();throw e;}finally{c.release();}
 }
-export async function setPaymentCardActive(id,active,adminId){
-  const c=await pool.getConnection();
+export async function setPaymentCardActive(id,active,adminId,{database=pool}={}){
+  const c=await database.getConnection();
   try{
     await c.beginTransaction();
     await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
