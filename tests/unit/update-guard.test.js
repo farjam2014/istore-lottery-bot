@@ -158,3 +158,31 @@ test('long-running handler renews its lease before it expires',async()=>{
   assert.ok(database.heartbeatCount>=1,'expected at least one lease heartbeat');
   assert.equal(database.inbox.get(900).status,'completed');
 });
+
+
+test('failed callback updates are not replayed after callback query expiry',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const first=context({id:901,userId:'12345',callback:true});
+  await assert.rejects(guard(first,async()=>{throw new Error('stale callback failure');}),/stale callback failure/);
+  assert.equal(database.inbox.get(901).status,'failed');
+
+  const replay=context({id:901,userId:'12345',callback:true});
+  let calls=0;
+  await guard(replay,async()=>{calls++;});
+  assert.equal(calls,0,'expired callback handlers must not be executed again');
+  assert.equal(replay.state.durableReplay,true);
+  assert.equal(database.inbox.get(901).status,'completed');
+});
+
+
+test('expired callback acknowledgement does not abort a fresh callback handler',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const ctx=context({id:902,userId:'12345',callback:true});
+  ctx.answerCbQuery=async()=>{throw Object.assign(new Error('400: Bad Request: query is too old and response timeout expired or query ID is invalid'),{response:{error_code:400}});};
+  let calls=0;
+  await guard(ctx,async()=>{await ctx.answerCbQuery();calls++;});
+  assert.equal(calls,1,'business handler should continue when only callback acknowledgement expired');
+  assert.equal(database.inbox.get(902).status,'completed');
+});
