@@ -197,3 +197,17 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
   }
 });
+
+test('MySQL integration: registration session records the update that advanced it and rejects replayed advancement',{skip:!enabled},async()=>{
+  const {saveSession,getSession,advanceSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
+  const telegramId=String(7350000000000n+(BigInt(Date.now())%100000000000n));
+  try{
+    await saveSession(telegramId,'awaiting_name',{privacyConsentVersion:'ci-v1'});
+    const updateId=Number(800000000+Math.floor(Math.random()*100000000));
+    await advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1',fullName:'Replay Tester'},updateId);
+    const session=await getSession(telegramId);
+    assert.equal(session.step,'awaiting_phone');
+    assert.equal(session.lastUpdateId,updateId);
+    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده است/);
+  }finally{await clearSession(telegramId);}
+});
