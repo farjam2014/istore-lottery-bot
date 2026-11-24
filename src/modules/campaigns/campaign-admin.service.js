@@ -100,7 +100,7 @@ export async function setCampaignStatus({campaignId,actorId,expectedStatus,actio
 
 function makeCampaignSlug(title){
   const suffix=randomBytes(3).toString('hex');
-  const base=String(title).toLowerCase().replace(/[^a-z0-9\\u0600-\\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';
+  const base=String(title).toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';
   return `${base}-${suffix}`;
 }
 
