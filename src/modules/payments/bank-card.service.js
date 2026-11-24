@@ -1,4 +1,9 @@
 import {pool} from '../../database/pool.js';
+import {getCorrelationId} from '../../shared/request-context.js';
+
+async function writeCardAudit(connection,adminId,action,cardId,details={}){
+  await connection.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(adminId),getCorrelationId(),action,'payment_bank_card',cardId,JSON.stringify(details)]);
+}
 
 export function normalizeCardNumber(value){
   const number=String(value??'').replace(/[\s-]/g,'');
@@ -30,15 +35,20 @@ export async function createPaymentCard(input,adminId){
     const [existing]=await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
     const makeDefault=existing.length===0;
     const [r]=await c.execute('INSERT INTO payment_bank_cards(bank_name,card_number,card_holder,instructions,is_active,is_default,created_by,updated_by) VALUES(?,?,?,?,1,?,?,?)',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,makeDefault?1:0,String(adminId),String(adminId)]);
+    await writeCardAudit(c,adminId,'payment_card.created',r.insertId,{bankName:v.bankName,cardLast4:v.cardNumber.slice(-4),default:makeDefault});
     await c.commit();return {id:r.insertId,default:makeDefault};
   }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت قبلاً ثبت شده است.');throw e;}finally{c.release();}
 }
 export async function updatePaymentCard(id,input,adminId){
-  const v=normalizeInput(input);
+  const v=normalizeInput(input),c=await pool.getConnection();
   try{
-    await pool.execute('UPDATE payment_bank_cards SET bank_name=?,card_number=?,card_holder=?,instructions=?,updated_by=? WHERE id=?',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,String(adminId),id]);
-    if(!await getPaymentCard(id))throw new Error('کارت موردنظر پیدا نشد.');
-  }catch(e){if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت برای کارت دیگری ثبت شده است.');throw e;}
+    await c.beginTransaction();
+    const [[card]]=await c.execute('SELECT id FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
+    if(!card)throw new Error('کارت موردنظر پیدا نشد.');
+    await c.execute('UPDATE payment_bank_cards SET bank_name=?,card_number=?,card_holder=?,instructions=?,updated_by=? WHERE id=?',[v.bankName,v.cardNumber,v.cardHolder,v.instructions,String(adminId),id]);
+    await writeCardAudit(c,adminId,'payment_card.updated',id,{bankName:v.bankName,cardLast4:v.cardNumber.slice(-4)});
+    await c.commit();
+  }catch(e){await c.rollback();if(e.code==='ER_DUP_ENTRY')throw new Error('این شماره کارت برای کارت دیگری ثبت شده است.');throw e;}finally{c.release();}
   return getPaymentCard(id);
 }
 export async function setDefaultPaymentCard(id,adminId){
@@ -49,8 +59,10 @@ export async function setDefaultPaymentCard(id,adminId){
     const [[card]]=await c.execute('SELECT id,is_active FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
     if(!card)throw new Error('کارت موردنظر پیدا نشد.');
     if(Number(card.is_active)!==1)throw new Error('برای کارت غیرفعال نمی‌توان پیش‌فرض تعیین کرد.');
+    if(Number(card.is_default)===1){await c.commit();return;}
     await c.execute('UPDATE payment_bank_cards SET is_default=0,updated_by=? WHERE is_default=1',[String(adminId)]);
     await c.execute('UPDATE payment_bank_cards SET is_default=1,updated_by=? WHERE id=?',[String(adminId),id]);
+    await writeCardAudit(c,adminId,'payment_card.default_changed',id,{});
     await c.commit();
   }catch(e){await c.rollback();throw e;}finally{c.release();}
 }
@@ -61,6 +73,7 @@ export async function setPaymentCardActive(id,active,adminId){
     await c.execute('SELECT id FROM payment_bank_cards ORDER BY id FOR UPDATE');
     const [[card]]=await c.execute('SELECT id,is_active,is_default FROM payment_bank_cards WHERE id=? FOR UPDATE',[id]);
     if(!card)throw new Error('کارت موردنظر پیدا نشد.');
+    if(Number(card.is_active)===(active?1:0)){await c.commit();return;}
     if(!active&&Number(card.is_default)===1){
       const [[other]]=await c.execute('SELECT id FROM payment_bank_cards WHERE is_active=1 AND id<>? ORDER BY id LIMIT 1 FOR UPDATE',[id]);
       if(!other)throw new Error('این تنها کارت فعال و پیش‌فرض است. ابتدا کارت دیگری اضافه و پیش‌فرض کنید.');
@@ -72,6 +85,7 @@ export async function setPaymentCardActive(id,active,adminId){
       if(Number(remaining.total)===0)throw new Error('حداقل یک کارت باید فعال بماند.');
     }
     await c.execute('UPDATE payment_bank_cards SET is_active=?,updated_by=? WHERE id=?',[active?1:0,String(adminId),id]);
+    await writeCardAudit(c,adminId,active?'payment_card.activated':'payment_card.deactivated',id,{active:Boolean(active)});
     await c.commit();
   }catch(e){await c.rollback();throw e;}finally{c.release();}
 }
