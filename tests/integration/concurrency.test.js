@@ -1,8 +1,9 @@
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
 
 test('MySQL integration: concurrent campaign confirmations create and audit exactly one campaign',{skip:!enabled},async()=>{
   const {pool}=await import('../../src/database/pool.js');
@@ -28,8 +29,8 @@ test('MySQL integration: concurrent campaign confirmations create and audit exac
     assert.equal(Number(auditCount.total),1);
   }finally{
     await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[telegramId]);
-    if(campaignId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[campaignId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
-    await pool.end();
+    const [createdRows]=await pool.execute('SELECT id FROM campaigns WHERE title=?',[title]);
+    for(const row of createdRows){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[row.id]);await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
   }
 });
 
@@ -56,10 +57,10 @@ test('MySQL integration: repeated campaign-copy callbacks share one idempotent r
     const [[copyCount]]=await pool.execute('SELECT COUNT(*) total FROM campaigns WHERE id=?',[copyId]);
     assert.equal(Number(copyCount.total),1);
   }finally{
-    if(copyId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[copyId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[copyId]);}
+    const [copies]=await pool.execute('SELECT id FROM campaigns WHERE title=?',[`Copy Source ${actorId} (نسخه کپی)`]);
+    for(const row of copies){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[row.id]);await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
     if(sourceId)await pool.execute('DELETE FROM campaigns WHERE id=?',[sourceId]);
     await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[key]);
-    await pool.end();
   }
 });
 
@@ -100,8 +101,6 @@ test('MySQL integration: support session is consumed once after concurrent reade
     assert.equal(Number(messageCount.total),1);
   }finally{
     await pool.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[telegramId]);
-    if(ticketId){await pool.execute('DELETE FROM support_messages WHERE ticket_id=?',[ticketId]);await pool.execute('DELETE FROM support_tickets WHERE id=?',[ticketId]);}
-    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
-    await pool.end();
+    if(participantId){await pool.execute('DELETE FROM support_messages WHERE ticket_id IN (SELECT id FROM support_tickets WHERE participant_id=?)',[participantId]);await pool.execute('DELETE FROM support_tickets WHERE participant_id=?',[participantId]);await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);}
   }
 });
