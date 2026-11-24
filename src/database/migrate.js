@@ -69,6 +69,18 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
   if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
+  if(file==='20261124_001_admin_action_idempotency.sql'&&index===0){
+    if(!await hasTable(connection,'admin_action_idempotency'))return false;
+    return allSchemaChecks(connection,[
+      hasColumn(connection,'admin_action_idempotency','idempotency_key'),
+      hasColumn(connection,'admin_action_idempotency','action_type'),
+      hasColumn(connection,'admin_action_idempotency','actor_telegram_id'),
+      hasColumn(connection,'admin_action_idempotency','entity_id'),
+      hasColumn(connection,'admin_action_idempotency','created_at'),
+      hasIndex(connection,'admin_action_idempotency','PRIMARY'),
+      hasIndex(connection,'admin_action_idempotency','idx_admin_action_idempotency_created')
+    ],'An incompatible admin_action_idempotency table already exists. Inspect its schema before migration recovery.');
+  }
   if(file==='20261114_001_payment_expiry_reference.sql'){
     if(index===0){
       const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='status'");
