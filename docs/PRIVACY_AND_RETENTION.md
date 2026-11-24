@@ -45,6 +45,14 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
 
+## Consent capture implementation
+
+- Production startup requires `PRIVACY_NOTICE_URL` (HTTPS and non-placeholder) and `PRIVACY_NOTICE_VERSION`.
+- New participants must acknowledge the published notice before entering name, phone, or Instagram details.
+- Existing participant profiles with a missing or outdated consent version are gated until they acknowledge the current notice.
+- The participant record stores the notice version and first acceptance timestamp. Replaying the same acceptance callback does not refresh the timestamp.
+- This is an auditable notice acknowledgement, not a legal determination that consent is the correct legal basis. The business owner/legal reviewer must approve the notice text, purposes, retention schedule, and lawful basis before launch.
+
 ## Required decisions before production launch
 
 The business owner and qualified local counsel must approve:
@@ -61,7 +69,7 @@ Do not delete payment, draw, or audit evidence automatically until the applicabl
 
 ## Engineering safeguards required
 
-- Keep personal data out of logs. The logger redaction list includes common Telegram, phone, Instagram, and actor identifiers; tests should cover nested and top-level keys.
+- Keep personal data out of logs. The logger redaction list includes common Telegram, phone, Instagram, and actor identifiers; unit tests cover nested and top-level keys.
 - Keep participant export and payment export behind explicit permissions. Export actions must be audited.
 - Support agents must not receive global participant-profile access by default.
 - Do not place full receipt contents, phone numbers, or participant profiles in operational logs.
