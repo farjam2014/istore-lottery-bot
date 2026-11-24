@@ -56,3 +56,41 @@ export async function closeCampaign({campaignId,actorId}={}){
   }catch(error){await connection.rollback();throw error;}
   finally{connection.release();}
 }
+
+export async function setCampaignStatus({campaignId,actorId,expectedStatus,action,database=pool}={}){
+  const id=Number(campaignId);
+  if(!Number.isSafeInteger(id)||id<1)throw new TypeError('Campaign ID must be a positive safe integer.');
+  if(!/^\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
+  if(!['draft','scheduled','paused','open'].includes(expectedStatus))throw new TypeError('Expected campaign status is invalid.');
+  if(!['pause','activate'].includes(action))throw new TypeError('Campaign status action is invalid.');
+  const connection=await database.getConnection();
+  try{
+    await connection.beginTransaction();
+    const [[campaign]]=await connection.execute(
+      'SELECT status,(starts_at IS NOT NULL AND starts_at>UTC_TIMESTAMP()) AS not_started,(ends_at IS NOT NULL AND ends_at<=UTC_TIMESTAMP()) AS already_ended FROM campaigns WHERE id=? FOR UPDATE',
+      [id]
+    );
+    if(!campaign)throw new Error('کمپین پیدا نشد.');
+    if(campaign.status!==expectedStatus)throw new Error('وضعیت کمپین از زمان نمایش این دکمه تغییر کرده است؛ جزئیات کمپین را تازه‌سازی کنید.');
+    let nextStatus;
+    if(action==='pause'){
+      if(campaign.status!=='open')throw new Error('فقط کمپین فعال را می‌توان متوقف کرد.');
+      nextStatus='paused';
+    }else{
+      if(!['draft','scheduled','paused'].includes(campaign.status))throw new Error('فعال‌سازی در وضعیت فعلی کمپین مجاز نیست.');
+      if(Number(campaign.already_ended)===1)throw new Error('زمان پایان کمپین گذشته است؛ امکان فعال‌سازی وجود ندارد.');
+      nextStatus=Number(campaign.not_started)===1?'scheduled':'open';
+    }
+    const changed=nextStatus!==campaign.status;
+    if(changed){
+      await connection.execute('UPDATE campaigns SET status=? WHERE id=?',[nextStatus,id]);
+      await connection.execute(
+        'INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)',
+        [String(actorId),'campaign.status_changed','campaign',id,JSON.stringify({from:campaign.status,to:nextStatus})]
+      );
+    }
+    await connection.commit();
+    return {campaignId:id,from:campaign.status,to:nextStatus,changed};
+  }catch(error){await connection.rollback();throw error;}
+  finally{connection.release();}
+}
