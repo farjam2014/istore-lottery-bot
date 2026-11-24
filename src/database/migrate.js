@@ -27,6 +27,17 @@ async function hasColumn(connection,table,column){
   );
   return Number(row.total)>0;
 }
+async function hasNullableBigintColumn(connection,table,column){
+  const [[row]]=await connection.execute(
+    'SELECT COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',
+    [table,column]
+  );
+  if(!row)return false;
+  if(String(row.COLUMN_TYPE).toLowerCase()!=='bigint'||row.IS_NULLABLE!=='YES'){
+    throw new Error(`Incompatible existing schema for ${table}.${column}; expected nullable BIGINT. Inspect before migration recovery.`);
+  }
+  return true;
+}
 async function hasForeignKey(connection,table,constraint){
   const [[row]]=await connection.execute(
     'SELECT COUNT(*) AS total FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?',
@@ -77,7 +88,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     ];
     const target=targets[index];
     if(!target)throw new Error('Unexpected statement index in 20261124_003_message_session_idempotency.sql.');
-    return hasColumn(connection,target[0],target[1]);
+    return hasNullableBigintColumn(connection,target[0],target[1]);
   }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
