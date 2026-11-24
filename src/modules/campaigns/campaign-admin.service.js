@@ -148,13 +148,22 @@ export async function createCampaignFromWizard({telegramUserId,actorId,database=
   finally{connection.release();}
 }
 
-export async function copyCampaign({campaignId,actorId,database=pool}={}){
+export async function copyCampaign({campaignId,actorId,idempotencyKey,database=pool}={}){
   const id=Number(campaignId);
   if(!Number.isSafeInteger(id)||id<1)throw new TypeError('Campaign ID must be a positive safe integer.');
   if(!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
+  const key=String(idempotencyKey??'');
+  if(!/^[a-f0-9]{64}$/i.test(key))throw new TypeError('Campaign copy idempotency key is invalid.');
   const connection=await database.getConnection();
   try{
     await connection.beginTransaction();
+    await connection.execute("INSERT IGNORE INTO admin_action_idempotency(idempotency_key,action_type,actor_telegram_id) VALUES(?,'campaign.copy',?)",[key,String(actorId)]);
+    const [[request]]=await connection.execute('SELECT action_type,actor_telegram_id,entity_id FROM admin_action_idempotency WHERE idempotency_key=? FOR UPDATE',[key]);
+    if(!request||request.action_type!=='campaign.copy'||String(request.actor_telegram_id)!==String(actorId))throw new Error('درخواست تکراری کپی کمپین معتبر نیست.');
+    if(request.entity_id!==null&&request.entity_id!==undefined){
+      await connection.commit();
+      return {campaignId:Number(request.entity_id),alreadyProcessed:true};
+    }
     const [[source]]=await connection.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE',[id]);
     if(!source)throw new Error('کمپین پیدا نشد.');
     const title=String(source.title||'')+' (نسخه کپی)';
@@ -166,8 +175,9 @@ export async function copyCampaign({campaignId,actorId,database=pool}={}){
       'INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',
       [String(actorId),getCorrelationId(),'campaign.copied','campaign',created.insertId,JSON.stringify({sourceCampaignId:id})]
     );
+    await connection.execute('UPDATE admin_action_idempotency SET entity_id=? WHERE idempotency_key=? AND entity_id IS NULL',[created.insertId,key]);
     await connection.commit();
-    return {campaignId:created.insertId,title};
+    return {campaignId:created.insertId,title,alreadyProcessed:false};
   }catch(error){await connection.rollback();throw error;}
   finally{connection.release();}
 }
