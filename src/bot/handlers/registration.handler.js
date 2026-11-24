@@ -4,6 +4,12 @@ import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
 
+export function isOlderRegistrationReplay(ctx,session){
+  const updateId=Number(ctx?.update?.update_id);
+  const lastUpdateId=session?.lastUpdateId;
+  return Boolean(ctx?.state?.durableReplay&&Number.isSafeInteger(updateId)&&Number.isSafeInteger(lastUpdateId)&&updateId<lastUpdateId);
+}
+
 export function buildPrivacyAcceptedSession(existing,version){
   const step=existing?.step||'awaiting_name';
   return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version}};
@@ -56,6 +62,7 @@ export function registerRegistrationHandlers(bot){
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
     if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id))return ctx.reply('شماره موبایل ثبت شد. حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
     const contact=ctx.message.contact;
     if(!contact.user_id||String(contact.user_id)!==String(ctx.from.id)){
@@ -77,6 +84,7 @@ export function registerRegistrationHandlers(bot){
     if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
     if(!s)return next();
     if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id)){
       if(s.step==='awaiting_phone')return ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید.',phoneShareKeyboard());
       if(s.step==='awaiting_instagram')return ctx.reply('حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
