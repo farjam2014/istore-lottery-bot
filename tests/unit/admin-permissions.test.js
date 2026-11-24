@@ -13,6 +13,8 @@ test('campaign manager is limited to campaigns and participant read',()=>{
 });
 test('finance manager can review payments but cannot manage campaigns or support',()=>{
   for(const permission of ['payment.read','payment.review','payment.settings','report.read'])assert.equal(roleHasPermission('finance_manager',permission),true);
+  assert.equal(roleHasPermission('finance_manager','participant.read'),false);
+  assert.equal(roleHasPermission('finance_manager','participant.directory.read'),false);
   for(const permission of ['campaign.write','support.reply','support.manage','participant.manage'])assert.equal(roleHasPermission('finance_manager',permission),false);
 });
 test('support agent can manage tickets but cannot access finance or campaigns',()=>{
