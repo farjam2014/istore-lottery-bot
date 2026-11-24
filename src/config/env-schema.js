@@ -20,7 +20,7 @@ export const envSchema = z.object({
   if(value.NODE_ENV==='production'){
     if(!value.PRIVACY_NOTICE_URL)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'A published privacy notice URL is required in production.'});
     if(!value.PRIVACY_NOTICE_VERSION)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_VERSION'],message:'A privacy notice version is required in production.'});
-    if(value.PRIVACY_NOTICE_URL&&['example.com','www.example.com'].includes(new URL(value.PRIVACY_NOTICE_URL).hostname))ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'Replace the example privacy notice URL with the published production notice.'});
+    if(value.PRIVACY_NOTICE_URL){const host=new URL(value.PRIVACY_NOTICE_URL).hostname;if(['example.com','www.example.com','localhost'].includes(host)||host.endsWith('.example')||host.endsWith('.test')||host.endsWith('.invalid'))ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'Replace the placeholder privacy notice URL with the published production notice.'});}
   }
 });
 
