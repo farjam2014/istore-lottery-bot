@@ -34,9 +34,9 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 
 | Data | Existing behavior |
 |---|---|
-| telegram_update_inbox | Completed records are retained for a short window; failed/stale records have a longer recovery window (worker policy). |
-| processed_updates | Old deduplication records are periodically removed. |
-| telegram_rate_limits | Old rate-limit buckets are periodically removed. |
+| telegram_update_inbox | Completed records are deleted after 3 days; pending/failed and stale processing records are deleted after 30 days (worker policy). |
+| processed_updates | Records older than 3 days are deleted. |
+| telegram_rate_limits | Buckets older than 1 day are deleted. |
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
