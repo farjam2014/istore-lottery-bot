@@ -60,7 +60,7 @@ export async function closeCampaign({campaignId,actorId}={}){
 export async function setCampaignStatus({campaignId,actorId,expectedStatus,action,database=pool}={}){
   const id=Number(campaignId);
   if(!Number.isSafeInteger(id)||id<1)throw new TypeError('Campaign ID must be a positive safe integer.');
-  if(!/^\\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
+  if(!/^\d+$/.test(String(actorId??'')))throw new TypeError('Campaign actor must be a numeric Telegram user ID.');
   if(!['draft','scheduled','paused','open'].includes(expectedStatus))throw new TypeError('Expected campaign status is invalid.');
   if(!['pause','activate'].includes(action))throw new TypeError('Campaign status action is invalid.');
   const connection=await database.getConnection();
