@@ -69,6 +69,28 @@ export function createUpdateGuard({
         const replay=Number(attempt?.attempts)>1;
         ctx.state.durableReplay=replay;
 
+        if(ctx.callbackQuery){
+          const answerCallback=ctx.answerCbQuery.bind(ctx);
+          ctx.answerCbQuery=(...args)=>Promise.resolve(answerCallback(...args)).catch(error=>{
+            const message=String(error?.message||error);
+            if(error?.response?.error_code===400&&/query is too old|response timeout expired|query id is invalid/i.test(message)){
+              log.warn({updateId},'Telegram callback acknowledgement expired; continuing handler');
+              return;
+            }
+            throw error;
+          });
+        }
+
+        // Callback query IDs expire quickly. Replaying them cannot reliably
+        // acknowledge the spinner and may repeat stale callback failures.
+        // The first attempt already reports the failure; let the user retry
+        // with a fresh button press instead of replaying an expired callback.
+        if(replay&&ctx.callbackQuery){
+          await database.execute("UPDATE telegram_update_inbox SET status='completed',completed_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL WHERE update_id=? AND lease_token=? AND status='processing'",[updateId,leaseToken]);
+          claimed=false;
+          return;
+        }
+
         if(userId&&!replay){
           const policy=ratePolicy(ctx);
           await database.execute(
