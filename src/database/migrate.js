@@ -69,6 +69,86 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
   if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
+  if(file==='20261114_001_payment_expiry_reference.sql'){
+    if(index===0){
+      const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='status'");
+      const checks=await Promise.all([
+        (async()=>!(await hasIndex(connection,'payment_orders','campaign_entry_id')))(),
+        hasIndex(connection,'payment_orders','idx_order_entry'),
+        hasColumn(connection,'payment_orders','payment_reference'),
+        hasIndex(connection,'payment_orders','uq_payment_reference'),
+        Promise.resolve(String(status?.COLUMN_TYPE||'').includes("'expired'"))
+      ]);
+      if(checks.every(Boolean))return true;
+      if(checks.some(Boolean))throw new Error('Partial DDL detected in 20261114_001_payment_expiry_reference.sql statement 1. Inspect payment_orders before repair.');
+      return false;
+    }
+    if(index===1)return false; // Deterministic payment-reference backfill is safe to replay.
+    if(index===2){
+      const [[column]]=await connection.execute("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='payment_reference'");
+      return column?.IS_NULLABLE==='NO';
+    }
+    if(index===3)return hasIndex(connection,'payment_orders','idx_payment_expiry');
+    if(index===4)return allSchemaChecks(connection,[
+      hasColumn(connection,'telegram_notification_outbox','last_error'),
+      hasColumn(connection,'telegram_notification_outbox','locked_at'),
+      hasColumn(connection,'telegram_notification_outbox','updated_at')
+    ],'Partial DDL detected in 20261114_001_payment_expiry_reference.sql statement 5. Inspect telegram_notification_outbox before repair.');
+  }
+  if(file==='20261114_002_campaign_details.sql'){
+    if(index===0)return allSchemaChecks(connection,[
+      hasColumn(connection,'campaigns','poster_file_id'),
+      hasColumn(connection,'campaigns','prize_title'),
+      hasColumn(connection,'campaigns','prize_description'),
+      hasColumn(connection,'campaigns','prize_value'),
+      hasColumn(connection,'campaigns','draw_at'),
+      hasColumn(connection,'campaigns','terms'),
+      hasColumn(connection,'campaigns','payment_methods')
+    ],'Partial DDL detected in 20261114_002_campaign_details.sql statement 1. Inspect campaigns before repair.');
+    if(index===1){
+      const [[step]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'");
+      const type=String(step?.COLUMN_TYPE||'');
+      const expanded=['poster','prize_title','prize_description','prize_value','starts_at','ends_at','draw_at','terms','payment_methods'];
+      const present=expanded.filter(value=>type.includes("'"+value+"'"));
+      if(present.length===expanded.length)return true;
+      if(present.length)throw new Error('Partial DDL detected in 20261114_002_campaign_details.sql admin_wizards enum. Inspect admin_wizards.step before repair.');
+      return false;
+    }
+  }
+  if(file==='20261114_008_outbox_uncertain_delivery.sql'&&index===0){
+    const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_notification_outbox' AND COLUMN_NAME='status'");
+    return allSchemaChecks(connection,[
+      Promise.resolve(String(status?.COLUMN_TYPE||'').includes("'uncertain'")),
+      hasColumn(connection,'telegram_notification_outbox','lease_token'),
+      hasIndex(connection,'telegram_notification_outbox','idx_outbox_lease')
+    ],'Partial DDL detected in 20261114_008_outbox_uncertain_delivery.sql. Inspect telegram_notification_outbox before repair.');
+  }
+  if(file==='20261115_009_correlation_and_delivery_history.sql'){
+    if(index===0)return allSchemaChecks(connection,[
+      hasColumn(connection,'processed_updates','correlation_id'),
+      hasIndex(connection,'processed_updates','idx_processed_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 1. Inspect processed_updates before repair.');
+    if(index===1)return allSchemaChecks(connection,[
+      hasColumn(connection,'telegram_notification_outbox','correlation_id'),
+      hasColumn(connection,'telegram_notification_outbox','manual_retry_count'),
+      hasIndex(connection,'telegram_notification_outbox','idx_outbox_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 2. Inspect telegram_notification_outbox before repair.');
+    if(index===2){
+      const [[column]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_rate_limits' AND COLUMN_NAME='request_count'");
+      const type=String(column?.COLUMN_TYPE||'').toLowerCase();
+      if(type==='int unsigned')return true;
+      if(type==='smallint unsigned')return false;
+      throw new Error('Unexpected telegram_rate_limits.request_count type during migration recovery.');
+    }
+    if(index===3)return allSchemaChecks(connection,[
+      hasColumn(connection,'payment_events','correlation_id'),
+      hasIndex(connection,'payment_events','idx_payment_event_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 4. Inspect payment_events before repair.');
+    if(index===4)return allSchemaChecks(connection,[
+      hasColumn(connection,'admin_audit_log','correlation_id'),
+      hasIndex(connection,'admin_audit_log','idx_audit_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 5. Inspect admin_audit_log before repair.');
+  }
   if(file==='20261117_001_campaign_code_sequence.sql'){
     if(index===0){
       const [[legacyOverflow]]=await connection.execute(
