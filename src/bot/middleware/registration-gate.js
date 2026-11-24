@@ -1,4 +1,4 @@
-const callbacks=new Set(['registration:start','registration:cancel']);
+const callbacks=new Set(['registration:start','registration:cancel','privacy:accept']);
 const commands=new Set(['/start','/cancel','/admin']);
 export function isRegistrationUpdateAllowed({callbackData,command,session,message}={}){
   if(callbackData&&callbacks.has(callbackData))return true;
