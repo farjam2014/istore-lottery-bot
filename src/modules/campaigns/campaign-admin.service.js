@@ -176,7 +176,8 @@ export async function copyCampaign({campaignId,actorId,idempotencyKey,database=p
     if(Number(claim?.affectedRows)!==1)throw new Error('درخواست قبلی کپی کمپین وضعیت ناقص دارد؛ برای جلوگیری از ایجاد نسخه تکراری، عملیات متوقف شد.');
     const [[source]]=await connection.execute('SELECT * FROM campaigns WHERE id=? FOR UPDATE',[id]);
     if(!source)throw new Error('کمپین پیدا نشد.');
-    const title=String(source.title||'')+' (نسخه کپی)';
+    const copySuffix=' (نسخه کپی)';
+    const title=String(source.title||'').slice(0,180-copySuffix.length)+copySuffix;
     const [created]=await connection.execute(
       "INSERT INTO campaigns(slug,title,description,poster_file_id,prize_title,prize_description,prize_value,status,participation_type,entry_price,payment_methods,starts_at,ends_at,draw_at,terms,capacity,codes_per_entry) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?)",
       [makeCampaignSlug(String(source.title||'')+'-copy'),title,source.description,source.poster_file_id,source.prize_title,source.prize_description,source.prize_value,source.participation_type,source.entry_price,typeof source.payment_methods==='string'?source.payment_methods:JSON.stringify(source.payment_methods||[]),source.starts_at,source.ends_at,source.draw_at,source.terms,source.capacity,source.codes_per_entry]
