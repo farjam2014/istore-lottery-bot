@@ -80,15 +80,9 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
   if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
-  if(file==='20261124_003_message_session_idempotency.sql'){
-    const targets=[
-      ['telegram_user_sessions','last_update_id'],
-      ['admin_wizards','last_update_id'],
-      ['payment_card_admin_sessions','last_update_id']
-    ];
-    const target=targets[index];
-    if(!target)throw new Error('Unexpected statement index in 20261124_003_message_session_idempotency.sql.');
-    return hasNullableBigintColumn(connection,target[0],target[1]);
+  if(file==='20261124_003_registration_session_replay.sql'){
+    if(index!==0)throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
+    return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
   }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
