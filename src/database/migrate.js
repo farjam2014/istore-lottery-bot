@@ -69,6 +69,13 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
   if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
+  if(file==='20261124_002_privacy_consent.sql'&&index===0){
+    return allSchemaChecks(connection,[
+      hasColumn(connection,'participants','privacy_consent_version'),
+      hasColumn(connection,'participants','privacy_consent_at'),
+      hasIndex(connection,'participants','idx_participant_privacy_consent')
+    ],'Partial DDL detected in 20261124_002_privacy_consent.sql. Inspect participants before repair.');
+  }
   if(file==='20261124_001_admin_action_idempotency.sql'&&index===0){
     if(!await hasTable(connection,'admin_action_idempotency'))return false;
     return allSchemaChecks(connection,[
