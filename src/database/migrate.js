@@ -340,8 +340,10 @@ export async function migrate(){
   let lockAcquisitionResolved=false,lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
+    const lockResult=lock?.acquired;
+    if(lockResult===null||lockResult===undefined||![0,1].includes(Number(lockResult)))throw new Error('Database migration lock acquisition returned an indeterminate result; connection will be discarded.');
     lockAcquisitionResolved=true;
-    lockAcquired=Number(lock?.acquired)===1;
+    lockAcquired=Number(lockResult)===1;
     if(!lockAcquired)throw new Error('Could not acquire the database migration lock within 30 seconds.');
 
     await c.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
