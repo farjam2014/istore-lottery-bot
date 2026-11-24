@@ -11,7 +11,7 @@ export function profileGate(){return async(ctx,next)=>{
   if(p){
     ctx.state.profile=p;
     if(p.privacy_consent_version!==config.PRIVACY_NOTICE_VERSION){
-      if(ctx.callbackQuery?.data==='privacy:accept')return next();
+      if(['privacy:accept','registration:cancel'].includes(ctx.callbackQuery?.data))return next();
       if(ctx.callbackQuery)await ctx.answerCbQuery('برای ادامه باید اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',{show_alert:true}).catch(()=>{});
       else await ctx.reply('برای ادامه استفاده از ربات، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
       return;
