@@ -16,6 +16,7 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Confirm `MYSQL_DATABASE` and `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
 - [ ] Confirm a clean, known code version is deployed and record its commit SHA.
 - [ ] Confirm `.env` is a regular file owned by the service account with mode `600`. Never print or upload it.
+- [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
 - [ ] Confirm the active key ID and every historical key ID referenced by prepared draws are present.
 - [ ] Confirm there are no prepared draws with missing ciphertext, nonce, tag, unknown key IDs, or unsupported algorithms.
