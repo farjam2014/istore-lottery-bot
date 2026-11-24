@@ -85,3 +85,10 @@ test('campaign copy truncates the source title to the campaigns.title limit',asy
   assert.equal(result.title.length,180);
   assert.ok(result.title.endsWith(' (نسخه کپی)'));
 });
+
+test('campaign slug retains Persian letters instead of collapsing them to an empty slug',async()=>{
+  const database=fakeDatabase();
+  database.state.wizard.payload.title='کمپین آزمایشی زرند';
+  await createCampaignFromWizard({telegramUserId:'123',actorId:'123',database});
+  assert.match(database.state.campaigns[0].params[0],/کمپین-آزمایشی-زرند-[a-f0-9]{6}/);
+});
