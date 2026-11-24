@@ -15,7 +15,7 @@ export const envSchema = z.object({
   DRAW_SEED_ENCRYPTION_KEY: z.string().optional(),
   DRAW_SEED_ACTIVE_KEY_ID: z.string().optional(),
   PRIVACY_NOTICE_URL: z.string().url().refine(value=>new URL(value).protocol==='https:').optional(),
-  PRIVACY_NOTICE_VERSION: z.string().min(1).max(40).optional()
+  PRIVACY_NOTICE_VERSION: z.string().regex(/^[A-Za-z0-9._-]{1,40}$/).optional()
 }).superRefine((value,ctx)=>{
   if(value.NODE_ENV==='production'){
     if(!value.PRIVACY_NOTICE_URL)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'A published privacy notice URL is required in production.'});
