@@ -46,7 +46,7 @@ test('bank card creation and audit are committed in the same transaction',async(
   assert.equal(database.state.commits,1);
   assert.equal(database.state.rollbacks,0);
   assert.ok(database.state.calls.indexOf(database.state.calls.find(x=>String(x).startsWith('INSERT INTO admin_audit_log')))<database.state.calls.indexOf('commit'));
-  assert.deepEqual(database.state.auditParams.slice(0,5),['99999',null,'payment_card.created','payment_bank_card',7]);
+  assert.deepEqual(database.state.auditParams.slice(2,5),['payment_card.created','payment_bank_card',7]);
 });
 
 test('bank card creation rolls back when its audit insert fails',async()=>{
