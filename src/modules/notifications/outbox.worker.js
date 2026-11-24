@@ -6,6 +6,17 @@ import {deliverTelegramNotification} from './telegram-delivery.js';
 const MAX_ATTEMPTS=8;
 const LEASE_MINUTES=5;
 
+export function classifyTelegramDeliveryError(error,attempts=1){
+  const rawCode=error?.response?.error_code??error?.response?.data?.error_code??error?.error_code??(typeof error?.code==='number'?error.code:null);
+  const code=Number(rawCode);
+  const retryDelay=Math.min(3600,Math.max(1,Number(error?.response?.parameters?.retry_after??error?.parameters?.retry_after)||Math.min(3600,Math.pow(2,Math.min(attempts,10))*15)));
+  if(code===429)return {status:'pending',delaySeconds:retryDelay};
+  if(Number.isFinite(code)&&code>=400&&code<500)return {status:'failed',delaySeconds:0};
+  // Network failures and server errors are ambiguous: Telegram may have accepted
+  // the message before the response was lost. Never automatically resend them.
+  return {status:'uncertain',delaySeconds:0};
+}
+
 export function createNotificationOutboxWorker({
   database=pool,
   log=logger,
@@ -41,6 +52,8 @@ export function createNotificationOutboxWorker({
       try{
         payload=typeof job.payload==='string'?JSON.parse(job.payload):job.payload;
         if(!payload||(!((typeof payload.text==='string')&&payload.text.trim())&&!(typeof payload.photo==='string'&&payload.photo.trim()&&typeof payload.caption==='string'&&payload.caption.trim())))throw new Error('Invalid notification payload: text or photo with caption is required');
+        if(typeof payload.text==='string'&&payload.text.length>4096)throw new Error('Invalid notification payload: Telegram message text exceeds 4096 characters');
+        if(typeof payload.caption==='string'&&payload.caption.length>1024)throw new Error('Invalid notification payload: Telegram photo caption exceeds 1024 characters');
       }catch(error){
         await database.execute(
           "UPDATE telegram_notification_outbox SET status='failed',locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
@@ -54,14 +67,17 @@ export function createNotificationOutboxWorker({
         await deliver(telegram,String(job.chat_id),payload);
       }catch(error){
         const attempts=Number(job.attempts)+1;
-        const dead=attempts>=MAX_ATTEMPTS;
-        const delay=Math.min(3600,Math.pow(2,Math.min(attempts,10))*15);
+        const outcome=classifyTelegramDeliveryError(error,attempts);
+        const dead=outcome.status==='pending'&&attempts>=MAX_ATTEMPTS;
+        const status=dead?'failed':outcome.status;
+        const delay=status==='pending'?outcome.delaySeconds:0;
         await database.execute(
           "UPDATE telegram_notification_outbox SET status=?,available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
-          [dead?'failed':'pending',delay,String(error?.message||'Telegram delivery failed').slice(0,500),job.id,job.leaseToken]
+          [status,delay,String(error?.message||'Telegram delivery failed').slice(0,500),job.id,job.leaseToken]
         );
-        log.warn({err:error,notificationId:job.id,correlationId:job.correlation_id,attempts,willRetry:!dead},'Telegram notification delivery failed');
-        failed++;continue;
+        log.warn({err:error,notificationId:job.id,correlationId:job.correlation_id,attempts,outcome:status,willRetry:status==='pending'},'Telegram notification delivery failed');
+        if(status==='uncertain')uncertain++;else failed++;
+        continue;
       }
 
       // If this database write fails after Telegram accepted the message, leave the
