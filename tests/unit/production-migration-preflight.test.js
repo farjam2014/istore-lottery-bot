@@ -31,7 +31,8 @@ test('production migration preflight checks current privacy and replay schema ca
   for(const fragment of [
     "table_name='participants' AND column_name IN ('privacy_consent_version','privacy_consent_at')",
     "table_name='telegram_user_sessions' AND column_name='last_update_id'",
-    "table_name='admin_wizards' AND column_name IN ('step','last_update_id')",
+    "table_name='admin_wizards' AND column_name='step'",
+    "table_name='admin_wizards' AND column_name='last_update_id'",
     "table_name='admin_action_idempotency' AND column_name IN ('idempotency_key','action_type','actor_telegram_id','entity_id','created_at')"
   ]){
     assert.ok(preflight.includes(fragment),`preflight is missing schema capability check: ${fragment}`);
