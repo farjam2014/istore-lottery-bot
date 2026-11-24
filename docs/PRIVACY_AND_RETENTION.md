@@ -15,6 +15,7 @@ The application may process:
 - Support ticket subjects, messages, assignments, status, and timestamps.
 - Admin identifiers, role changes, security/audit events, and export activity.
 - Operational metadata such as update IDs, correlation IDs, retry state, and delivery errors.
+- In-progress registration session payloads, which can temporarily contain a name, verified phone number, and self-declared Instagram handle before a participant profile is created.
 
 Telegram user IDs, phone numbers, Instagram handles, receipt references, and support content must be treated as personal or potentially identifying data. Access must be limited by role and business purpose.
 
@@ -37,6 +38,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | telegram_update_inbox | Completed records are deleted after 3 days; pending/failed and stale processing records are deleted after 30 days (worker policy). |
 | processed_updates | Records older than 3 days are deleted. |
 | telegram_rate_limits | Buckets older than 1 day are deleted. |
+| In-progress registration sessions | Session rows have an `updated_at` timestamp but no approved expiry/cleanup policy; abandoned partial registrations can retain personal data. |
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
