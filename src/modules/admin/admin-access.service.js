@@ -23,11 +23,11 @@ async function updateAdminAccess({targetId,actorId,role,isActive,expectedActive}
     return {role:nextRole,is_active:nextActive,changed:Boolean(action)};
   }catch(error){await c.rollback();throw error;}finally{c.release();}
 }
-export async function changeAdminRole({targetId,actorId,role}){
+export async function changeAdminRole({targetId,actorId,role,database=pool}){
   if(!['campaign_manager','finance_manager','support_agent'].includes(role))throw new Error('نقش انتخاب‌شده معتبر نیست.');
-  return updateAdminAccess({targetId,actorId,role});
+  return updateAdminAccess({targetId,actorId,role,database});
 }
-export async function setAdminActive({targetId,actorId,isActive,expectedActive}){
+export async function setAdminActive({targetId,actorId,isActive,expectedActive,database=pool}){
   if(![0,1].includes(Number(isActive))||![0,1].includes(Number(expectedActive)))throw new Error('وضعیت درخواستی معتبر نیست.');
-  return updateAdminAccess({targetId,actorId,isActive:Number(isActive),expectedActive:Number(expectedActive)});
+  return updateAdminAccess({targetId,actorId,isActive:Number(isActive),expectedActive:Number(expectedActive),database});
 }
