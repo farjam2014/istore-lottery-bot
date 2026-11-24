@@ -125,7 +125,13 @@ async function showPaymentCards(ctx){
   return respond(ctx,'💳 مدیریت کارت‌های بانکی\n\nکارت فعال و پیش‌فرض برای سفارش‌های جدید استفاده می‌شود. اطلاعات کارت سفارش‌های قبلی ثابت می‌ماند.\n\nتعداد کارت‌ها: '+cards.length,Markup.inlineKeyboard(buttons));
 }
 async function beginPaymentCardSession(ctx,step,cardId=null,payload={}){
-  await pool.execute('INSERT INTO payment_card_admin_sessions(telegram_user_id,step,card_id,payload) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=VALUES(step),card_id=VALUES(card_id),payload=VALUES(payload)',[String(ctx.from.id),step,cardId,JSON.stringify(payload)]);
+  const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment-card wizard advancement.');
+  await pool.execute('INSERT INTO payment_card_admin_sessions(telegram_user_id,step,card_id,payload,last_update_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),card_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(card_id),card_id),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,cardId,JSON.stringify(payload),updateId]);
+}
+async function advancePaymentCardSession(ctx,expectedStep,step,payload){
+  const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment-card wizard advancement.');
+  const [result]=await pool.execute('UPDATE payment_card_admin_sessions SET step=?,payload=?,last_update_id=? WHERE telegram_user_id=? AND step=? AND (last_update_id IS NULL OR last_update_id<?)',[step,JSON.stringify(payload),updateId,String(ctx.from.id),expectedStep,updateId]);
+  if(!result.affectedRows)throw new Error('مرحله ثبت کارت تغییر کرده یا این پیام قبلاً پردازش شده است؛ فهرست کارت‌ها را دوباره باز کنید.');
 }
 async function showPaymentCardInput(ctx,editing=false){
   return respond(ctx,(editing?'✏️ ویرایش کارت بانکی':'➕ افزودن کارت بانکی')+'\n\nمرحله ۱ از ۴: نام بانک را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel'),Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]]));
@@ -657,32 +663,35 @@ export function registerAdminHandlers(bot){
     }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
     if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
-    const [[cardSession]]=await pool.execute('SELECT step,card_id,payload FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    const [[cardSession]]=await pool.execute('SELECT step,card_id,payload,last_update_id FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
     if(cardSession){
+      if(isOlderAdminWizardReplay(ctx,{lastUpdateId:cardSession.last_update_id===null?null:Number(cardSession.last_update_id)}))return respond(ctx,'این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی را ادامه دهید.');
+      if(cardSession.step==='saving')return respond(ctx,'ذخیره کارت در مرحله قبل آغاز شده اما نتیجه نهایی ثبت نشده است. ابتدا فهرست کارت‌ها را بررسی کنید؛ در صورت نیاز، نشست را لغو و دوباره شروع کنید.',Markup.inlineKeyboard([[Markup.button.callback('بررسی فهرست کارت‌ها','admin:payment-cards')],[Markup.button.callback('لغو نشست کارت','admin:payment-card:cancel')]]));
       const payload=typeof cardSession.payload==='string'?JSON.parse(cardSession.payload):cardSession.payload;
       const value=ctx.message.text.trim();
       if(value.startsWith('/'))return respond(ctx,'برای ادامه اطلاعات کارت را وارد کنید یا دکمه لغو را بزنید.');
       if(cardSession.step==='bank_name'){
         if(value.length<2||value.length>80)return respond(ctx,'نام بانک باید بین ۲ تا ۸۰ نویسه باشد.');
         payload.bankName=value;
-        await pool.execute("UPDATE payment_card_admin_sessions SET step='card_number',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
+        await advancePaymentCardSession(ctx,'bank_name','card_number',payload);
         return respond(ctx,'مرحله ۲ از ۴: شماره کارت ۱۶ رقمی را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='card_number'){
         try{payload.cardNumber=normalizeCardNumber(value);}catch(e){return respond(ctx,e.message);}
-        await pool.execute("UPDATE payment_card_admin_sessions SET step='card_holder',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
+        await advancePaymentCardSession(ctx,'card_number','card_holder',payload);
         return respond(ctx,'مرحله ۳ از ۴: نام و نام خانوادگی صاحب کارت را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='card_holder'){
         if(value.length<3||value.length>120)return respond(ctx,'نام صاحب کارت باید بین ۳ تا ۱۲۰ نویسه باشد.');
         payload.cardHolder=value;
-        await pool.execute("UPDATE payment_card_admin_sessions SET step='instructions',payload=? WHERE telegram_user_id=?",[JSON.stringify(payload),String(ctx.from.id)]);
+        await advancePaymentCardSession(ctx,'card_holder','instructions',payload);
         return respond(ctx,'مرحله ۴ از ۴: توضیحات پرداخت را ارسال کنید؛ اگر توضیحی ندارید «-» بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
       }
       if(cardSession.step==='instructions'){
         if(value.length>500)return respond(ctx,'توضیحات حداکثر ۵۰۰ نویسه باشد.');
         payload.instructions=value==='-'?'':value;
         try{
+          await advancePaymentCardSession(ctx,'instructions','saving',payload);
           if(cardSession.card_id){
             await updatePaymentCard(Number(cardSession.card_id),payload,ctx.from.id);
           }else{
