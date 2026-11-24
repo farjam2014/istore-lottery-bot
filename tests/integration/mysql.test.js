@@ -42,7 +42,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     }
     await migrate();
 
-    // Verify all five new migrations and the complete legacy admin wizard contract.
+    // Verify the current migration set and the complete legacy admin wizard contract.
     const expectedWizardSteps=[
       'select_type','title','description','poster','prize_title','prize_description',
       'prize_value','starts_at','ends_at','draw_at','terms','capacity','codes',
@@ -73,6 +73,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[searchQueryColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='query_text'");
     assert.equal(Number(searchQueryColumn.total),1,'Participant search query must persist for result pagination.');
     const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
+    const [[privacyConsentColumns]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME IN ('privacy_consent_version','privacy_consent_at')");
+    assert.equal(Number(privacyConsentColumns.total),2,'Participant privacy consent fields must exist.');
     assert.equal(Number(requestedCodeCountColumn.total),1,'Paid order quantity snapshot column must exist.');
     const searchAdminId=String(680000000000000000n+(BigInt(Date.now())%1000000000n));
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text) VALUES(?,'participant_results',NULL,?)",[searchAdminId,'09121234567']);
@@ -81,6 +83,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(storedSearch.query_text,'09121234567');
     await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[searchAdminId]);
     for(const version of [
+      '20261114_001_payment_expiry_reference.sql',
+      '20261114_002_campaign_details.sql',
+      '20261114_008_outbox_uncertain_delivery.sql',
+      '20261115_009_correlation_and_delivery_history.sql',
       '20261117_001_campaign_code_sequence.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
@@ -95,8 +101,14 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
     }
 
-    // Simulate DDL committed but migration history not recorded for 002-004.
+    // Simulate DDL committed but migration history not recorded for legacy multi-statement migrations and later guarded migrations.
     for(const version of [
+      '20261114_001_payment_expiry_reference.sql',
+      '20261114_002_campaign_details.sql',
+      '20261114_008_outbox_uncertain_delivery.sql',
+      '20261115_009_correlation_and_delivery_history.sql',
+      '20261124_001_admin_action_idempotency.sql',
+      '20261124_002_privacy_consent.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
@@ -127,7 +139,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
     assert.equal(Number(nextLegacyCode.sequence_number),2);assert.equal(Number(nextLegacyCode.format_version),2);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
-    await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test'});
+    await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
     assert.equal(String(profile.telegram_user_id),telegramId);
     await assert.rejects(
@@ -146,7 +158,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=? AND campaign_entry_id=?",[codeToRevoke.id,first.entryId]);
     await assert.rejects(joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]}),/کدهای قبلی شما غیرفعال شده است/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE campaign_entry_id=?",[first.entryId]);
-    secondTelegramId=String(710000000000n+(BigInt(Date.now())%100000000000n));const secondProfile=await createProfile({telegramUserId:secondTelegramId,username:'integration2',fullName:'Capacity Tester',phone:'+989121234568',instagramHandle:'capacity_test'});secondParticipantId=secondProfile.id;
+    secondTelegramId=String(710000000000n+(BigInt(Date.now())%100000000000n));const secondProfile=await createProfile({telegramUserId:secondTelegramId,username:'integration2',fullName:'Capacity Tester',phone:'+989121234568',instagramHandle:'capacity_test',privacyConsentVersion:'ci-v1'});secondParticipantId=secondProfile.id;
     await assert.rejects(joinFreeCampaign({telegramUserId:secondTelegramId,campaignId:campaignIds[0]}),/ظرفیت باقی/);
     const second=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[1]});
     assert.equal(second.codes.length,2);assert.notDeepEqual(second.codes,first.codes);
