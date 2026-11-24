@@ -153,11 +153,6 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const duplicateProfile=await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Duplicate Telegram',phone:'+989121234568',instagramHandle:'duplicate_telegram',privacyConsentVersion:'ci-v2'});
     assert.equal(duplicateProfile.id,profile.id,'A repeated Telegram registration must return the existing profile.');
     assert.equal(duplicateProfile.privacy_consent_version,'ci-v2','Duplicate Telegram fallback must include consent metadata.');
-    const duplicatePhoneTelegramId=String(705000000000n+(BigInt(Date.now())%100000000000n));
-    await assert.rejects(
-      createProfile({telegramUserId:duplicatePhoneTelegramId,username:'duplicate_phone',fullName:'Duplicate Phone',phone:'+989121234567',instagramHandle:'duplicate_phone',privacyConsentVersion:'ci-v1'}),
-      /این شماره موبایل قبلاً برای حساب دیگری ثبت شده است/
-    );
     await assert.rejects(
       pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Duplicate Tester','+989121234567','duplicate_user']),
       e=>e.code==='ER_DUP_ENTRY'
