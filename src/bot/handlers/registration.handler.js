@@ -4,6 +4,11 @@ import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
 
+export function buildPrivacyAcceptedSession(existing,version){
+  const step=existing?.step||'awaiting_name';
+  return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version}};
+}
+
 export function registerRegistrationHandlers(bot){
   bot.action('registration:start',async ctx=>{
     const profile=await findProfile(ctx.from.id);
@@ -28,10 +33,9 @@ export function registerRegistrationHandlers(bot){
       await ctx.answerCbQuery('تأیید شما ثبت شد.');
       return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
     }
-    const existing=await getSession(ctx.from.id);
-    const step=existing?.step||'awaiting_name';
-    const payload={...(existing?.payload||{}),privacyConsentVersion:version};
-    await saveSession(ctx.from.id,step,payload);
+    const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version);
+    const step=accepted.step;
+    await saveSession(ctx.from.id,step,accepted.payload);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
     if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
