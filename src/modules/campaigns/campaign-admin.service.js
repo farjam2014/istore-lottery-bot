@@ -124,8 +124,11 @@ function validateCampaignWizardPayload(payload){
   const rawPrizeValue=payload.prizeValue===null||payload.prizeValue===undefined?null:Number(payload.prizeValue);
   if(rawPrizeValue!==null&&(!Number.isSafeInteger(rawPrizeValue)||rawPrizeValue<0||rawPrizeValue>100000000000000))throw new Error('ارزش جایزه کمپین معتبر نیست.');
   const startsAt=payload.starts_at||null,endsAt=payload.ends_at||null,drawAt=payload.draw_at||null;
-  if(startsAt&&endsAt&&parseUtcDateTime(startsAt).getTime()>=parseUtcDateTime(endsAt).getTime())throw new Error('زمان پایان باید بعد از شروع باشد.');
-  if(drawAt&&endsAt&&parseUtcDateTime(drawAt).getTime()<parseUtcDateTime(endsAt).getTime())throw new Error('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.');
+  const startsDate=startsAt?parseUtcDateTime(startsAt):null;
+  const endsDate=endsAt?parseUtcDateTime(endsAt):null;
+  const drawDate=drawAt?parseUtcDateTime(drawAt):null;
+  if(startsDate&&endsDate&&startsDate.getTime()>=endsDate.getTime())throw new Error('زمان پایان باید بعد از شروع باشد.');
+  if(drawDate&&endsDate&&drawDate.getTime()<endsDate.getTime())throw new Error('زمان قرعه‌کشی نباید قبل از پایان کمپین باشد.');
   return {title,description,posterFileId,
     prizeTitle,prizeDescription,
     prizeValue:rawPrizeValue,
