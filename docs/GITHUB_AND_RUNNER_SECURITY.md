@@ -48,13 +48,14 @@ Before any self-hosted workflow is allowed to execute:
 
 ## Legacy workflow requiring action
 
-The legacy vps-safe-diagnostics.yml workflow was identified on main. It uses a self-hosted runner and workflow dispatch but lacks the same actor restriction present in other diagnostic workflows. Main is not protected in the repository settings observed during this audit.
+The legacy `vps-safe-diagnostics.yml` and `vps-readonly-diagnostics.yml` workflows were identified on `main`. Both execute on a persistent self-hosted runner through workflow dispatch. Their removal is prepared separately in Draft PR82 because these files live on the default `main` branch, not the Release source tree.
 
-Before release:
-1. Disable or remove that workflow until it has a strict actor/ref allowlist and reviewed command allowlist.
-2. Align all diagnostic/deployment paths and service names with the actual UStore deployment; the legacy workflow references old paths/service names.
+Before any self-hosted workflow is restored:
+1. Merge and verify the workflow-removal change on `main`; until then, treat the workflows as active.
+2. Apply branch protection and required checks to `main` and release branches.
 3. Confirm the runner's actual OS account, groups, sudo rules, work directory, and persistence model from the host.
 4. Verify that a repository write cannot turn a workflow file into arbitrary privileged shell execution.
+5. Restore only a reviewed, allowlisted diagnostic workflow after the runner is isolated from production credentials and application data.
 
 ## Release gate
 
