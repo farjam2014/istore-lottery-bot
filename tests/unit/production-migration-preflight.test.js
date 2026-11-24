@@ -33,6 +33,7 @@ test('production migration preflight checks current privacy and replay schema ca
     "table_name='telegram_user_sessions' AND column_name='last_update_id'",
     "table_name='admin_wizards' AND column_name='step'",
     "table_name='admin_wizards' AND column_name='last_update_id'",
+    "table_name='payment_card_admin_sessions' AND column_name='last_update_id'",
     "table_name='admin_action_idempotency' AND column_name IN ('idempotency_key','action_type','actor_telegram_id','entity_id','created_at')"
   ]){
     assert.ok(preflight.includes(fragment),`preflight is missing schema capability check: ${fragment}`);
