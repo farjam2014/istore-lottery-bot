@@ -1,4 +1,4 @@
-import {randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
 import {logger} from '../../shared/logger.js';
 import {config} from '../../config/env.js';
@@ -361,9 +361,9 @@ export function registerAdminHandlers(bot){
     if(!await hasPermission(ctx.from.id,'campaign.write'))return deny(ctx);
     const id=Number(ctx.match[1]);
     let result;
-    try{result=await copyCampaign({campaignId:id,actorId:String(ctx.from.id)});}
+    try{result=await copyCampaign({campaignId:id,actorId:String(ctx.from.id),idempotencyKey:createHash('sha256').update(String(ctx.callbackQuery.id)).digest('hex')});}
     catch(error){return ctx.answerCbQuery(error.message||'کپی کمپین انجام نشد.',{show_alert:true});}
-    await ctx.answerCbQuery('پیش‌نویس کپی ساخته شد.');
+    await ctx.answerCbQuery(result.alreadyProcessed?'این درخواست قبلاً پردازش شده است.':'پیش‌نویس کپی ساخته شد.');
     return showCampaignDetail(ctx,result.campaignId);
   });
   bot.action(/^admin:campaign:archive:(\d+)$/,async ctx=>{
