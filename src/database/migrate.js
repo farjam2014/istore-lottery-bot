@@ -116,9 +116,8 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     }
   }
   if(file==='20261114_008_outbox_uncertain_delivery.sql'&&index===0){
-    const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_notification_outbox' AND COLUMN_NAME='status'");
+    // schema.sql already includes the 'uncertain' enum value; this migration adds only the lease column and index.
     return allSchemaChecks(connection,[
-      Promise.resolve(String(status?.COLUMN_TYPE||'').includes("'uncertain'")),
       hasColumn(connection,'telegram_notification_outbox','lease_token'),
       hasIndex(connection,'telegram_notification_outbox','idx_outbox_lease')
     ],'Partial DDL detected in 20261114_008_outbox_uncertain_delivery.sql. Inspect telegram_notification_outbox before repair.');
