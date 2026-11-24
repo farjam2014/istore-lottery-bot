@@ -1,5 +1,5 @@
 export const logRedactPaths=Object.freeze([
-  'token','*.token','password','*.password','phone','*.phone','card_number','*.card_number','cardNumber','*.cardNumber',
+  'token','*.token','password','*.password','phone','*.phone','phone_number','*.phone_number','phoneNumber','*.phoneNumber','card_number','*.card_number','cardNumber','*.cardNumber',
   '*.telegram_file_id','*.telegram_file_unique_id','*.file_id',
   'userId','*.userId','user_id','*.user_id',
   'username','*.username','telegram_username','*.telegram_username','first_name','*.first_name','last_name','*.last_name',
