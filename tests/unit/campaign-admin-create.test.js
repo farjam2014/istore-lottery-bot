@@ -77,3 +77,11 @@ test('campaign copy idempotency key cannot be reused by another actor',async()=>
   await assert.rejects(copyCampaign({campaignId:9,actorId:'999',idempotencyKey:key,database}),/معتبر نیست/);
   assert.equal(database.state.campaigns.length,1);
 });
+
+test('campaign copy truncates the source title to the campaigns.title limit',async()=>{
+  const database=fakeDatabase();
+  database.state.source.title='x'.repeat(180);
+  const result=await copyCampaign({campaignId:9,actorId:'123',idempotencyKey:'d'.repeat(64),database});
+  assert.equal(result.title.length,180);
+  assert.ok(result.title.endsWith(' (نسخه کپی)'));
+});
