@@ -29,7 +29,7 @@ export async function getManagedOrderDetail(orderId){
 export async function exportManagedOrders({status='all',limit=10000}={}){
   const filter=normalizeFilter(status),where=filter==='all'?'':'WHERE o.status=?';
   const [rows]=await pool.execute(
-    "SELECT o.id,o.payment_reference,o.amount,o.requested_code_count,o.currency,o.status,o.expires_at,o.created_at,o.approved_at,c.id campaign_id,c.title campaign_title,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id JOIN participants p ON p.id=e.participant_id "+where+" ORDER BY o.id DESC LIMIT ?",
+    "SELECT o.id,o.payment_reference,o.amount,o.requested_code_count,o.currency,o.status,o.expires_at,o.created_at,o.approved_at,c.id campaign_id,c.title campaign_title FROM payment_orders o JOIN campaign_entries e ON e.id=o.campaign_entry_id JOIN campaigns c ON c.id=e.campaign_id "+where+" ORDER BY o.id DESC LIMIT ?",
     filter==='all'?[Math.max(1,Math.min(10000,Number(limit)||10000))]:[filter,Math.max(1,Math.min(10000,Number(limit)||10000))]);
   return rows;
 }
