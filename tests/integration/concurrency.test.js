@@ -162,7 +162,7 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
     await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,?,?)',[actorId,'draw_publication_confirm',JSON.stringify({drawId,reference:'https://proof.example.org/draw/'+drawId})]);
     let readers=0,releaseReaders;
     const bothObserved=new Promise(resolve=>{releaseReaders=resolve;});
-    async function attemptPublish(reference){
+    async function attemptPublish(){
       const [[observed]]=await pool.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
       if(!observed)return false;
       readers++;if(readers===2)releaseReaders();await bothObserved;
@@ -174,21 +174,21 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
         if(!wizard||wizard.step!=='draw_publication_confirm'||Number(payload?.drawId)!==drawId)throw new Error('Wizard changed.');
         const [[lockedDraw]]=await connection.execute('SELECT campaign_id,status,commitment_published_at FROM campaign_draws WHERE id=? FOR UPDATE',[drawId]);
         if(!lockedDraw||lockedDraw.status!=='prepared'||lockedDraw.commitment_published_at)throw new Error('Draw not publishable.');
-        const [updated]=await connection.execute("UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=? AND status='prepared' AND commitment_published_at IS NULL",[reference,actorId,drawId]);
+        const [updated]=await connection.execute("UPDATE campaign_draws SET commitment_publication_reference=?,commitment_published_at=UTC_TIMESTAMP(),commitment_published_by=? WHERE id=? AND status='prepared' AND commitment_published_at IS NULL",[payload.reference,actorId,drawId]);
         if(!updated.affectedRows)throw new Error('Draw already published.');
-        await connection.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,NULL,?,?,?,?)',[actorId,'draw.commitment_published','campaign_draw',drawId,JSON.stringify({reference})]);
+        await connection.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,NULL,?,?,?,?)',[actorId,'draw.commitment_published','campaign_draw',drawId,JSON.stringify({reference:payload.reference})]);
         await connection.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
         await connection.commit();return true;
       }catch(error){await connection.rollback();throw error;}finally{connection.release();}
     }
     const results=await Promise.allSettled([
-      attemptPublish('https://proof.example.org/draw/'+drawId+'/a'),
-      attemptPublish('https://proof.example.org/draw/'+drawId+'/b')
+      attemptPublish(),
+      attemptPublish()
     ]);
     assert.equal(results.filter(x=>x.status==='fulfilled'&&x.value===true).length,1);
     assert.equal(results.filter(x=>x.status==='rejected').length,1);
     const [[published]]=await pool.execute('SELECT commitment_publication_reference FROM campaign_draws WHERE id=?',[drawId]);
-    assert.match(published.commitment_publication_reference,/\/a$|\/b$/);
+    assert.equal(published.commitment_publication_reference,'https://proof.example.org/draw/'+drawId);
     const [[auditCount]]=await pool.execute("SELECT COUNT(*) total FROM admin_audit_log WHERE action='draw.commitment_published' AND entity_id=?",[drawId]);
     assert.equal(Number(auditCount.total),1);
   }finally{
