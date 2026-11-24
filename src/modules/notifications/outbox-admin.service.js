@@ -13,8 +13,8 @@ export async function retryOutboxNotification({notificationId,adminId,expectedSt
     if(!row)throw new Error('اعلان موردنظر پیدا نشد.');
     if(row.status!==expectedStatus)throw new Error('وضعیت اعلان از زمان نمایش تغییر کرده است؛ فهرست را دوباره باز کنید.');
     await connection.execute(
-      "UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=CONCAT(COALESCE(last_error,''),' | manually requeued by ',?) WHERE id=? AND status=?",
-      [String(adminId),id,expectedStatus]
+      "UPDATE telegram_notification_outbox SET status='pending',attempts=0,manual_retry_count=manual_retry_count+1,available_at=UTC_TIMESTAMP(),locked_at=NULL,lease_token=NULL,last_error=CONCAT(COALESCE(last_error,''),' | manually requeued') WHERE id=? AND status=?",
+      [id,expectedStatus]
     );
     await connection.execute(
       'INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',
