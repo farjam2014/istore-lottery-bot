@@ -141,6 +141,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1'});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
+    assert.equal(profile.privacy_consent_version,'ci-v1');assert.ok(profile.privacy_consent_at,'Consent acceptance timestamp must be persisted.');
     assert.equal(String(profile.telegram_user_id),telegramId);
     await assert.rejects(
       pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Duplicate Tester','+989121234567','duplicate_user']),
