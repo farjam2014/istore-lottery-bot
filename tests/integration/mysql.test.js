@@ -12,7 +12,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const {migrate}=await import('../../src/database/migrate.js');
   const {createProfile,findByTelegramId,updatePrivacyConsent}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
-  let participantId;let secondParticipantId;const campaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;
+  const {copyCampaign}=await import('../../src/modules/campaigns/campaign-admin.service.js');
+  let participantId;let secondParticipantId;const campaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;let copyIdempotencyKey;
   try{
     // Simulate a process crash after the first DDL statement of migration 001:
     // the index exists, but schema_migrations has not recorded the migration yet.
@@ -161,6 +162,19 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       const [c]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,capacity,codes_per_entry) VALUES(?,?,'open','free',?,2)",[`it-${telegramId}-${i}`,`Integration campaign ${i}`,i===0?2:null]);
       campaignIds.push(c.insertId);
     }
+    copyIdempotencyKey=createHash('sha256').update('campaign-copy-'+telegramId).digest('hex');
+    const copyResults=await Promise.all([
+      copyCampaign({campaignId:campaignIds[0],actorId:telegramId,idempotencyKey:copyIdempotencyKey}),
+      copyCampaign({campaignId:campaignIds[0],actorId:telegramId,idempotencyKey:copyIdempotencyKey})
+    ]);
+    assert.equal(copyResults[0].campaignId,copyResults[1].campaignId,'Concurrent copy callbacks must resolve to the same campaign.');
+    assert.equal(copyResults.filter(x=>x.alreadyProcessed).length,1,'Exactly one concurrent campaign-copy callback must be treated as a replay.');
+    const copiedCampaignId=copyResults[0].campaignId;
+    campaignIds.push(copiedCampaignId);
+    const [[copyCount]]=await pool.execute('SELECT COUNT(*) AS total FROM campaigns WHERE id=? AND title LIKE ?',[copiedCampaignId,'% (نسخه کپی)']);
+    assert.equal(Number(copyCount.total),1);
+    const [[copyAuditCount]]=await pool.execute("SELECT COUNT(*) AS total FROM admin_audit_log WHERE action='campaign.copied' AND entity_id=?",[copiedCampaignId]);
+    assert.equal(Number(copyAuditCount.total),1,'Campaign copy and audit must commit exactly once.');
     const first=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]});
     assert.equal(first.codes.length,2);assert.equal(first.alreadyJoined,false);
     const repeated=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]});
@@ -193,7 +207,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[id]);
       await pool.execute('DELETE FROM participants WHERE id=?',[id]);
     }
-    if(campaignIds.length)await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);
+    if(campaignIds.length){await pool.execute(`DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);}
+    if(copyIdempotencyKey)await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[copyIdempotencyKey]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[legacyEntryId]);
     if(legacyCampaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[legacyCampaignId]);
