@@ -16,7 +16,7 @@ test('structured logs redact Telegram IDs, phone numbers, Instagram handles, and
     nested:{chatId:'444444',full_name:'Private Person'}
   },'redaction test');
   assert.match(output,/\[REDACTED\]/);
-  for(const secret of ['111111','222222','09125550000','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name']){
+  for(const secret of ['111111','222222','09125550000','09125550001','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name']){
     assert.equal(output.includes(secret),false,'sensitive value leaked: '+secret);
   }
 });
