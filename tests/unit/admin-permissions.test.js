@@ -16,7 +16,8 @@ test('finance manager can review payments but cannot manage campaigns or support
   for(const permission of ['campaign.write','support.reply','support.manage','participant.manage'])assert.equal(roleHasPermission('finance_manager',permission),false);
 });
 test('support agent can manage tickets but cannot access finance or campaigns',()=>{
-  for(const permission of ['support.read','support.reply','support.manage','participant.read'])assert.equal(roleHasPermission('support_agent',permission),true);
+  for(const permission of ['support.read','support.reply','support.manage'])assert.equal(roleHasPermission('support_agent',permission),true);
+  assert.equal(roleHasPermission('support_agent','participant.read'),false);
   for(const permission of ['payment.read','payment.review','payment.settings','campaign.write','report.read','participant.manage'])assert.equal(roleHasPermission('support_agent',permission),false);
 });
 test('only non-super-admin roles are assignable from the role UI',()=>{
