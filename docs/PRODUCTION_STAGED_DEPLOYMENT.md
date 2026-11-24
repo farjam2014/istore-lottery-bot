@@ -1,10 +1,12 @@
 # Production staged deployment runbook
 
-This procedure is for the existing production host whose active systemd service currently runs from:
+This procedure is for the existing release-directory production host. The operator-reported active release path at the time of this audit is:
 
-`/opt/ustore-releases/pr69-71-registration-fix`
+`/opt/ustore-releases/ed490912df9eacbd15e344f4ae00a785cda09646`
 
-It is a **manual, approval-gated deployment plan**. It has not been executed. Use the exact merged release commit SHA, never a floating branch.
+That path and its running process have **not** been independently verified from the VPS in this audit. Re-confirm the actual systemd `WorkingDirectory` and `/proc/<MainPID>/cwd` read-only before using this procedure; do not assume the reported path is still active.
+
+It is a **manual, approval-gated deployment plan**. It has not been executed. Use the exact reviewed and merged release commit SHA, never a floating branch.
 
 ## Safety rules
 
