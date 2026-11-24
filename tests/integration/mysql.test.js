@@ -148,7 +148,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const firstAcceptance=consentUpdated.privacy_consent_at;
     await updatePrivacyConsent(telegramId,'ci-v2');
     const consentReplayed=await findByTelegramId(telegramId);
-    assert.equal(consentReplayed.privacy_consent_at.getTime(),firstAcceptance.getTime(),'Replayed consent callback must not refresh the first acceptance timestamp.');
+    assert.equal(new Date(consentReplayed.privacy_consent_at).getTime(),new Date(firstAcceptance).getTime(),'Replayed consent callback must not refresh the first acceptance timestamp.');
     assert.equal(String(profile.telegram_user_id),telegramId);
     await assert.rejects(
       pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Duplicate Tester','+989121234567','duplicate_user']),
