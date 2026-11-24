@@ -92,3 +92,11 @@ test('campaign slug retains Persian letters instead of collapsing them to an emp
   await createCampaignFromWizard({telegramUserId:'123',actorId:'123',database});
   assert.match(database.state.campaigns[0].params[0],/کمپین-آزمایشی-زرند-[a-f0-9]{6}/);
 });
+
+test('campaign wizard rejects malformed optional dates before inserting a campaign',async()=>{
+  const database=fakeDatabase();
+  database.state.wizard.payload.starts_at='not-a-date';
+  await assert.rejects(createCampaignFromWizard({telegramUserId:'123',actorId:'123',database}),/قالب تاریخ UTC نامعتبر است/);
+  assert.equal(database.state.campaigns.length,0);
+  assert.equal(database.state.commits,0);
+});
