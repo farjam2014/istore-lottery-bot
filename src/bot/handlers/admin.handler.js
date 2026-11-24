@@ -32,9 +32,9 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:campaign:draw:'))return hasPermission(id,'campaign.draw');
     if(data.startsWith('admin:campaign'))return hasPermission(id,'campaign.write');
     if(data.startsWith('admin:participants:export'))return hasPermission(id,'participant.export');
-    if(data==='admin:participants:search')return hasPermission(id,'participant.read');
-    if(data.startsWith('admin:participant:'))return hasPermission(id,data.includes(':block:')||data.includes(':unblock:')?'participant.manage':'participant.read');
-    if(data.startsWith('admin:participants'))return hasPermission(id,'participant.read');
+    if(data==='admin:participants:search')return hasPermission(id,'participant.directory.read');
+    if(data.startsWith('admin:participant:'))return hasPermission(id,data.includes(':block:')||data.includes(':unblock:')?'participant.manage':'participant.directory.read');
+    if(data.startsWith('admin:participants'))return hasPermission(id,'participant.directory.read');
     if(data.startsWith('admin:support:reply'))return hasPermission(id,'support.reply');
     if(data.startsWith('admin:support:assign')||data.startsWith('admin:support:status')||data.startsWith('admin:support:priority'))return hasPermission(id,'support.manage');
     if(data.startsWith('admin:support'))return hasPermission(id,'support.read');
@@ -48,7 +48,7 @@ async function isAdmin(ctx){
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
     const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
-    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
+    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=?",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.directory.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=?',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
@@ -80,7 +80,7 @@ const menu=role=>{
   const buttons=[];
   const allow=p=>role==='super_admin'||(rolePermissionsForMenu[role]||[]).includes(p);
   if(allow('campaign.write'))buttons.push(Markup.button.callback('🎯 مدیریت کمپین‌ها','admin:campaigns'));
-  if(allow('participant.read'))buttons.push(Markup.button.callback('👥 مدیریت شرکت‌کنندگان','admin:participants'));
+  if(allow('participant.directory.read'))buttons.push(Markup.button.callback('👥 مدیریت شرکت‌کنندگان','admin:participants'));
   if(allow('support.read'))buttons.push(Markup.button.callback('💬 تیکت‌های پشتیبانی','admin:support'));
   if(role==='super_admin')buttons.push(Markup.button.callback('🛡 مدیران و نقش‌ها','admin:roles'));
   if(allow('report.read'))buttons.push(Markup.button.callback('📊 گزارش‌ها و عملکرد مالی','admin:reports'));
@@ -93,8 +93,8 @@ const menu=role=>{
   return Markup.inlineKeyboard(rows);
 };
 const rolePermissionsForMenu={
-  campaign_manager:['campaign.write','participant.read'],
-  finance_manager:['payment.read','payment.settings','report.read','participant.read'],
+  campaign_manager:['campaign.write'],
+  finance_manager:['payment.read','payment.settings','report.read'],
   support_agent:['support.read']
 };
 
@@ -430,7 +430,7 @@ export function registerAdminHandlers(bot){
   });
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);await ctx.answerCbQuery();return showParticipants(ctx,0);});
   bot.action('admin:participants:search',async ctx=>{
-    if(!await hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    if(!await hasPermission(ctx.from.id,'participant.directory.read'))return deny(ctx);
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text) VALUES(?,'participant',NULL,NULL) ON DUPLICATE KEY UPDATE step='participant',campaign_id=NULL,query_text=NULL",[String(ctx.from.id)]);
     await ctx.answerCbQuery();
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
