@@ -13,7 +13,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const {createProfile,findByTelegramId,updatePrivacyConsent}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
   const {copyCampaign,createCampaignFromWizard}=await import('../../src/modules/campaigns/campaign-admin.service.js');
-  let participantId;let secondParticipantId;const campaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;let copyIdempotencyKey;let campaignWizardId;
+  let participantId;let secondParticipantId;const campaignIds=[];const extraCampaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;let copyIdempotencyKey;let campaignWizardId;
   try{
     // Simulate a process crash after the first DDL statement of migration 001:
     // the index exists, but schema_migrations has not recorded the migration yet.
@@ -166,7 +166,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const wizardPayload={type:'free',title:'Atomic Wizard '+telegramId,description:'Integration wizard',codes:2,capacity:null,starts_at:null,ends_at:null,draw_at:null,posterFileId:null,prizeTitle:null,prizeDescription:null,prizeValue:null,terms:null};
     await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload) VALUES(?,'confirm',?)",[campaignWizardId,JSON.stringify(wizardPayload)]);
     const createdFromWizard=await createCampaignFromWizard({telegramUserId:campaignWizardId,actorId:telegramId});
-    campaignIds.push(createdFromWizard.campaignId);
+    extraCampaignIds.push(createdFromWizard.campaignId);
     const [[wizardCampaign]]=await pool.execute('SELECT title,status,codes_per_entry FROM campaigns WHERE id=?',[createdFromWizard.campaignId]);
     assert.equal(wizardCampaign.title,wizardPayload.title);
     assert.equal(wizardCampaign.status,'draft');
@@ -182,7 +182,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.equal(copyResults[0].campaignId,copyResults[1].campaignId,'Concurrent copy callbacks must resolve to the same campaign.');
     assert.equal(copyResults.filter(x=>x.alreadyProcessed).length,1,'Exactly one concurrent campaign-copy callback must be treated as a replay.');
     const copiedCampaignId=copyResults[0].campaignId;
-    campaignIds.push(copiedCampaignId);
+    extraCampaignIds.push(copiedCampaignId);
     const [[copyCount]]=await pool.execute('SELECT COUNT(*) AS total FROM campaigns WHERE id=? AND title LIKE ?',[copiedCampaignId,'% (نسخه کپی)']);
     assert.equal(Number(copyCount.total),1);
     const [[copyAuditCount]]=await pool.execute("SELECT COUNT(*) AS total FROM admin_audit_log WHERE action='campaign.copied' AND entity_id=?",[copiedCampaignId]);
@@ -219,7 +219,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM campaign_entries WHERE participant_id=?',[id]);
       await pool.execute('DELETE FROM participants WHERE id=?',[id]);
     }
-    if(campaignIds.length){await pool.execute(`DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);await pool.execute(`DELETE FROM campaigns WHERE id IN (${campaignIds.map(()=>'?').join(',')})`,campaignIds);}
+    const allCampaignIds=[...campaignIds,...extraCampaignIds];
+    if(allCampaignIds.length){await pool.execute(`DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);await pool.execute(`DELETE FROM campaigns WHERE id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);}
     if(copyIdempotencyKey)await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[copyIdempotencyKey]);
     if(campaignWizardId)await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[campaignWizardId]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
