@@ -24,14 +24,15 @@ test('privacy notice acceptance callback is allowed before a participant profile
 });
 
 test('re-accepting a privacy notice preserves an in-progress registration step and collected data',()=>{
-  const existing={step:'awaiting_instagram',payload:{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'old-v1'}};
+  const existing={step:'awaiting_instagram',payload:{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'old-v1'},lastUpdateId:101};
   const next=buildPrivacyAcceptedSession(existing,'new-v2');
   assert.equal(next.step,'awaiting_instagram');
+  assert.equal(next.lastUpdateId,101);
   assert.deepEqual(next.payload,{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'new-v2'});
 });
 
 test('first privacy acceptance starts a new registration at the name step',()=>{
-  assert.deepEqual(buildPrivacyAcceptedSession(null,'v1'),{step:'awaiting_name',payload:{privacyConsentVersion:'v1'}});
+  assert.deepEqual(buildPrivacyAcceptedSession(null,'v1'),{step:'awaiting_name',payload:{privacyConsentVersion:'v1'},lastUpdateId:null});
 });
 
 test('an older retried registration message cannot be mistaken for input to a later step',()=>{
