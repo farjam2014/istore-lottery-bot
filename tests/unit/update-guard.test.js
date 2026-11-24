@@ -158,3 +158,19 @@ test('long-running handler renews its lease before it expires',async()=>{
   assert.ok(database.heartbeatCount>=1,'expected at least one lease heartbeat');
   assert.equal(database.inbox.get(900).status,'completed');
 });
+
+
+test('failed callback updates are not replayed after callback query expiry',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const first=context({id:901,userId:'12345',callback:true});
+  await assert.rejects(guard(first,async()=>{throw new Error('stale callback failure');}),/stale callback failure/);
+  assert.equal(database.inbox.get(901).status,'failed');
+
+  const replay=context({id:901,userId:'12345',callback:true});
+  let calls=0;
+  await guard(replay,async()=>{calls++;});
+  assert.equal(calls,0,'expired callback handlers must not be executed again');
+  assert.equal(replay.state.durableReplay,true);
+  assert.equal(database.inbox.get(901).status,'completed');
+});
