@@ -15,7 +15,7 @@ function fakeDatabase({status='uncertain',auditFails=false}={}){
       }
       if(sql.startsWith("UPDATE telegram_notification_outbox SET status='pending'")){
         state.updates++;
-        if(state.row&&state.row.status===params[2]){
+        if(state.row&&state.row.id===params[0]&&state.row.status===params[1]){
           state.row.status='pending';state.row.attempts=0;state.row.manual_retry_count++;
         }
         return [{affectedRows:1},[]];
