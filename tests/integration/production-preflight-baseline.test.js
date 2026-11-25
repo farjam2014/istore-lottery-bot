@@ -12,9 +12,9 @@ test('read-only production preflight executes against the legacy base schema wit
   const port=Number(process.env.MYSQL_PORT||3306);
   const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
   const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
-  const suffix=process.pid+'_'+Date.now();
+  const suffix=randomBytes(4).toString('hex')+'_'+process.pid;
   const databaseName='istore_preflight_'+suffix;
-  const readOnlyUser='preflight_ro_'+suffix;
+  const readOnlyUser='pfro_'+randomBytes(6).toString('hex');
   const readOnlyPassword=randomBytes(18).toString('hex');
   const admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
   let baseConnection=null,readOnlyConnection=null,userCreated=false,databaseCreated=false;
