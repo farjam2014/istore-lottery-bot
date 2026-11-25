@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
 
 test('registration rejects older updates even on their first inbox delivery',()=>{
@@ -23,4 +24,11 @@ test('registration session advancement is an atomic monotonic cursor compare-and
   const source=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
   assert.match(source,/last_update_id IS NOT NULL AND last_update_id<\?/);
   assert.match(source,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
+});
+
+
+test('registration session save and advance refresh updated_at for a newer cursor',()=>{
+  const source=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
+  assert.match(source,/updated_at=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),CURRENT_TIMESTAMP,updated_at\)/);
+  assert.match(source,/SET step=\?,payload=\?,last_update_id=\?,updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id/);
 });

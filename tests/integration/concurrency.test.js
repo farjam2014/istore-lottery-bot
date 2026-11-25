@@ -205,7 +205,10 @@ test('MySQL integration: registration session records the update that advanced i
     const startUpdateId=Number(800000000+Math.floor(Math.random()*100000000));
     await saveSession(telegramId,'awaiting_name',{privacyConsentVersion:'ci-v1'},startUpdateId);
     const updateId=startUpdateId+1;
+    await pool.execute('UPDATE telegram_user_sessions SET updated_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 25 HOUR) WHERE telegram_user_id=?',[telegramId]);
     await advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1',fullName:'Replay Tester'},updateId);
+    const [[freshTimestamp]]=await pool.execute('SELECT updated_at FROM telegram_user_sessions WHERE telegram_user_id=?',[telegramId]);
+    assert.ok(new Date(freshTimestamp.updated_at).getTime()>Date.now()-60_000,'advancing a registration session must refresh its 24-hour inactivity TTL');
     const session=await getSession(telegramId);
     assert.equal(session.step,'awaiting_phone');
     assert.equal(session.lastUpdateId,updateId);
