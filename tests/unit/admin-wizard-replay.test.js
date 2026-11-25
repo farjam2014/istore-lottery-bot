@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../src/modules/admin/admin-wizard-replay.js';
 
 test('admin wizard rejects a replayed update already applied to the current step',()=>{
@@ -28,3 +29,8 @@ test('admin wizard session expiry fails closed for invalid timestamps',()=>{
   assert.equal(isExpiredAdminWizardSession('not-a-date',Date.now()),true);
 });
 
+test('admin wizard handler applies expiry to every text-consuming wizard step',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(source,/if\(isExpiredAdminWizardSession\(r\[0\]\.updated_at\)\)/);
+  assert.doesNotMatch(source,/\['payment_settings','payment_reject'\]\.includes\(r\[0\]\.step\)/);
+});
