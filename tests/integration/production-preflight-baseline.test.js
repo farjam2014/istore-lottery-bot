@@ -77,7 +77,8 @@ test('post-migration integrity SQL executes after all versioned migrations are a
       assert.ok(Array.isArray(rows));
     }
   }finally{
-    const {pool}=await import('../../src/database/pool.js');
+    const {closeMigrationPool}=await import('../../src/database/migration-pool.js');
+    await closeMigrationPool();
     await pool.end();
   }
 });
