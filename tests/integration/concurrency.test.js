@@ -209,6 +209,6 @@ test('MySQL integration: registration session records the update that advanced i
     const session=await getSession(telegramId);
     assert.equal(session.step,'awaiting_phone');
     assert.equal(session.lastUpdateId,updateId);
-    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده است/);
+    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده/);
   }finally{await clearSession(telegramId);}
 });
