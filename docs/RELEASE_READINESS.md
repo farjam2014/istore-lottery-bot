@@ -13,7 +13,8 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
 - [ ] Review the full PR diff and migration files; do not rely on `mergeable=true` alone.
 - [ ] Confirm the target host, application directory, systemd unit, Node version, MySQL version, and database name.
-- [ ] Confirm `MYSQL_DATABASE` and `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
+- [ ] Confirm `MYSQL_DATABASE` and runtime `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
+- [ ] Confirm the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the application database; DDL must use a separate migration account.
 - [ ] Confirm a clean, known code version is deployed and record its commit SHA.
 - [ ] Confirm `.env` is a regular file owned by the service account with mode `600`. Never print or upload it.
 - [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
@@ -73,6 +74,10 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 
 Important migration properties:
 
+- The application service uses `MYSQL_USER`/`MYSQL_PASSWORD`, restricted to DML on the application database. It must not have `CREATE`, `ALTER`, `INDEX`, or `REFERENCES` privileges.
+- Production migrations use `MYSQL_MIGRATION_USER`/`MYSQL_MIGRATION_PASSWORD` from `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by root with directory mode `700` and file mode `600`. These credentials must never be copied into the release `.env` or the systemd service environment.
+- The migration runner refuses to use the runtime account in production. CI/test environments may reuse their disposable test database account.
+
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
 - Applied migration checksums must not change.
@@ -83,7 +88,7 @@ Important migration properties:
 - Assigning `legacy-env` does not create missing ciphertext. A legacy prepared draw without ciphertext/nonce/tag cannot be recovered from its seed hash.
 - Never automatically cancel, re-prepare, or replace a prepared draw to work around a missing key or unsupported algorithm.
 
-Run production migrations only after explicit approval, a verified backup, and a read-only inventory. The migration guard requires both `ALLOW_DATABASE_MIGRATIONS=1` and `ALLOW_PRODUCTION_MIGRATIONS=1`, with `MIGRATION_TARGET_DATABASE` exactly matching `MYSQL_DATABASE`.
+Run production migrations only after explicit approval, a verified backup, and a read-only inventory. The migration guard requires both `ALLOW_DATABASE_MIGRATIONS=1` and `ALLOW_PRODUCTION_MIGRATIONS=1`, with `MIGRATION_TARGET_DATABASE` exactly matching `MYSQL_DATABASE`. Run the migration process as root (or a dedicated deployment identity with read access to the protected migration file); never grant the migration credentials to `ustorebot`.
 
 ## 4. Deployment sequence
 
@@ -92,7 +97,7 @@ Run production migrations only after explicit approval, a verified backup, and a
 3. Verify the backup and independent key backup before proceeding.
 4. Update to the approved release commit using the reviewed deployment method. Do not use an unreviewed installer branch or a floating branch name as the release identity.
 5. Install production dependencies with the repository's supported Node.js version.
-6. Run the approved migration command once against the exact target database.
+6. Run the approved migration command once against the exact target database using the protected migration-only credential file; do not inject migration credentials into the service environment.
 7. If a migration fails, stop. Capture the error and inspect `schema_migrations` plus `information_schema`; do not blindly rerun or manually drop objects.
 8. Verify migration checksums and the expected schema before enabling application traffic.
 9. Start or restart the systemd service only after separate deployment approval.

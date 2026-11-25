@@ -53,8 +53,9 @@ Restore the backup into a separate disposable database and verify table counts a
 Set `TARGET_SHA` to the exact merged release commit and `TARGET_RELEASE` to a new directory under `/opt/ustore-releases`. Do not reuse or overwrite the active release.
 
 - Clone/fetch the repository at `TARGET_SHA`.
-- Copy the protected `.env` from the active release into the new release.
-- Set owner to `ustorebot:ustorebot` and mode `600` on `.env`.
+- Copy the protected runtime `.env` from the active release into the new release; it must contain only the restricted runtime `MYSQL_USER`/`MYSQL_PASSWORD`.
+- Keep migration credentials outside the release and outside the service environment in `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by `root:root`, parent directory mode `700`, file mode `600`. Never copy this file into the release or expose its values to the systemd service.
+- Set owner to `ustorebot:ustorebot` and mode `600` on the runtime `.env`.
 - Install locked production dependencies with `npm ci --omit=dev`.
 - Run the non-production test suite and JavaScript syntax checks from the staged directory. Do not set `RUN_MYSQL_TESTS=1` against the production database.
 - Record the target SHA and the staged file inventory.
@@ -80,10 +81,7 @@ Only after separate approval:
 
 1. Announce maintenance and prevent new registration/payment writes.
 2. Stop the active service and confirm it is stopped. Do not start the staged release yet.
-3. Run `npm run db:migrate` from the staged release with all three explicit target-bound authorization variables:
-   `ALLOW_DATABASE_MIGRATIONS=1`,
-   `ALLOW_PRODUCTION_MIGRATIONS=1`, and
-   `MIGRATION_TARGET_DATABASE=<exact MYSQL_DATABASE>`.
+3. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release; source only `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env` (not into the service account), then execute `ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate`. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`.
 4. Capture migration output and verify `schema_migrations` checksums and expected schema.
 5. If migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
 
