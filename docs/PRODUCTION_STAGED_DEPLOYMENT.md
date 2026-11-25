@@ -89,6 +89,8 @@ Only after separate approval:
 
    ```bash
    set +x
+   ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
+   test -n "$ACTIVE" && test -f "$ACTIVE/.env"
    set -a
    . "$ACTIVE/.env"
    . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
