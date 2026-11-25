@@ -145,9 +145,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
     assert.equal(Number(nextLegacyCode.sequence_number),2);assert.equal(Number(nextLegacyCode.format_version),2);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
-    await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1'});
+    const consentAcceptedAt=new Date(Math.floor(Date.now()/1000)*1000);
+    await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1',privacyConsentAt:consentAcceptedAt});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
-    assert.equal(profile.privacy_consent_version,'ci-v1');assert.ok(profile.privacy_consent_at,'Consent acceptance timestamp must be persisted.');
+    assert.equal(profile.privacy_consent_version,'ci-v1');assert.equal(new Date(profile.privacy_consent_at).getTime(),consentAcceptedAt.getTime(),'Consent acceptance timestamp must match the recorded acceptance time.');
     await updatePrivacyConsent(telegramId,'ci-v2');
     const consentUpdated=await findByTelegramId(telegramId);
     assert.equal(consentUpdated.privacy_consent_version,'ci-v2');
