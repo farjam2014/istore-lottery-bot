@@ -42,9 +42,11 @@ test('admin search sessions enforce a 24-hour TTL and refresh it when restarted'
   assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND step='participant' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
   assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND step='campaign_code' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
   assert.match(source,/payment_admin_sessions WHERE telegram_user_id=\? AND step='search_order' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
-  assert.match(source,/campaign_id=VALUES\(campaign_id\),created_at=CURRENT_TIMESTAMP/);
-  assert.match(source,/query_text=NULL,created_at=CURRENT_TIMESTAMP/);
-  assert.match(source,/status_filter='all',created_at=CURRENT_TIMESTAMP/);
+  assert.match(source,/campaign_id=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),VALUES\(campaign_id\),campaign_id\)/);
+  assert.match(source,/query_text=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),NULL,query_text\)/);
+  assert.match(source,/status_filter=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),'all',status_filter\)/);
+  assert.match(source,/created_at=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),CURRENT_TIMESTAMP,created_at\)/);
+  assert.match(source,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
 });
 
 test('admin wizard handler applies expiry to every text-consuming wizard step',()=>{
