@@ -96,6 +96,7 @@ test('payment receipt sessions persist the callback update cursor and claim phot
   assert.equal((source.match(/last_update_id\) VALUES\(\?,'awaiting_payment_receipt'/g)||[]).length,2);
   assert.equal((source.match(/payload=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),VALUES\(payload\),payload\)/g)||[]).length,2);
   assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt'/);
+  assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt' AND JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
   assert.match(source,/JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
 });
 
