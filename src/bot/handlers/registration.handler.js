@@ -45,7 +45,7 @@ export function registerRegistrationHandlers(bot){
     }
     const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version);
     const step=accepted.step;
-    await saveSession(ctx.from.id,step,accepted.payload);
+    await saveSession(ctx.from.id,step,accepted.payload,accepted.lastUpdateId);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
     if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
