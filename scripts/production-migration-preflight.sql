@@ -95,13 +95,15 @@ ORDER BY seed_key_id;
 -- constraint. Return only campaigns where the stored counter is behind data.
 SELECT c.id AS campaign_id,
        COALESCE(counter.last_sequence,0) AS counter_last_sequence,
-       COALESCE(MAX(cc.sequence_number),0) AS max_existing_sequence
+       COALESCE(MAX(cc.sequence_number),0) AS max_existing_sequence,
+       SUM(CASE WHEN cc.id IS NOT NULL AND cc.sequence_number IS NULL THEN 1 ELSE 0 END) AS missing_sequence_count
 FROM campaigns c
 LEFT JOIN campaign_code_counters counter ON counter.campaign_id=c.id
-LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id AND cc.sequence_number IS NOT NULL
+LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id
 GROUP BY c.id,counter.last_sequence
 HAVING COALESCE(counter.last_sequence,0)<COALESCE(MAX(cc.sequence_number),0)
     OR (counter.campaign_id IS NULL AND COUNT(cc.id)>0)
+    OR SUM(CASE WHEN cc.id IS NOT NULL AND cc.sequence_number IS NULL THEN 1 ELSE 0 END)>0
 ORDER BY c.id;
 
 -- Duplicate sequence values should be impossible after migration 001; report
