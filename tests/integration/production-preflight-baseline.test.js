@@ -58,3 +58,26 @@ test('read-only production preflight executes against the legacy base schema wit
     await admin.end();
   }
 });
+
+
+test('post-migration integrity SQL executes after all versioned migrations are applied',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  try{
+    await migrate();
+    const [[history]]=await pool.execute('SELECT COUNT(*) AS total FROM schema_migrations');
+    assert.ok(Number(history.total)>=28,'Expected all release migrations to be recorded before post-migration checks.');
+    const integrity=readFileSync(new URL('../../scripts/post-migration-integrity-check.sql',import.meta.url),'utf8');
+    const statements=splitSql(integrity);
+    assert.equal(statements.length,4);
+    for(const statement of statements){
+      const executable=statement.replace(/^\s*--.*$/gm,'').trim();
+      assert.match(executable,/^SELECT\b/i,'Post-migration integrity statements must remain SELECT-only.');
+      const [rows]=await pool.execute(statement);
+      assert.ok(Array.isArray(rows));
+    }
+  }finally{
+    const {pool}=await import('../../src/database/pool.js');
+    await pool.end();
+  }
+});
