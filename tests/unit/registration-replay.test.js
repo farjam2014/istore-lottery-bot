@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
+import {isOlderRegistrationReplay,registrationSessionCursorMatches} from '../../src/bot/handlers/registration.handler.js';
 
 test('registration rejects older updates even on their first inbox delivery',()=>{
   assert.equal(isOlderRegistrationReplay({update:{update_id:100},state:{durableReplay:false}},{lastUpdateId:101}),true);
@@ -30,4 +30,25 @@ test('registration session save and advance refresh updated_at for a newer curso
   const source=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
   assert.match(source,/updated_at=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),CURRENT_TIMESTAMP,updated_at\)/);
   assert.match(source,/SET step=\?,payload=\?,last_update_id=\?,updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id/);
+});
+
+
+test('registration action callbacks are bound to the exact active session cursor',()=>{
+  assert.equal(registrationSessionCursorMatches(null,-1),true);
+  assert.equal(registrationSessionCursorMatches({lastUpdateId:100},100),true);
+  assert.equal(registrationSessionCursorMatches({lastUpdateId:101},100),false);
+  assert.equal(registrationSessionCursorMatches({lastUpdateId:null},-1),true);
+  assert.equal(registrationSessionCursorMatches({lastUpdateId:100},-1),false);
+  assert.equal(registrationSessionCursorMatches({lastUpdateId:100},'invalid'),false);
+});
+
+test('registration cancel callbacks carry the expected session cursor and delete conditionally',()=>{
+  const keyboard=readFileSync(new URL('../../src/bot/keyboards/user.keyboard.js',import.meta.url),'utf8');
+  const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
+  const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
+  assert.match(keyboard,/registration:cancel:'\+String\(Number\.isSafeInteger\(Number\(lastUpdateId\)\)\?Number\(lastUpdateId\):-1\)/);
+  assert.match(handler,/registration:cancel:\(-1\|\[0-9\]\{1,16\}\)/);
+  assert.match(handler,/registrationSessionCursorMatches\(current,expectedCursor\)/);
+  assert.match(repository,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\? AND last_update_id=\?/);
+  assert.match(repository,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\? AND last_update_id IS NOT NULL AND last_update_id<\?/);
 });
