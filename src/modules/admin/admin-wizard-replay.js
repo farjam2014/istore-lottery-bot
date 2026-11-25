@@ -8,3 +8,8 @@ export function isOlderAdminWizardReplay(ctx,wizard){
     updateId<=lastUpdateId
   );
 }
+
+export function isExpiredAdminWizardSession(updatedAt,now=Date.now(),ttlMs=24*60*60*1000){
+  const updated=updatedAt instanceof Date?updatedAt.getTime():Date.parse(updatedAt);
+  return !Number.isFinite(updated)||!Number.isFinite(now)||!Number.isFinite(ttlMs)||ttlMs<=0||now-updated>=ttlMs;
+}
