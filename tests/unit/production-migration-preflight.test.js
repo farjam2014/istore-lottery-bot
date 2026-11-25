@@ -68,5 +68,5 @@ test('production migration preflight detects campaign code counter drift and dup
 
 
 test('production migration preflight remains read-only SQL',()=>{
-  assert.doesNotMatch(preflight,/^\\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\\b/im);
+  assert.doesNotMatch(preflight,/^\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\b/im);
 });
