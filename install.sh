@@ -7,6 +7,8 @@ APP_DIR="/opt/ustore-telegram-bot"
 APP_USER="ustorebot"
 SERVICE="ustore-telegram-bot"
 ENV_FILE="$APP_DIR/.env"
+MIGRATION_ENV_DIR="/etc/ustore"
+MIGRATION_ENV_FILE="$MIGRATION_ENV_DIR/ustore-telegram-bot-migration.env"
 
 log(){ printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -90,6 +92,8 @@ if [[ ! -e "$ENV_FILE" ]]; then
   DB_NAME="ustore_bot_${suffix}"
   DB_USER="ustore_app_${suffix}"
   DB_PASSWORD="$(openssl rand -hex 32)"
+  MIGRATION_DB_USER="ustore_migrate_${suffix}"
+  MIGRATION_DB_PASSWORD="$(openssl rand -hex 32)"
   DRAW_SEED_KEY="$(openssl rand -hex 32)"
   umask 077
   tmp_env="$(mktemp "$APP_DIR/.env.XXXXXX")"
@@ -109,7 +113,7 @@ ENV
   chown "$APP_USER:$APP_USER" "$tmp_env"
   chmod 600 "$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
-  unset BOT_TOKEN DB_PASSWORD DRAW_SEED_KEY
+  unset BOT_TOKEN DB_PASSWORD MIGRATION_DB_PASSWORD DRAW_SEED_KEY
 else
   log "Existing .env found; preserving it and not prompting for or printing secrets."
   [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail ".env must be a regular file, not a symlink."
@@ -137,8 +141,32 @@ requested_migration_target="${MIGRATION_TARGET_DATABASE:-$DB_NAME}"
 [[ "$requested_migration_target" == "$DB_NAME" ]] || fail "MIGRATION_TARGET_DATABASE must exactly match MYSQL_DATABASE."
 MIGRATION_TARGET_DATABASE="$DB_NAME"
 [[ "$DB_NAME" =~ ^ustore_bot_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_DATABASE in .env is not a generated UStore database name."
-[[ "$DB_USER" =~ ^ustore_app_([a-f0-9]{8}|[a-f0-9]{12})$ ]] || fail "MYSQL_USER in .env is not a generated UStore database user."
+DB_SUFFIX="${BASH_REMATCH[1]}"
+[[ "$DB_USER" == "ustore_app_${DB_SUFFIX}" ]] || fail "MYSQL_USER must match the generated database suffix."
 [[ "$DB_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || fail "MYSQL_PASSWORD in .env must be the generated 64-character hex password."
+
+# Migration credentials are deliberately kept outside the service-readable .env.
+if [[ -e "$MIGRATION_ENV_FILE" ]]; then
+  [[ -f "$MIGRATION_ENV_FILE" && ! -L "$MIGRATION_ENV_FILE" ]] || fail "Migration credential file must be a regular file, not a symlink."
+  [[ "$(stat -c '%U:%G:%a' "$MIGRATION_ENV_FILE")" == "root:root:600" ]] || fail "Migration credential file must be root:root mode 600."
+  MIGRATION_DB_USER="$(sed -n 's/^MYSQL_MIGRATION_USER=//p' "$MIGRATION_ENV_FILE" | head -n 1)"
+  MIGRATION_DB_PASSWORD="$(sed -n 's/^MYSQL_MIGRATION_PASSWORD=//p' "$MIGRATION_ENV_FILE" | head -n 1)"
+else
+  MIGRATION_DB_USER="ustore_migrate_${DB_SUFFIX}"
+  MIGRATION_DB_PASSWORD="$(openssl rand -hex 32)"
+  install -d -o root -g root -m 700 "$MIGRATION_ENV_DIR"
+  tmp_migration_env="$(mktemp "$MIGRATION_ENV_DIR/.migration.XXXXXX")"
+  cat > "$tmp_migration_env" <<MIGRATION_ENV
+MYSQL_MIGRATION_USER=$MIGRATION_DB_USER
+MYSQL_MIGRATION_PASSWORD=$MIGRATION_DB_PASSWORD
+MIGRATION_ENV
+  chown root:root "$tmp_migration_env"
+  chmod 600 "$tmp_migration_env"
+  mv "$tmp_migration_env" "$MIGRATION_ENV_FILE"
+fi
+[[ "$MIGRATION_DB_USER" == "ustore_migrate_${DB_SUFFIX}" ]] || fail "Migration account name must match this database's generated suffix."
+[[ "$MIGRATION_DB_PASSWORD" =~ ^[a-f0-9]{64}$ ]] || fail "Migration password must be a generated 64-character hex password."
+[[ "$MIGRATION_DB_USER" != "$DB_USER" ]] || fail "Runtime and migration database accounts must be distinct."
 [[ "$DB_HOST" == 127.0.0.1 ]] || fail "This installer expects MYSQL_HOST=127.0.0.1."
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
 [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
@@ -169,13 +197,26 @@ mysql <<SQL
 CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';
 ALTER USER '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON $DB_NAME.* TO '$DB_USER'@'127.0.0.1';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM '$DB_USER'@'127.0.0.1';
+GRANT SELECT, INSERT, UPDATE, DELETE ON $DB_NAME.* TO '$DB_USER'@'127.0.0.1';
+CREATE USER IF NOT EXISTS '$MIGRATION_DB_USER'@'127.0.0.1' IDENTIFIED BY '$MIGRATION_DB_PASSWORD';
+ALTER USER '$MIGRATION_DB_USER'@'127.0.0.1' IDENTIFIED BY '$MIGRATION_DB_PASSWORD';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM '$MIGRATION_DB_USER'@'127.0.0.1';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON $DB_NAME.* TO '$MIGRATION_DB_USER'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 unset DB_PASSWORD BOT_TOKEN
 
-log "Applying versioned database migrations."
-runuser -u "$APP_USER" -- env ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS="${ALLOW_PRODUCTION_MIGRATIONS:-}" MIGRATION_TARGET_DATABASE="${MIGRATION_TARGET_DATABASE:-}" bash -lc "cd '$APP_DIR' && npm run db:migrate"
+log "Applying versioned database migrations with the root-only migration account."
+(
+  set -a
+  . "$MIGRATION_ENV_FILE"
+  set +a
+  [[ "$MYSQL_MIGRATION_USER" == "$MIGRATION_DB_USER" && "$MYSQL_MIGRATION_PASSWORD" == "$MIGRATION_DB_PASSWORD" ]] || fail "Protected migration credentials do not match the provisioned account."
+  cd "$APP_DIR"
+  ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS="${ALLOW_PRODUCTION_MIGRATIONS:-}" MIGRATION_TARGET_DATABASE="$DB_NAME" npm run db:migrate
+)
+unset MIGRATION_DB_PASSWORD MYSQL_MIGRATION_PASSWORD MYSQL_MIGRATION_USER
 
 log "Installing and starting the systemd service."
 tmp_unit="$(mktemp)"
