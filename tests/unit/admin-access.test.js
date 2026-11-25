@@ -56,8 +56,8 @@ test('admin deactivation writes state and audit event in one transaction',async(
 });
 
 
-function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmins=[]}={}){
-  const state={target:target?{...target}:null,session:{role},activeSuperAdmins:activeSuperAdmins.map(x=>({...x})),events:[],commits:0,rollbacks:0,inserts:[]};
+function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmins=[],createdAt=new Date()}={}){
+  const state={target:target?{...target}:null,session:{role,created_at:createdAt},activeSuperAdmins:activeSuperAdmins.map(x=>({...x})),events:[],commits:0,rollbacks:0,inserts:[]};
   const connection={
     async beginTransaction(){},
     async commit(){state.commits++;},
@@ -103,4 +103,14 @@ test('admin role assignment consumes its wizard session exactly once',async()=>{
   await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',database:db}),/نشست افزودن مدیر منقضی شده/);
   assert.equal(db.state.target.telegram_user_id,'12345');
   assert.equal(db.state.inserts.length,1);
+});
+
+test('expired admin role assignment session is consumed without granting access',async()=>{
+  const db=fakeAssignDatabase({createdAt:new Date(Date.now()-25*60*60*1000)});
+  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
+  assert.equal(result.expired,true);
+  assert.equal(db.state.session,null);
+  assert.equal(db.state.target,null);
+  assert.equal(db.state.inserts.length,0);
+  assert.equal(db.state.commits,1);
 });
