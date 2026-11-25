@@ -22,7 +22,8 @@ test('payment admin wizard uses the fetched wizard row for step dispatch',async(
   assert.ok(source.includes("DELETE FROM admin_wizards WHERE telegram_user_id=? AND step=? AND last_update_id=?"));
   assert.ok(source.includes("updated_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)"));
   assert.ok(source.includes('isExpiredAdminWizardSession(wizard.updated_at)'));
-  assert.ok(source.includes('advanceAdminWizard({execute:pool.execute.bind(pool),telegramUserId:ctx.from.id,expectedStep:wizard.step,expectedLastUpdateId:Number(wizard.last_update_id),step:wizard.step,payload:p,updateId}'));\n  assert.ok(!source.includes('last_update_id IS NULL OR last_update_id<?'));
+  assert.ok(source.includes('advanceAdminWizard({execute:pool.execute.bind(pool),telegramUserId:ctx.from.id,expectedStep:wizard.step,expectedLastUpdateId:Number(wizard.last_update_id),step:wizard.step,payload:p,updateId}'));
+  assert.ok(!source.includes('last_update_id IS NULL OR last_update_id<?'));
 });
 
 
