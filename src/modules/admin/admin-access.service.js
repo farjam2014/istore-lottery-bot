@@ -54,7 +54,7 @@ export async function assignAdminRoleFromSession({actorId,targetId,database=pool
       await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?)',[String(targetId),role,String(actorId)]);
     }
     const action=target?(target.role===role?null:'role_changed'):'assigned';
-    if(action)await c.execute('INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?,?,?)',[String(targetId),String(actorId),action,target.role||null,role]);
+    if(action)await c.execute('INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?,?,?)',[String(targetId),String(actorId),action,target?.role||null,role]);
     const [deleted]=await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=? AND role=?',[String(actorId),role]);
     if(!deleted.affectedRows)throw new Error('نشست افزودن مدیر قبلاً مصرف شده است؛ دوباره فرایند را آغاز کنید.');
     await c.commit();
