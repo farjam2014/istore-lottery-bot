@@ -109,3 +109,13 @@ test('payment cancellation is bound to the order shown on its button',()=>{
   assert.ok(cancel.test('payment:cancel:123'));
   assert.ok(!cancel.test('payment:cancel:456x'));
 });
+
+test('all admin wizard steps and legacy admin searches expire after 24 hours',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(source,/if\(isExpiredAdminWizardSession\(r\[0\]\.updated_at\)\)/);
+  assert.doesNotMatch(source,/\['payment_settings','payment_reject'\]\.includes\(r\[0\]\.step\)/);
+  assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/payment_admin_sessions WHERE telegram_user_id=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/ON DUPLICATE KEY UPDATE step=VALUES\(step\),campaign_id=VALUES\(campaign_id\),created_at=CURRENT_TIMESTAMP/);
+  assert.match(source,/ON DUPLICATE KEY UPDATE step=VALUES\(step\),status_filter='all',created_at=CURRENT_TIMESTAMP/);
+});
