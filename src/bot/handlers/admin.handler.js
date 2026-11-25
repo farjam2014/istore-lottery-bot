@@ -738,7 +738,7 @@ export function registerAdminHandlers(bot){
       const c=await pool.getConnection();let chatId;
       try{
         await c.beginTransaction();
-        const [[lockedSession]]=await c.execute("SELECT step,ticket_id,last_update_id,updated_at FROM support_sessions WHERE telegram_user_id=? FOR UPDATE",[String(ctx.from.id)]);
+        const [[lockedSession]]=await c.execute("SELECT step,ticket_id,last_update_id,updated_at FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply' FOR UPDATE",[String(ctx.from.id)]);
         if(!lockedSession||lockedSession.step!=='admin_reply'||Number(lockedSession.ticket_id)!==Number(ticketId))throw new Error('نشست پاسخ‌گویی تغییر کرده است؛ تیکت را دوباره باز کنید.');
         if(isExpiredAdminWizardSession(lockedSession.updated_at)){
           await c.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
