@@ -2,6 +2,7 @@ import {randomBytes} from 'node:crypto';
 import {pool} from '../../database/pool.js';
 import {getCorrelationId} from '../../shared/request-context.js';
 import {parseUtcDateTime} from '../../shared/datetime.js';
+import {isExpiredAdminWizardSession} from '../admin/admin-wizard-replay.js';
 
 export async function archiveCampaign({campaignId,actorId}={}){
   const id=Number(campaignId);
@@ -141,8 +142,8 @@ export async function createCampaignFromWizard({telegramUserId,actorId,database=
   const connection=await database.getConnection();
   try{
     await connection.beginTransaction();
-    const [[wizard]]=await connection.execute('SELECT step,payload FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
-    if(!wizard||wizard.step!=='confirm')throw new Error('فرایند ساخت کمپین منقضی شده است.');
+    const [[wizard]]=await connection.execute('SELECT step,payload,updated_at FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
+    if(!wizard||wizard.step!=='confirm'||isExpiredAdminWizardSession(wizard.updated_at))throw new Error('فرایند ساخت کمپین منقضی شده است.');
     const payload=typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload;
     const value=validateCampaignWizardPayload(payload);
     const [created]=await connection.execute(
