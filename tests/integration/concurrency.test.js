@@ -2,6 +2,8 @@ import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 
+// admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
+
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
 
@@ -30,7 +32,7 @@ test('MySQL integration: concurrent campaign confirmations create and audit exac
   }finally{
     await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[telegramId]);
     const [createdRows]=await pool.execute('SELECT id FROM campaigns WHERE title=?',[title]);
-    for(const row of createdRows){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[row.id]);await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
+    for(const row of createdRows){await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
   }
 });
 
@@ -58,7 +60,7 @@ test('MySQL integration: repeated campaign-copy callbacks share one idempotent r
     assert.equal(Number(copyCount.total),1);
   }finally{
     const [copies]=await pool.execute('SELECT id FROM campaigns WHERE title=?',[`Copy Source ${actorId} (نسخه کپی)`]);
-    for(const row of copies){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[row.id]);await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
+    for(const row of copies){await pool.execute('DELETE FROM campaigns WHERE id=?',[row.id]);}
     if(sourceId)await pool.execute('DELETE FROM campaigns WHERE id=?',[sourceId]);
     await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[key]);
   }
@@ -143,7 +145,7 @@ test('MySQL integration: campaign edit wizard is consumed once under concurrent 
     assert.equal(Number(auditCount.total),1);
   }finally{
     await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
-    if(campaignId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=?",[campaignId]);await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
+    if(campaignId){await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}
   }
 });
 
@@ -214,7 +216,7 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
     assert.equal(Number(auditCount.total),1);
   }finally{
     await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
-    if(drawId){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign_draw' AND entity_id=?",[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(drawId){await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
   }
 });
