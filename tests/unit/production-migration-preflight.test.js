@@ -152,6 +152,10 @@ test('release runbook separates baseline and post-migration integrity checks',()
   assert.ok(runbook.includes('scripts/production-migration-preflight.sql'));
   assert.ok(runbook.includes('scripts/post-migration-integrity-check.sql'));
   assert.ok(runbook.includes('dedicated SELECT-only MySQL account'));
+  assert.ok(runbook.includes('SHOW GRANTS'));
   assert.ok(readiness.includes('scripts/post-migration-integrity-check.sql'));
   assert.ok(readiness.includes('counter drift'));
+  assert.ok(readiness.includes('External Production gates'));
+  assert.ok(readiness.includes('full-history secret scan'));
+  assert.ok(readiness.includes('automated database backups are scheduled'));
 });
