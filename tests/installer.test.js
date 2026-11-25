@@ -52,3 +52,16 @@ test('production migration preflight includes campaign-edit wizard migration and
   assert.ok(readiness.includes('20261119_001_campaign_edit_wizard_step.sql'));
   assert.ok(readiness.includes('Campaign editing opens the input prompt'));
 });
+
+
+test('installer keeps DDL privileges on a separate root-protected migration account',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE ON \$DB_NAME\.\* TO '\$DB_USER'@'127\.0\.0\.1'/);
+  assert.doesNotMatch(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON \$DB_NAME\.\* TO '\$DB_USER'/);
+  assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON \$DB_NAME\.\* TO '\$MIGRATION_DB_USER'/);
+  assert.match(script,/MIGRATION_ENV_DIR="\/etc\/ustore-telegram-bot"/);
+  assert.match(script,/stat -c '%U:%G:%a' "\$MIGRATION_ENV_FILE"\)" == "root:root:600"/);
+  assert.match(script,/MYSQL_MIGRATION_PASSWORD=\$MIGRATION_DB_PASSWORD/);
+  assert.match(script,/admin_ids_csv="\$\{ADMIN_ID\/\[\[:space:\]\]\/\/\}"/);
+  assert.match(script,/\^\[0-9\]\{5,20\}\(,\[0-9\]\{5,20\}\)\*\$/);
+});

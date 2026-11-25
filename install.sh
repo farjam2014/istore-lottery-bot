@@ -178,7 +178,8 @@ fi
 [[ "$MIGRATION_FILE_TARGET_DATABASE" == "$DB_NAME" ]] || fail "Protected migration file targets a different database."
 [[ "$DB_HOST" == 127.0.0.1 ]] || fail "This installer expects MYSQL_HOST=127.0.0.1."
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
-[[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "BOT_ADMIN_IDS in .env must contain one numeric admin ID."
+admin_ids_csv="${ADMIN_ID//[[:space:]]/}"
+[[ "$admin_ids_csv" =~ ^[0-9]{5,20}(,[0-9]{5,20})*$ ]] || fail "BOT_ADMIN_IDS in .env must be a comma-separated list of numeric Telegram IDs."
 [[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
 
 # Validate the existing service target before any stop/update operation.
