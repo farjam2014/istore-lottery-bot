@@ -78,3 +78,11 @@ test('admin search and order search sessions reject delayed inbox replays',()=>{
   assert.match(handler,/isStaleAdminReplyUpdate\(updateId,codeSearch\.last_update_id\)/);
   assert.match(handler,/isStaleAdminReplyUpdate\(updateId,paymentSearch\[0\]\.last_update_id\)/);
 });
+
+
+test('migration 004 clears every pre-cursor admin text session before replay protection is enabled',()=>{
+  const migration=readFileSync(new URL('../../src/database/migrations/20261124_004_admin_wizard_replay.sql',import.meta.url),'utf8');
+  assert.match(migration,/DELETE FROM admin_wizards WHERE last_update_id IS NULL/);
+  assert.match(migration,/DELETE FROM payment_card_admin_sessions WHERE last_update_id IS NULL/);
+  assert.match(migration,/DELETE FROM admin_role_sessions WHERE last_update_id IS NULL/);
+});

@@ -88,7 +88,9 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index===0)return hasNullableBigintColumn(connection,'admin_wizards','last_update_id');
     if(index===1)return hasNullableBigintColumn(connection,'payment_card_admin_sessions','last_update_id');
     if(index===2)return hasNullableBigintColumn(connection,'admin_role_sessions','last_update_id');
-    if(index===3)return false; // Clear pre-cursor one-shot role sessions after adding the replay cursor.
+    if(index===3)return false; // Clear pre-cursor campaign admin wizards.
+    if(index===4)return false; // Clear pre-cursor payment-card admin sessions.
+    if(index===5)return false; // Clear pre-cursor one-shot role sessions.
     throw new Error('Unexpected statement index in 20261124_004_admin_wizard_replay.sql.');
   }
   if(file==='20261125_001_support_reply_replay.sql'){
