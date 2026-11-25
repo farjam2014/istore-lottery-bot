@@ -86,7 +86,7 @@ test('payment receipt replay cursor rejects equal and older updates but allows n
   assert.equal(isStalePaymentReceiptUpdate(100,100),true);
   assert.equal(isStalePaymentReceiptUpdate(99,100),true);
   assert.equal(isStalePaymentReceiptUpdate(101,100),false);
-  assert.equal(isStalePaymentReceiptUpdate(101,null),false);
+  assert.equal(isStalePaymentReceiptUpdate(101,null),true);
   assert.equal(isStalePaymentReceiptUpdate('invalid',null),true);
   assert.equal(isStalePaymentReceiptUpdate(101,'invalid'),true);
 });

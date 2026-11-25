@@ -199,6 +199,7 @@ test('MySQL integration: draw publication wizard update and audit are atomic und
 });
 
 test('MySQL integration: registration session records the update that advanced it and rejects replayed advancement',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
   const {saveSession,getSession,advanceSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
   const telegramId=String(7350000000000n+(BigInt(Date.now())%100000000000n));
   try{
