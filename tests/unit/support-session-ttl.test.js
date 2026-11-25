@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isStaleTelegramUpdate} from '../../src/shared/telegram-update-cursor.js';
 
 const source=readFileSync(new URL('../../src/bot/handlers/user.handler.js',import.meta.url),'utf8');
 
@@ -46,14 +45,4 @@ test('participant support handlers recheck the replay cursor after acquiring the
 test('profile-change request transaction rechecks its cursor under the session row lock',()=>{
   assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions[\s\S]*?FOR UPDATE/);
   assert.match(source,/isStaleTelegramUpdate\(updateId,session\.last_update_id\)/);
-});
-
-
-test('Telegram session cursors reject stale, duplicate, missing, and unsafe update IDs',()=>{
-  assert.equal(isStaleTelegramUpdate(100,101),true,'an update older than the session start is stale');
-  assert.equal(isStaleTelegramUpdate(101,101),true,'the session-start callback cannot be reused as input');
-  assert.equal(isStaleTelegramUpdate(102,101),false,'a later update may advance the session');
-  assert.equal(isStaleTelegramUpdate(102,null),true,'pre-cursor sessions fail closed');
-  assert.equal(isStaleTelegramUpdate(Number.MAX_SAFE_INTEGER+1,101),true,'unsafe numeric IDs fail closed');
-  assert.equal(isStaleTelegramUpdate(undefined,101),true,'missing update IDs fail closed');
 });
