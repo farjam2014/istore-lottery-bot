@@ -17,8 +17,11 @@ test('read-only production preflight executes against the legacy base schema wit
   const readOnlyUser='pfro_'+randomBytes(6).toString('hex');
   const readOnlyPassword=randomBytes(18).toString('hex');
   const admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
-  let baseConnection=null,readOnlyConnection=null,userCreated=false,databaseCreated=false;
+  let baseConnection=null,readOnlyConnection=null,userCreated=false,databaseCreated=false,readOnlyHost='';
   try{
+    const [[client]]=await admin.query("SELECT SUBSTRING_INDEX(USER(),'@',-1) AS client_host");
+    readOnlyHost=String(client.client_host||'');
+    if(!/^[A-Za-z0-9_.:%-]+$/.test(readOnlyHost))throw new Error('Could not determine a safe MySQL client host for the read-only fixture account.');
     await admin.query('CREATE DATABASE `'+databaseName+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     databaseCreated=true;
     baseConnection=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database:databaseName});
@@ -29,9 +32,9 @@ test('read-only production preflight executes against the legacy base schema wit
       checksum CHAR(64) NOT NULL,
       applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-    await admin.query(`CREATE USER '${readOnlyUser}'@'127.0.0.1' IDENTIFIED BY '${readOnlyPassword}'`);
+    await admin.query(`CREATE USER '${readOnlyUser}'@'${readOnlyHost}' IDENTIFIED BY '${readOnlyPassword}'`);
     userCreated=true;
-    await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO '${readOnlyUser}'@'127.0.0.1'`);
+    await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO '${readOnlyUser}'@'${readOnlyHost}'`);
     readOnlyConnection=await mysql.createConnection({host,port,user:readOnlyUser,password:readOnlyPassword,database:databaseName});
     await assert.rejects(
       readOnlyConnection.query("INSERT INTO campaigns(slug,title,status,participation_type) VALUES('preflight-write-denied','Preflight write denied','draft','free')"),
@@ -50,7 +53,7 @@ test('read-only production preflight executes against the legacy base schema wit
   }finally{
     if(readOnlyConnection)await readOnlyConnection.end();
     if(baseConnection)await baseConnection.end();
-    if(userCreated)await admin.query(`DROP USER IF EXISTS '${readOnlyUser}'@'127.0.0.1'`);
+    if(userCreated)await admin.query(`DROP USER IF EXISTS '${readOnlyUser}'@'${readOnlyHost}'`);
     if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS `'+databaseName+'`');
     await admin.end();
   }
