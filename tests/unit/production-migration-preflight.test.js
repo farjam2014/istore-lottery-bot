@@ -19,7 +19,8 @@ const expectedReleaseMigrations=[
   '20261124_002_privacy_consent.sql',
   '20261124_003_registration_session_replay.sql',
   '20261124_004_admin_wizard_replay.sql',
-  '20261125_001_support_reply_replay.sql'
+  '20261125_001_support_reply_replay.sql',
+  '20261125_002_admin_search_replay.sql'
 ];
 
 test('production migration preflight enumerates every release migration after the baseline',()=>{
@@ -36,6 +37,8 @@ test('production migration preflight checks current privacy and replay schema ca
     "table_name='admin_wizards' AND column_name='last_update_id'",
     "table_name='payment_card_admin_sessions' AND column_name='last_update_id'",
     "table_name='support_sessions' AND column_name='last_update_id'",
+    "table_name='admin_search_sessions' AND column_name='last_update_id'",
+    "table_name='payment_admin_sessions' AND column_name='last_update_id'",
     "table_name='admin_role_sessions' AND column_name='last_update_id'",
     "table_name='admin_action_idempotency' AND column_name IN ('idempotency_key','action_type','actor_telegram_id','entity_id','created_at')"
   ]){
@@ -58,7 +61,7 @@ test('MySQL migration history and replay fixtures include each admin wizard migr
   const replay=mysqlIntegration.split('// Simulate DDL committed but migration history not recorded')[1]?.split(']){')[0]||'';
   for(const [label,section] of [['history',history],['replay',replay]]){
     assert.ok(section,'Missing '+label+' migration fixture.');
-    for(const migration of ['20261124_003_registration_session_replay.sql','20261124_004_admin_wizard_replay.sql','20261125_001_support_reply_replay.sql']){
+    for(const migration of ['20261124_003_registration_session_replay.sql','20261124_004_admin_wizard_replay.sql','20261125_001_support_reply_replay.sql','20261125_002_admin_search_replay.sql']){
       assert.equal(section.split(migration).length-1,1,label+' fixture must include '+migration+' exactly once.');
     }
   }

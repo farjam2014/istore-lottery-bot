@@ -66,3 +66,13 @@ test('admin support reply rejects updates at or before the session-start cursor'
   assert.equal(isStaleAdminReplyUpdate(100,101),true);
   assert.equal(isStaleAdminReplyUpdate(102,null),true);
 });
+
+test('admin search and order search sessions reject delayed inbox replays',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(handler,/SELECT step,last_update_id FROM admin_search_sessions WHERE telegram_user_id=\? AND step='participant'/);
+  assert.match(handler,/SELECT step,campaign_id,last_update_id FROM admin_search_sessions WHERE telegram_user_id=\? AND step='campaign_code'/);
+  assert.match(handler,/SELECT step,last_update_id FROM payment_admin_sessions WHERE telegram_user_id=\? AND step='search_order'/);
+  assert.match(handler,/isStaleAdminReplyUpdate\(updateId,participantSearch\.last_update_id\)/);
+  assert.match(handler,/isStaleAdminReplyUpdate\(updateId,codeSearch\.last_update_id\)/);
+  assert.match(handler,/isStaleAdminReplyUpdate\(updateId,paymentSearch\[0\]\.last_update_id\)/);
+});

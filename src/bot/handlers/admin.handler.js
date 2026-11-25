@@ -423,7 +423,8 @@ export function registerAdminHandlers(bot){
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
     await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
-    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'campaign_code',?) ON DUPLICATE KEY UPDATE step=VALUES(step),campaign_id=VALUES(campaign_id),created_at=CURRENT_TIMESTAMP",[String(ctx.from.id),campaignId]);
+    const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
+    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,last_update_id) VALUES(?,'campaign_code',?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(campaign_id),campaign_id),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),campaignId,updateId]);
     await ctx.answerCbQuery();
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
   });
@@ -451,7 +452,8 @@ export function registerAdminHandlers(bot){
   bot.action('admin:participants:search',async ctx=>{
     if(!await hasPermission(ctx.from.id,'participant.directory.read'))return deny(ctx);
     await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
-    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text) VALUES(?,'participant',NULL,NULL) ON DUPLICATE KEY UPDATE step='participant',campaign_id=NULL,query_text=NULL,created_at=CURRENT_TIMESTAMP",[String(ctx.from.id)]);
+    const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
+    await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text,last_update_id) VALUES(?,'participant',NULL,NULL,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),'participant',step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),NULL,campaign_id),query_text=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),NULL,query_text),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),updateId]);
     await ctx.answerCbQuery();
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
   });
@@ -571,7 +573,8 @@ export function registerAdminHandlers(bot){
   bot.action('admin:payment:search',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
-    await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,status_filter) VALUES(?,'search_order','all') ON DUPLICATE KEY UPDATE step=VALUES(step),status_filter='all',created_at=CURRENT_TIMESTAMP",[String(ctx.from.id)]);
+    const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
+    await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,status_filter,last_update_id) VALUES(?,'search_order','all',?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),status_filter=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),'all',status_filter),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),updateId]);
     await ctx.answerCbQuery();return respond(ctx,'شناسه سفارش، شناسه پرداخت (ISTPAY-...)، Telegram ID یا شماره موبایل را ارسال کنید.');
   });
   bot.action('admin:payment:export',async ctx=>{
@@ -659,8 +662,10 @@ export function registerAdminHandlers(bot){
   bot.on('text',async(ctx,next)=>{
     if(!await isAdmin(ctx))return next();
     if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role,last_update_id FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const updateId=Number(ctx.update?.update_id);if(isStaleAdminReplyUpdate(updateId,pending[0].last_update_id))return respond(ctx,'این پیام پیش از شروع نشست فعلی ارسال شده یا قبلاً پردازش شده است؛ شناسه مدیر را دوباره ارسال کنید.');const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');let assignment;try{assignment=await assignAdminRoleFromSession({actorId:ctx.from.id,targetId:target,updateId});}catch(error){return respond(ctx,error.message||'ثبت دسترسی مدیر ناموفق بود.');}if(assignment.expired)return respond(ctx,'نشست افزودن مدیر پس از ۲۴ ساعت منقضی شد؛ از بخش افزودن مدیر دوباره شروع کنید.');const status=assignment.isActive===0?'نقش مدیر ثبت شد، اما حساب غیرفعال باقی ماند. برای فعال‌سازی از فهرست مدیران اقدام کنید.':'دسترسی مدیر ثبت شد: '+target;return respond(ctx,status,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
-    const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
+    const [[participantSearch]]=await pool.execute("SELECT step,last_update_id FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
     if(participantSearch){
+      const updateId=Number(ctx.update?.update_id);
+      if(isStaleAdminReplyUpdate(updateId,participantSearch.last_update_id))return respond(ctx,'این پیام قدیمی یا تکراری است و به جست‌وجوی فعلی تعلق ندارد. جست‌وجو را دوباره آغاز کنید.');
       const raw=ctx.message.text.trim();
       if(/^\/cancel(?:@\w+)?$/i.test(raw)){
         await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);
@@ -668,14 +673,22 @@ export function registerAdminHandlers(bot){
       }
       if(isTelegramCommandText(raw))return next();
       const query=raw.slice(0,100);
-      if(!query)return respond(ctx,'عبارت جست‌وجو خالی است. دوباره ارسال کنید.');
-      await pool.execute("UPDATE admin_search_sessions SET step='participant_results',campaign_id=NULL,query_text=? WHERE telegram_user_id=?",[query,String(ctx.from.id)]);
+      if(!query){
+        const [consumed]=await pool.execute("UPDATE admin_search_sessions SET last_update_id=? WHERE telegram_user_id=? AND step='participant' AND last_update_id=?",[updateId,String(ctx.from.id),participantSearch.last_update_id]);
+        if(!consumed.affectedRows)return respond(ctx,'این پیام قدیمی یا تکراری است. جست‌وجو را دوباره آغاز کنید.');
+        return respond(ctx,'عبارت جست‌وجو خالی است. دوباره ارسال کنید.');
+      }
+      const [advanced]=await pool.execute("UPDATE admin_search_sessions SET step='participant_results',campaign_id=NULL,query_text=?,last_update_id=? WHERE telegram_user_id=? AND step='participant' AND last_update_id=?",[query,updateId,String(ctx.from.id),participantSearch.last_update_id]);
+      if(!advanced.affectedRows)return respond(ctx,'این پیام قدیمی یا تکراری است. جست‌وجو را دوباره آغاز کنید.');
       return showParticipants(ctx,0,query);
     }
-    const [[codeSearch]]=await pool.execute("SELECT step,campaign_id FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
+    const [[codeSearch]]=await pool.execute("SELECT step,campaign_id,last_update_id FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
     if(codeSearch){
+      const updateId=Number(ctx.update?.update_id);
+      if(isStaleAdminReplyUpdate(updateId,codeSearch.last_update_id))return respond(ctx,'این پیام قدیمی یا تکراری است و به جست‌وجوی فعلی تعلق ندارد. جست‌وجو را دوباره آغاز کنید.');
       const query=ctx.message.text.trim().slice(0,100);
-      await pool.execute('DELETE FROM admin_search_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+      const [consumed]=await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND last_update_id=?",[String(ctx.from.id),codeSearch.last_update_id]);
+      if(!consumed.affectedRows)return respond(ctx,'این پیام قدیمی یا تکراری است. جست‌وجو را دوباره آغاز کنید.');
       if(!query||query.startsWith('/'))return respond(ctx,'عبارت جست‌وجو معتبر نیست.');
       const like='%'+query.split('!').join('!!').split('%').join('!%').split('_').join('!_')+'%';
       const [rows]=await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND (cc.code LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!') ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like,query,like]);
@@ -683,8 +696,8 @@ export function registerAdminHandlers(bot){
       const message=rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\n');
       return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
     }
-    const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
-    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
+    const [paymentSearch]=await pool.execute("SELECT step,last_update_id FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
+    if(paymentSearch[0]){const updateId=Number(ctx.update?.update_id);if(isStaleAdminReplyUpdate(updateId,paymentSearch[0].last_update_id))return respond(ctx,'این پیام قدیمی یا تکراری است و به جست‌وجوی فعلی تعلق ندارد. جست‌وجو را دوباره آغاز کنید.');const query=ctx.message.text.trim();const [consumed]=await pool.execute("DELETE FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order' AND last_update_id=?",[String(ctx.from.id),paymentSearch[0].last_update_id]);if(!consumed.affectedRows)return respond(ctx,'این پیام قدیمی یا تکراری است. جست‌وجو را دوباره آغاز کنید.');if(!query||isTelegramCommandText(query))return respond(ctx,'شناسه سفارش یا عبارت جست‌وجو معتبر نیست.');const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const [[cardSession]]=await pool.execute('SELECT step,card_id,payload,last_update_id,updated_at FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
     if(cardSession&&isExpiredAdminWizardSession(cardSession.updated_at)){
       await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=? AND updated_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(ctx.from.id)]);

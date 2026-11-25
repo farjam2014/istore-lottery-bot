@@ -115,7 +115,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_002_privacy_consent.sql',
       '20261124_003_registration_session_replay.sql',
       '20261124_004_admin_wizard_replay.sql',
-      '20261125_001_support_reply_replay.sql'
+      '20261125_001_support_reply_replay.sql',
+      '20261125_002_admin_search_replay.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -132,6 +133,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_003_registration_session_replay.sql',
       '20261124_004_admin_wizard_replay.sql',
       '20261125_001_support_reply_replay.sql',
+      '20261125_002_admin_search_replay.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
