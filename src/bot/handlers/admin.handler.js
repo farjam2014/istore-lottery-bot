@@ -654,7 +654,7 @@ export function registerAdminHandlers(bot){
       return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
     }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
-    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
+    if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);await audit(ctx.from.id,'payment.orders_searched','payment_order',null,{queryLength:query.length,resultCount:rows.length});if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
     const [[cardSession]]=await pool.execute('SELECT step,card_id,payload FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
     if(cardSession){
       const payload=typeof cardSession.payload==='string'?JSON.parse(cardSession.payload):cardSession.payload;
@@ -794,6 +794,7 @@ async function showSupportQueue(ctx,page=0,status='all'){
 
 async function showManagedOrders(ctx,status,page){
   const r=await listManagedOrders({status,page,limit:8});
+  await audit(ctx.from.id,'payment.orders_listed','payment_order',null,{status,page,resultCount:r.rows.length});
   const names={all:'همه',awaiting_receipt:'منتظر رسید',under_review:'در حال بررسی',approved:'تأییدشده',rejected:'ردشده',cancelled:'لغوشده',expired:'منقضی'};
   const buttons=[
     [Markup.button.callback('همه','admin:payments:status:all'),Markup.button.callback('منتظر رسید','admin:payments:status:awaiting_receipt')],
@@ -812,6 +813,7 @@ async function showManagedOrders(ctx,status,page){
 }
 async function showManagedOrderDetail(ctx,id){
   const d=await getManagedOrderDetail(id);if(!d)return respond(ctx,'سفارش پیدا نشد.');
+  await audit(ctx.from.id,'payment.order_viewed','payment_order',Number(id),{receiptCount:d.receipts.length,eventCount:d.events.length});
   const o=d.order,n=v=>Number(v||0).toLocaleString('fa-IR');
   const text='🧾 جزئیات سفارش #'+o.id+'\nشناسه پرداخت: '+o.payment_reference+'\nوضعیت: '+o.status+'\nتعداد کد: '+Number(o.requested_code_count||1)+'\nمبلغ: '+n(o.amount)+' ریال\nکمپین: '+o.campaign_title+'\nشرکت‌کننده: '+o.full_name+'\nTelegram ID: '+o.telegram_user_id+'\nموبایل: '+o.phone+'\nاینستاگرام: @'+o.instagram_handle+'\nوضعیت ورودی: '+o.entry_status+'\n\n🏦 تصویر کارت ثبت‌شده در زمان سفارش\nبانک: '+(o.bank_name||'—')+'\nشماره کارت: '+(o.card_number||'—')+'\nصاحب کارت: '+(o.card_holder||'—')+'\nزمان ایجاد: '+formatTehranDateTime(o.created_at)+'\nانقضا: '+formatTehranDateTime(o.expires_at)+'\nتأیید: '+formatTehranDateTime(o.approved_at)+'\nدلیل رد: '+(o.rejection_reason||'—')+'\n\n🧾 رسیدها:\n'+(d.receipts.length?d.receipts.map(x=>'رسید #'+x.id+' | '+x.status+' | '+formatTehranDateTime(x.created_at)+(x.note?' | '+x.note:'')+(x.review_note?' | یادداشت بررسی: '+x.review_note:'')).join('\n'):'بدون رسید')+'\n\n📜 رویدادها:\n'+(d.events.length?d.events.map(x=>x.event_type+' | '+x.actor_telegram_id+' | '+formatTehranDateTime(x.created_at)+(x.details?' | '+(typeof x.details==='string'?x.details:JSON.stringify(x.details)):'')).join('\n'):'بدون رویداد');
   const buttons=[];

@@ -15,6 +15,7 @@ The application may process:
 - Payment order references, amounts, bank-card snapshots, Telegram receipt file identifiers, receipt notes, and review decisions.
 - Support ticket subjects, messages, assignments, status, and timestamps.
 - Admin identifiers, role changes, security/audit events, and export activity.
+- Admin participant-search terms in `admin_search_sessions.query_text`; these may contain a name, phone number, Telegram ID, or Instagram handle and must be treated as personal data.
 - Operational metadata such as update IDs, correlation IDs, retry state, and delivery errors.
 - In-progress registration session payloads, which can temporarily contain a name, verified phone number, and self-declared Instagram handle before a participant profile is created.
 
@@ -44,6 +45,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
 | Admin audit logs and export events | No approved retention schedule is encoded. |
+| Admin participant-search terms (`admin_search_sessions.query_text`) | Used to preserve participant-search pagination. Active search handlers reject sessions older than 24 hours and explicit cancel/new-flow actions clear the session, but expired rows are not physically deleted by a scheduled cleanup job. A short approved TTL and automated deletion are still required before Production. |
 | Outbox payloads | No complete retention schedule for sent/failed/uncertain payloads is approved. |
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
@@ -63,7 +65,7 @@ The business owner and qualified local counsel must approve:
 - The public privacy notice, legal basis/consent language, and a privacy contact channel.
 - Retention periods for participant profiles, campaign participation and draw evidence.
 - Applicable statutory retention periods for financial records and payment receipts.
-- Retention periods for support messages, Telegram file references, outbox payloads, audit logs, and exports.
+- Retention periods for support messages, Telegram file references, outbox payloads, audit logs, exports, and admin participant-search terms (including automated cleanup of expired `query_text`).
 - The process for access, correction, deletion, and objection requests, including exceptions where financial, fraud-prevention, or draw-integrity evidence must be retained.
 - Whether data is transferred to, or processed by, hosting, Telegram, backup, monitoring, and other service providers, and the disclosures required.
 - Who may approve a deletion/anonymization request and how the action is audited.
