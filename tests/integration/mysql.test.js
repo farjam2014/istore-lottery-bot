@@ -158,7 +158,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const consentReplayed=await findByTelegramId(telegramId);
     assert.equal(new Date(consentReplayed.privacy_consent_at).getTime(),new Date(firstAcceptance).getTime(),'Replayed consent callback must not refresh the first acceptance timestamp.');
     assert.equal(String(profile.telegram_user_id),telegramId);
-    const duplicateProfile=await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Duplicate Telegram',phone:'+989121234568',instagramHandle:'duplicate_telegram',privacyConsentVersion:'ci-v2'});
+    const duplicateProfile=await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Duplicate Telegram',phone:'+989121234568',instagramHandle:'duplicate_telegram',privacyConsentVersion:'ci-v2',privacyConsentAt:new Date()});
     assert.equal(duplicateProfile.id,profile.id,'A repeated Telegram registration must return the existing profile.');
     assert.equal(duplicateProfile.privacy_consent_version,'ci-v2','Duplicate Telegram fallback must include consent metadata.');
     await assert.rejects(
@@ -202,7 +202,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=? AND campaign_entry_id=?",[codeToRevoke.id,first.entryId]);
     await assert.rejects(joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[0]}),/کدهای قبلی شما غیرفعال شده است/);
     await pool.execute("UPDATE campaign_codes SET status='active' WHERE campaign_entry_id=?",[first.entryId]);
-    secondTelegramId=String(710000000000n+(BigInt(Date.now())%100000000000n));const secondProfile=await createProfile({telegramUserId:secondTelegramId,username:'integration2',fullName:'Capacity Tester',phone:'+989121234568',instagramHandle:'capacity_test',privacyConsentVersion:'ci-v1'});secondParticipantId=secondProfile.id;
+    secondTelegramId=String(710000000000n+(BigInt(Date.now())%100000000000n));const secondProfile=await createProfile({telegramUserId:secondTelegramId,username:'integration2',fullName:'Capacity Tester',phone:'+989121234568',instagramHandle:'capacity_test',privacyConsentVersion:'ci-v1',privacyConsentAt:new Date()});secondParticipantId=secondProfile.id;
     await assert.rejects(joinFreeCampaign({telegramUserId:secondTelegramId,campaignId:campaignIds[0]}),/ظرفیت باقی/);
     const second=await joinFreeCampaign({telegramUserId:telegramId,campaignId:campaignIds[1]});
     assert.equal(second.codes.length,2);assert.notDeepEqual(second.codes,first.codes);
