@@ -31,11 +31,12 @@ const expectedReleaseMigrations=[
   '20261124_004_admin_wizard_replay.sql',
   '20261125_001_support_reply_replay.sql',
   '20261125_002_admin_search_replay.sql',
-  '20261125_003_participant_session_replay.sql'
+  '20261125_003_participant_session_replay.sql',
+  '20261125_004_admin_audit_append_only.sql'
 ];
 
 test('production migration preflight enumerates every release migration in order',()=>{
-  assert.equal(expectedReleaseMigrations.length,27);
+  assert.equal(expectedReleaseMigrations.length,28);
   for(const migration of expectedReleaseMigrations){
     assert.ok(preflight.includes(migration),`preflight is missing ${migration}`);
   }
@@ -85,8 +86,14 @@ test('release readiness inventory lists every SQL migration in the repository',(
     .filter(name=>name.endsWith('.sql'))
     .sort();
   const readiness=readFileSync(new URL('../../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
-  assert.equal(migrations.length,27,'Update the release-readiness inventory when adding or removing migrations.');
+  assert.equal(migrations.length,28,'Update the release-readiness inventory when adding or removing migrations.');
   for(const migration of migrations){
     assert.ok(readiness.includes('`'+migration+'`'),'Release readiness inventory is missing '+migration);
   }
+});
+
+test('production preflight exposes append-only admin audit trigger state',()=>{
+  assert.match(preflight,/information_schema\\.TRIGGERS/);
+  assert.match(preflight,/trg_admin_audit_log_no_update/);
+  assert.match(preflight,/trg_admin_audit_log_no_delete/);
 });
