@@ -3,6 +3,7 @@ import {config} from '../../config/env.js';
 import {logger} from '../../shared/logger.js';
 import {hasPermission} from '../../modules/admin/admin-role.service.js';
 import {pool} from '../../database/pool.js';
+import {clearAdminTextSessions} from '../../modules/admin/admin-text-sessions.js';
 import {paymentApproveAction,paymentRejectAction} from '../../modules/payments/payment-callbacks.js';
 import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../modules/admin/admin-wizard-replay.js';
 import {createOrGetOrder,getUserCampaignCodeAllowance,submitReceipt,listUserOrders,countUserOrders,getUserOrder,listPendingReceipts,reviewReceipt,getPaymentSettings,updatePaymentSettings,recordPaymentCardDelivery} from '../../modules/payments/payment.service.js';
@@ -101,7 +102,7 @@ async function showUserOrderDetail(ctx,id){
   return screenReply(ctx,text,userOrderDetailKeyboard(o));
 }
 
-async function savePaymentAdminWizard(ctx,step,payload){const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment administration.');await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,JSON.stringify(payload),updateId]);}
+async function savePaymentAdminWizard(ctx,step,payload){const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment administration.');await clearAdminTextSessions({telegramUserId:ctx.from.id,keep:'admin_wizards'});await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,JSON.stringify(payload),updateId]);}
 export function registerPaymentHandlers(bot){
  bot.action(/^payment:start:(\d+)$/,async ctx=>{
   const campaignId=Number(ctx.match[1]);
