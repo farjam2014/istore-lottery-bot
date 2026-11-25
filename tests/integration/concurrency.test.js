@@ -225,3 +225,32 @@ test('MySQL integration: registration session records the update that advanced i
     assert.ok(afterConcurrent.lastUpdateId===updateId+1||afterConcurrent.lastUpdateId===updateId+2,'The stored cursor must be one of the accepted concurrent updates and must never regress.');
   }finally{await clearSession(telegramId);}
 });
+
+
+test('MySQL integration: final registration completion atomically consumes the expected cursor and is idempotent under concurrency',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {saveSession,getSession,completeProfileFromSession,findByTelegramId}=await import('../../src/modules/participants/participant.repository.js');
+  const suffix=String(Date.now()).slice(-8);
+  const telegramId=String(7360000000000000n+BigInt(suffix));
+  const startUpdateId=Number(900000000+Math.floor(Math.random()*100000000));
+  const payload={fullName:'Final Registration Tester',phone:'+9891'+suffix.padStart(8,'0'),privacyConsentVersion:'ci-v1',privacyConsentAt:new Date().toISOString()};
+  try{
+    await saveSession(telegramId,'awaiting_instagram',payload,startUpdateId);
+    await assert.rejects(
+      completeProfileFromSession({telegramUserId:telegramId,username:'final_test',fullName:payload.fullName,phone:payload.phone,instagramHandle:'stale_cursor',expectedLastUpdateId:startUpdateId-1,updateId:startUpdateId+1}),
+      /مرحله ثبت‌نام تغییر کرده/
+    );
+    const results=await Promise.all([
+      completeProfileFromSession({telegramUserId:telegramId,username:'final_test',fullName:payload.fullName,phone:payload.phone,instagramHandle:'final_first_'+suffix,expectedLastUpdateId:startUpdateId,updateId:startUpdateId+1}),
+      completeProfileFromSession({telegramUserId:telegramId,username:'final_test',fullName:payload.fullName,phone:payload.phone,instagramHandle:'final_second_'+suffix,expectedLastUpdateId:startUpdateId,updateId:startUpdateId+2})
+    ]);
+    assert.equal(results[0].id,results[1].id,'Concurrent final updates must resolve to one participant profile.');
+    const profile=await findByTelegramId(telegramId);
+    assert.ok(profile,'Exactly one participant profile must be created.');
+    assert.equal(profile.privacy_consent_version,'ci-v1');
+    assert.equal(await getSession(telegramId),null,'The completed registration session must be consumed atomically.');
+  }finally{
+    await pool.execute('DELETE FROM telegram_user_sessions WHERE telegram_user_id=?',[telegramId]);
+    await pool.execute('DELETE FROM participants WHERE telegram_user_id=?',[telegramId]);
+  }
+});

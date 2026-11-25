@@ -25,14 +25,14 @@ export function normalizeFullName(value){
   if(name.length<3||name.length>160||/[\d<>]/.test(name)) throw new Error('نام و نام خانوادگی باید معتبر و بین ۳ تا ۱۶۰ نویسه باشد.');
   return name;
 }
-export async function completeRegistration(ctx,data){
-  return repo.createProfile({
+export async function completeRegistration(ctx,data,expectedLastUpdateId){
+  return repo.completeProfileFromSession({
     telegramUserId:ctx.from.id,
     username:ctx.from.username,
     fullName:normalizeFullName(data.fullName),
     phone:normalizePhone(data.phone),
     instagramHandle:normalizeInstagram(data.instagramHandle),
-    privacyConsentVersion:data.privacyConsentVersion,
-    privacyConsentAt:data.privacyConsentAt
+    expectedLastUpdateId,
+    updateId:ctx.update.update_id
   });
 }

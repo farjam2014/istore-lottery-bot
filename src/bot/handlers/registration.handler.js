@@ -134,7 +134,7 @@ export function registerRegistrationHandlers(bot){
       }
       if(s.step==='awaiting_instagram'){
         data.instagramHandle=value;
-        await completeRegistration(ctx,data);
+        await completeRegistration(ctx,data,s.lastUpdateId);
         return ctx.reply('ثبت‌نام شما با موفقیت تکمیل شد. شماره موبایل تأییدشده و اطلاعات حساب ذخیره شدند.',userMenuKeyboard());
       }
     }catch(error){return ctx.reply(error.message||'خطا در ثبت اطلاعات. دوباره تلاش کنید.');}
