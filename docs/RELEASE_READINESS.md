@@ -36,7 +36,7 @@ Before any production schema change:
 5. Restore the backup into a separate disposable database and verify key application tables and row counts.
 6. Back up all draw seed key material independently of the database backup. Preserve the exact key IDs and their mapping to key material in an access-controlled encrypted vault.
 7. Perform a recovery rehearsal proving that the restored database and independently restored keyring can decrypt a prepared draw.
-8. Verify an automated backup schedule, last successful run, retention, and alerting; gzip compression alone is not encryption.
+8. Verify automated database backups are scheduled, the last successful run is recorded, retention and alerting are configured, and the backup is encrypted at rest; gzip compression alone is not encryption.
 9. Confirm no plaintext draw-seed key copies remain in backup locations after the encrypted keyring backup and restore rehearsal are verified.
 10. Do not proceed if any backup, restore, key custody, or decryption check fails.
 
