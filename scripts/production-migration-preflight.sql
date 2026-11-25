@@ -92,7 +92,7 @@ FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
 
--- Migration history and presence of all 27 release migrations.
+-- Migration history and presence of all 28 release migrations.
 SELECT version, checksum, applied_at
 FROM schema_migrations
 ORDER BY version;
@@ -129,6 +129,7 @@ FROM (
   UNION ALL SELECT '20261125_001_support_reply_replay.sql'
   UNION ALL SELECT '20261125_002_admin_search_replay.sql'
   UNION ALL SELECT '20261125_003_participant_session_replay.sql'
+  UNION ALL SELECT '20261125_004_admin_audit_append_only.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
@@ -168,3 +169,10 @@ WHERE table_schema=DATABASE()
   AND table_name IN ('campaign_entries','campaign_codes','campaign_draws','draw_candidates','draw_winners')
   AND referenced_table_name IS NOT NULL
 ORDER BY table_name, constraint_name, ordinal_position;
+
+-- Append-only enforcement for sensitive admin audit evidence.
+SELECT TRIGGER_NAME, EVENT_MANIPULATION, ACTION_TIMING, ACTION_STATEMENT
+FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA=DATABASE()
+  AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete')
+ORDER BY TRIGGER_NAME;
