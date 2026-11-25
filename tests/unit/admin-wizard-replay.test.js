@@ -34,6 +34,7 @@ test('admin support reply sessions expire after 24 hours before consuming text',
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND step='admin_reply'[^\n]*updated_at/);
   assert.match(source,/isExpiredAdminWizardSession\(lockedSession\.updated_at\)/);
+  assert.match(source,/ticket_id=VALUES\(ticket_id\),category=NULL,updated_at=CURRENT_TIMESTAMP/);
 });
 
 test('admin search sessions enforce a 24-hour TTL and refresh it when restarted',()=>{
