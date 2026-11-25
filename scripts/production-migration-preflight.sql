@@ -1,6 +1,6 @@
 -- READ-ONLY production migration preflight.
 -- Run against the intended database with a read-only MySQL account.
--- This file contains SELECT statements only. It does not alter schema or data.
+-- Uses read-only SELECTs (including conditionally prepared SELECTs); no DDL/DML or data changes.
 
 SELECT 'database' AS check_name, DATABASE() AS database_name, @@hostname AS mysql_host, VERSION() AS mysql_version;
 
@@ -16,7 +16,6 @@ UNION ALL SELECT 'payment_orders', COUNT(*) FROM payment_orders
 UNION ALL SELECT 'payment_receipts', COUNT(*) FROM payment_receipts
 UNION ALL SELECT 'payment_events', COUNT(*) FROM payment_events
 UNION ALL SELECT 'processed_updates', COUNT(*) FROM processed_updates
-UNION ALL SELECT 'telegram_rate_limits', COUNT(*) FROM telegram_rate_limits
 UNION ALL SELECT 'telegram_notification_outbox', COUNT(*) FROM telegram_notification_outbox
 ORDER BY table_name;
 
@@ -29,6 +28,11 @@ WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_update_inbox';
 SELECT 'admin_action_idempotency' AS table_name, COUNT(*) AS table_exists
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_action_idempotency';
+
+-- Rate-limit table presence (created by a later migration).
+SELECT 'telegram_rate_limits' AS table_name, COUNT(*) AS table_exists
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_rate_limits';
 
 -- Exact campaign code ownership mismatches. Migration 001 adds a composite
 -- FK from (campaign_entry_id,campaign_id) to campaign_entries(id,campaign_id).
@@ -43,27 +47,41 @@ FROM campaign_codes
 GROUP BY campaign_id
 HAVING COUNT(*) > 999999;
 
--- Legacy draw evidence blocks migration 006. The migration deliberately refuses
--- to infer historical entry/participant/code snapshots for any existing rows.
--- Any non-zero count requires explicit reconciliation before release.
-SELECT COUNT(*) AS candidate_draw_code_campaign_mismatches
-FROM draw_candidates dc
-JOIN campaign_draws d ON d.id=dc.draw_id
-JOIN campaign_codes cc ON cc.id=dc.campaign_code_id
-WHERE d.campaign_id<>cc.campaign_id;
+-- Draw mismatch checks require migration 003's relational snapshot columns.
+-- Use prepared SELECTs so this script also runs before that migration.
+SET @has_candidate_campaign_id := (
+  SELECT COUNT(*)=1 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='draw_candidates' AND COLUMN_NAME='campaign_id'
+);
+SET @preflight_sql := IF(
+  @has_candidate_campaign_id,
+  'SELECT COUNT(*) AS candidate_draw_code_campaign_mismatches FROM draw_candidates dc JOIN campaign_draws d ON d.id=dc.draw_id JOIN campaign_codes cc ON cc.id=dc.campaign_code_id WHERE d.campaign_id<>cc.campaign_id',
+  'SELECT ''PENDING_MIGRATION_003'' AS check_status, NULL AS candidate_draw_code_campaign_mismatches'
+);
+PREPARE preflight_stmt FROM @preflight_sql;
+EXECUTE preflight_stmt;
+DEALLOCATE PREPARE preflight_stmt;
 
-SELECT COUNT(*) AS winner_draw_code_campaign_mismatches
-FROM draw_winners dw
-JOIN campaign_draws d ON d.id=dw.draw_id
-JOIN campaign_codes cc ON cc.id=dw.campaign_code_id
-WHERE d.campaign_id<>cc.campaign_id;
+SET @has_winner_campaign_id := (
+  SELECT COUNT(*)=1 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='draw_winners' AND COLUMN_NAME='campaign_id'
+);
+SET @preflight_sql := IF(
+  @has_winner_campaign_id,
+  'SELECT COUNT(*) AS winner_draw_code_campaign_mismatches FROM draw_winners dw JOIN campaign_draws d ON d.id=dw.draw_id JOIN campaign_codes cc ON cc.id=dw.campaign_code_id WHERE d.campaign_id<>cc.campaign_id',
+  'SELECT ''PENDING_MIGRATION_003'' AS check_status, NULL AS winner_draw_code_campaign_mismatches'
+);
+PREPARE preflight_stmt FROM @preflight_sql;
+EXECUTE preflight_stmt;
+DEALLOCATE PREPARE preflight_stmt;
 
+-- Legacy draw evidence blocks migration 006. migrate.js independently enforces
+-- empty draw tables before its deterministic no-op backfill statements.
 SELECT 'draw_rows_blocking_migration_006' AS check_name,
        (SELECT COUNT(*) FROM draw_candidates) AS candidate_rows,
        (SELECT COUNT(*) FROM draw_winners) AS winner_rows;
 
--- Prepared draws need special handling: the old schema stores seed_hash only.
--- Do not cancel/recreate these draws or assume the seed can be recovered.
+-- Prepared draws on the baseline schema only expose seed_hash and metadata.
 SELECT status, COUNT(*) AS draw_count
 FROM campaign_draws
 GROUP BY status
