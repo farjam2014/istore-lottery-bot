@@ -38,11 +38,11 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | Data | Existing behavior |
 |---|---|
 | telegram_update_inbox raw payload | Stores the full Telegram Update JSON, not only update metadata. Completed payloads are deleted after 3 days; pending/failed and stale processing payloads are deleted after 30 days (worker policy). The payload may duplicate phone numbers, message text, names, callback data, and receipt file identifiers. |
-| processed_updates | Records older than 3 days are deleted. |
-| telegram_rate_limits | Buckets older than 1 day are deleted. |
-| In-progress registration sessions | Session rows have an `updated_at` timestamp but no approved expiry/cleanup policy; abandoned partial registrations can retain personal data. |
-| Admin participant-search terms (`admin_search_sessions.query_text`) | Search sessions are rejected after 24 hours of inactivity, but expired rows are not physically deleted by a scheduled cleanup job. Query text can contain names, phone numbers, Telegram IDs, or Instagram handles. An approved short TTL and automated deletion are still required. |
-| Participant support/profile-change sessions | Active text sessions are gated by a 24-hour inactivity window and pre-cursor sessions are cleared during the replay migration. Expired rows are not covered by a scheduled physical cleanup job. |
+| processed_updates | Records older than 3 days are deleted by the 15-minute retention worker. |
+| telegram_rate_limits | Buckets older than 1 day are deleted by the 15-minute retention worker. |
+| In-progress registration sessions | Sessions expire after 24 hours of inactivity and rows are physically deleted in bounded batches by the retention worker. The 24-hour operational default still requires business/legal approval. |
+| Admin participant-search terms (`admin_search_sessions.query_text`) | Search sessions expire after 24 hours and the retention worker physically deletes expired rows in bounded batches every 15 minutes. Query text can contain names, phone numbers, Telegram IDs, or Instagram handles. The 24-hour operational default still requires business/legal approval. |
+| Participant support/profile-change sessions | Active text sessions are gated by a 24-hour inactivity window; pre-cursor sessions are cleared during the replay migration and expired rows are physically deleted by the 15-minute retention worker. |
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
