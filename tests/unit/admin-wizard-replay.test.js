@@ -32,7 +32,7 @@ test('admin wizard session expiry fails closed for invalid timestamps',()=>{
 test('admin support reply sessions expire after 24 hours before consuming text',()=>{
   const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
-  assert.match(source,/support_sessions WHERE telegram_user_id=\? AND step='admin_reply'[^\n]*updated_at/);
+  assert.match(source,/SELECT step,ticket_id,last_update_id,updated_at FROM support_sessions WHERE telegram_user_id=\? AND step='admin_reply'/);
   assert.match(source,/isExpiredAdminWizardSession\(lockedSession\.updated_at\)/);
   assert.match(source,/ticket_id=VALUES\(ticket_id\),category=NULL,updated_at=CURRENT_TIMESTAMP/);
 });
