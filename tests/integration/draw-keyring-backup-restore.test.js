@@ -122,7 +122,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     if(restored){try{await restored.end();}catch(error){cleanupErrors.push(error);}}
     if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
     if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
-    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:adminEnv,stdio:'pipe'});}catch(error){cleanupErrors.push(error);}}
+    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:adminEnv,stdio:'pipe',timeout:60000});}catch(error){cleanupErrors.push(error);}}
     if(cleanupErrors.length) throw new AggregateError(primaryError?[primaryError,...cleanupErrors]:cleanupErrors,'Backup/restore integration fixture cleanup failed.');
   }
 });
