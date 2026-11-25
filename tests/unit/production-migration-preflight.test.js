@@ -39,3 +39,29 @@ test('production migration preflight checks current privacy and replay schema ca
     assert.ok(preflight.includes(fragment),`preflight is missing schema capability check: ${fragment}`);
   }
 });
+
+
+test('production migration preflight checks prepared draw encryption and algorithm integrity',()=>{
+  for(const fragment of [
+    "seed_key_id, seed_hash",
+    "seed_ciphertext IS NULL",
+    "LENGTH(seed_nonce)<>24",
+    "LENGTH(seed_tag)<>32",
+    "algorithm<>'HMAC-SHA256 candidate-commitment-rank-v2'",
+    "SELECT seed_key_id, COUNT(*) AS prepared_draw_count"
+  ]){
+    assert.ok(preflight.includes(fragment),`preflight is missing prepared draw integrity check: ${fragment}`);
+  }
+});
+
+test('production migration preflight detects campaign code counter drift and duplicate sequences',()=>{
+  for(const fragment of [
+    "counter.last_sequence",
+    "MAX(cc.sequence_number)",
+    "counter.campaign_id IS NULL AND COUNT(cc.id)>0",
+    "GROUP BY campaign_id,sequence_number",
+    "HAVING COUNT(*)>1"
+  ]){
+    assert.ok(preflight.includes(fragment),`preflight is missing code sequence integrity check: ${fragment}`);
+  }
+});
