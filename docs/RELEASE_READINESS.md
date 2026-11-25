@@ -41,7 +41,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files lexicographically by filename. The current source contains 24 migrations, applied in this order:
+The migration runner sorts SQL files lexicographically by filename. The current source contains 26 migrations, applied in this order:
 
 1. `20261114_001_payment_expiry_reference.sql` — removes the one-order-per-entry restriction, adds unique payment references, expiry metadata, and outbox delivery metadata.
 2. `20261114_002_campaign_details.sql` — adds campaign poster, prize, draw, terms, and payment-method fields and expands the campaign wizard.
@@ -66,7 +66,9 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
 22. `20261124_002_privacy_consent.sql` — adds participant privacy notice version and acceptance timestamp; existing profiles remain unconsented until they accept the published notice.
 23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact session, preventing duplicate step advancement on replay.
-24. `20261124_004_admin_wizard_replay.sql` — records Telegram update IDs for admin campaign and payment-card wizards, preventing stale message replays from being interpreted as input for a later step.
+24. `20261124_004_admin_wizard_replay.sql` — records Telegram update IDs for admin campaign, payment-card, and admin-role wizards, preventing stale message replays from being interpreted as input for a later step; clears pending admin-role sessions during the schema transition.
+25. `20261125_001_support_reply_replay.sql` — clears pending admin support-reply text sessions and adds a Telegram update cursor to support sessions, preventing delayed messages from being consumed by a later reply flow.
+26. `20261125_002_admin_search_replay.sql` — adds Telegram update cursors to participant/campaign-code search and payment-order search sessions, rejecting delayed or duplicate search messages.
 
 Important migration properties:
 
