@@ -7,7 +7,7 @@ import {Markup} from 'telegraf';
 import {listPendingReceipts} from '../../modules/payments/payment.service.js';
 import {toCsv} from '../../shared/csv.js';
 import {hasPermission,isConfiguredSuperAdmin,getAdminRole} from '../../modules/admin/admin-role.service.js';
-import {changeAdminRole,setAdminActive} from '../../modules/admin/admin-access.service.js';
+import {changeAdminRole,setAdminActive,assignAdminRoleFromSession} from '../../modules/admin/admin-access.service.js';
 import {getManagementReport,reportRows} from '../../modules/reports/management-report.service.js';
 import {normalizeFullName,normalizePhone,normalizeInstagram} from '../../modules/participants/participant.service.js';
 import {buildParticipantSearch,paginateParticipantResults} from '../../modules/participants/participant-admin-search.js';
@@ -22,7 +22,7 @@ import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
 import {archiveCampaign,closeCampaign,setCampaignStatus,createCampaignFromWizard,copyCampaign} from '../../modules/campaigns/campaign-admin.service.js';
-import {isOlderAdminWizardReplay} from '../../modules/admin/admin-wizard-replay.js';
+import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../modules/admin/admin-wizard-replay.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -109,7 +109,7 @@ const typeMenu=(selected=null)=>Markup.inlineKeyboard([
   [Markup.button.callback('ادامه','admin:campaign:continue')],
   [Markup.button.callback('لغو','admin:campaign:cancel')]
 ]);
-async function getWizard(id){const [r]=await pool.execute('SELECT step,payload,last_update_id FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);if(!r[0])return null;return {step:r[0].step,payload:typeof r[0].payload==='string'?JSON.parse(r[0].payload):r[0].payload,lastUpdateId:r[0].last_update_id===null?null:Number(r[0].last_update_id)};}
+async function getWizard(id){const [r]=await pool.execute('SELECT step,payload,last_update_id,updated_at FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);if(!r[0])return null;if(['payment_settings','payment_reject'].includes(r[0].step)&&isExpiredAdminWizardSession(r[0].updated_at)){await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=? AND step=? AND updated_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(id),r[0].step]);return null;}return {step:r[0].step,payload:typeof r[0].payload==='string'?JSON.parse(r[0].payload):r[0].payload,lastUpdateId:r[0].last_update_id===null?null:Number(r[0].last_update_id)};}
 async function saveWizard(id,step,payload,updateId){const cursor=Number(updateId);if(!Number.isSafeInteger(cursor))throw new TypeError('Telegram update ID is required for admin wizard advancement.');await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(id),step,JSON.stringify(payload),cursor]);}
 async function clearWizard(id){await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);}
 async function audit(id,action,type,entityId,details={}){await pool.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(id),getCorrelationId(),action,type,entityId,JSON.stringify(details)]);}
@@ -636,7 +636,7 @@ export function registerAdminHandlers(bot){
   bot.on('photo',async(ctx,next)=>{if(!await isAdmin(ctx))return next();const wizard=await getWizard(ctx.from.id);if(!wizard||wizard.step!=='poster')return next();if(isOlderAdminWizardReplay(ctx,wizard))return respond(ctx,'این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی را ادامه دهید.');const photo=ctx.message.photo.at(-1);wizard.payload.posterFileId=photo.file_id;await saveWizard(ctx.from.id,'prize_title',wizard.payload,ctx.update.update_id);return respond(ctx,'پوستر دریافت شد. نام جایزه را وارد کنید (برای نداشتن جایزه «-»).');});
   bot.on('text',async(ctx,next)=>{
     if(!await isAdmin(ctx))return next();
-    if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');const c=await pool.getConnection();try{await c.beginTransaction();const [[old]]=await c.execute('SELECT role FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[target]);await c.execute('INSERT INTO admin_users(telegram_user_id,role,is_active,added_by) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE role=VALUES(role),is_active=1,added_by=VALUES(added_by)',[target,pending[0].role,String(ctx.from.id)]);await c.execute("INSERT INTO admin_role_events(target_telegram_id,actor_telegram_id,action,role_before,role_after) VALUES(?,?,?, ?,?)",[target,String(ctx.from.id),old?'role_changed':'assigned',old?.role||null,pending[0].role]);await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'دسترسی مدیر ثبت شد: '+target+' | '+pending[0].role,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
+    if(isConfiguredSuperAdmin(ctx.from.id)){const [pending]=await pool.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(pending[0]){if(isTelegramCommandText(ctx.message.text))return next();const target=ctx.message.text.trim();if(!/^\d{5,20}$/.test(target))return respond(ctx,'شناسه تلگرام باید عددی و معتبر باشد.');if(isConfiguredSuperAdmin(target))return respond(ctx,'این شناسه از قبل مدیر کل تنظیم‌شده در محیط است.');let assignment;try{assignment=await assignAdminRoleFromSession({actorId:ctx.from.id,targetId:target});}catch(error){return respond(ctx,error.message||'ثبت دسترسی مدیر ناموفق بود.');}const status=assignment.isActive===0?'نقش مدیر ثبت شد، اما حساب غیرفعال باقی ماند. برای فعال‌سازی از فهرست مدیران اقدام کنید.':'دسترسی مدیر ثبت شد: '+target;return respond(ctx,status,Markup.inlineKeyboard([[Markup.button.callback('مدیریت مدیران','admin:roles')]]));}}
     const [[participantSearch]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant'",[String(ctx.from.id)]);
     if(participantSearch){
       const raw=ctx.message.text.trim();
@@ -663,7 +663,11 @@ export function registerAdminHandlers(bot){
     }
     const [paymentSearch]=await pool.execute("SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order'",[String(ctx.from.id)]);
     if(paymentSearch[0]){const query=ctx.message.text.trim();await pool.execute('DELETE FROM payment_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);const rows=await searchManagedOrders(query);if(!rows.length)return respond(ctx,'سفارشی با این مشخصات پیدا نشد.');const kb=rows.map(o=>[Markup.button.callback('#'+o.id+' | '+o.payment_reference+' | '+Number(o.requested_code_count||1)+' کد | '+o.full_name,'admin:payment:order:'+o.id)]);kb.push([Markup.button.callback('بازگشت به مرکز پرداخت','admin:payments')]);return respond(ctx,'نتایج جست‌وجوی سفارش: '+rows.length,Markup.inlineKeyboard(kb));}
-    const [[cardSession]]=await pool.execute('SELECT step,card_id,payload,last_update_id FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    const [[cardSession]]=await pool.execute('SELECT step,card_id,payload,last_update_id,updated_at FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    if(cardSession&&isExpiredAdminWizardSession(cardSession.updated_at)){
+      await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=? AND updated_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(ctx.from.id)]);
+      return respond(ctx,'نشست مدیریت کارت پس از ۲۴ ساعت عدم فعالیت منقضی شد؛ برای ادامه دوباره از فهرست کارت‌ها شروع کنید.',Markup.inlineKeyboard([[Markup.button.callback('فهرست کارت‌ها','admin:payment-cards')]]));
+    }
     if(cardSession){
       if(isOlderAdminWizardReplay(ctx,{lastUpdateId:cardSession.last_update_id===null?null:Number(cardSession.last_update_id)}))return respond(ctx,'این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی را ادامه دهید.');
       if(cardSession.step==='saving')return respond(ctx,'ذخیره کارت در مرحله قبل آغاز شده اما نتیجه نهایی ثبت نشده است. ابتدا فهرست کارت‌ها را بررسی کنید؛ در صورت نیاز، نشست را لغو و دوباره شروع کنید.',Markup.inlineKeyboard([[Markup.button.callback('بررسی فهرست کارت‌ها','admin:payment-cards')],[Markup.button.callback('لغو نشست کارت','admin:payment-card:cancel')]]));
