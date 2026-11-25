@@ -111,3 +111,36 @@ test('append-only audit trigger recovery rejects additional trigger statements',
   assert.match(migration,/statement!==["']SIGNAL SQLSTATE/);
   assert.doesNotMatch(migration,/statement\.includes\('SQLSTATE/);
 });
+
+
+const postMigrationIntegrity=readFileSync(new URL('../../scripts/post-migration-integrity-check.sql',import.meta.url),'utf8');
+
+test('post-migration integrity checks cover prepared draw encryption and keyring references',()=>{
+  for(const fragment of [
+    "seed_ciphertext IS NULL",
+    "LENGTH(seed_nonce)<>24",
+    "LENGTH(seed_tag)<>32",
+    "algorithm<>'HMAC-SHA256 candidate-commitment-rank-v2'",
+    "SELECT seed_key_id, COUNT(*) AS prepared_draw_count"
+  ]){
+    assert.ok(postMigrationIntegrity.includes(fragment),`post-migration integrity check is missing ${fragment}`);
+  }
+});
+
+test('post-migration integrity checks detect campaign code counter drift and duplicate sequences',()=>{
+  for(const fragment of [
+    "counter.last_sequence",
+    "MAX(cc.sequence_number)",
+    "missing_sequence_count",
+    "counter.campaign_id IS NULL AND COUNT(cc.id)>0",
+    "GROUP BY campaign_id,sequence_number",
+    "HAVING COUNT(*)>1"
+  ]){
+    assert.ok(postMigrationIntegrity.includes(fragment),`post-migration integrity check is missing ${fragment}`);
+  }
+});
+
+test('post-migration integrity script is read-only and separated from baseline preflight',()=>{
+  assert.doesNotMatch(postMigrationIntegrity,/^\\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\\b/im);
+  assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\\.last_sequence|MAX\\(cc\\.sequence_number\\)/);
+});
