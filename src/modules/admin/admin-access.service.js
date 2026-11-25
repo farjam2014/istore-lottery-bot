@@ -1,4 +1,5 @@
 import {pool} from '../../database/pool.js';
+import {isExpiredAdminWizardSession} from './admin-wizard-replay.js';
 
 async function updateAdminAccess({targetId,actorId,role,isActive,expectedActive,database=pool}){
   const c=await database.getConnection();
@@ -37,8 +38,9 @@ export async function assignAdminRoleFromSession({actorId,targetId,database=pool
   const c=await database.getConnection();
   try{
     await c.beginTransaction();
-    const [[session]]=await c.execute('SELECT role FROM admin_role_sessions WHERE telegram_user_id=? FOR UPDATE',[String(actorId)]);
+    const [[session]]=await c.execute('SELECT role,created_at FROM admin_role_sessions WHERE telegram_user_id=? FOR UPDATE',[String(actorId)]);
     if(!session)throw new Error('نشست افزودن مدیر منقضی شده است؛ دوباره فرایند را آغاز کنید.');
+    if(isExpiredAdminWizardSession(session.created_at)){await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(actorId)]);await c.commit();return {expired:true};}
     const role=session.role;
     if(!['campaign_manager','finance_manager','support_agent'].includes(role))throw new Error('نقش ذخیره‌شده برای افزودن مدیر معتبر نیست.');
     const [[target]]=await c.execute('SELECT role,is_active FROM admin_users WHERE telegram_user_id=? FOR UPDATE',[String(targetId)]);
