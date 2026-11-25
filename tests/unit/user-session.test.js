@@ -46,24 +46,24 @@ test('sensitive admin reads are recorded in the append-oriented audit stream',()
 });
 
 test('participant support and profile sessions bind the creating Telegram update ID',()=>{
-  const profileStart=source.slice(source.indexOf("bot.action(/^user:profile:field:"),source.indexOf("\\n",source.indexOf("bot.action(/^user:profile:field:")));
-  const supportStart=source.slice(source.indexOf("bot.action(/^support:user:category:"),source.indexOf("\\n",source.indexOf("bot.action(/^support:user:category:")));
-  const supportReplyStart=source.slice(source.indexOf("bot.action(/^support:user:reply:"),source.indexOf("\\n",source.indexOf("bot.action(/^support:user:reply:")));
-  assert.match(profileStart,/profile_change_sessions\\(telegram_user_id,step,last_update_id\\) VALUES\\(\\?,\\?,\\?\\)/);
-  assert.match(profileStart,/ctx\\.update\\.update_id/);
-  assert.match(supportStart,/support_sessions\\(telegram_user_id,step,category,last_update_id\\)/);
-  assert.match(supportStart,/ctx\\.update\\.update_id/);
-  assert.match(supportReplyStart,/support_sessions\\(telegram_user_id,step,ticket_id,last_update_id\\)/);
-  assert.match(supportReplyStart,/ctx\\.update\\.update_id/);
+  const profileStart=source.slice(source.indexOf("bot.action(/^user:profile:field:"),source.indexOf("\n",source.indexOf("bot.action(/^user:profile:field:")));
+  const supportStart=source.slice(source.indexOf("bot.action(/^support:user:category:"),source.indexOf("\n",source.indexOf("bot.action(/^support:user:category:")));
+  const supportReplyStart=source.slice(source.indexOf("bot.action(/^support:user:reply:"),source.indexOf("\n",source.indexOf("bot.action(/^support:user:reply:")));
+  assert.match(profileStart,/profile_change_sessions\(telegram_user_id,step,last_update_id\) VALUES\(\?,\?,\?\)/);
+  assert.match(profileStart,/ctx\.update\.update_id/);
+  assert.match(supportStart,/support_sessions\(telegram_user_id,step,category,last_update_id\)/);
+  assert.match(supportStart,/ctx\.update\.update_id/);
+  assert.match(supportReplyStart,/support_sessions\(telegram_user_id,step,ticket_id,last_update_id\)/);
+  assert.match(supportReplyStart,/ctx\.update\.update_id/);
 });
 
 test('participant support and profile message handlers reject stale update IDs before consuming sessions',()=>{
   assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions/);
   assert.match(source,/SELECT step,ticket_id,category,updated_at,last_update_id FROM support_sessions/);
-  assert.match(source,/isStaleTelegramUpdate\\(ctx\\.update\\?\\.update_id,profileSession\\.last_update_id\\)/);
-  assert.match(source,/isStaleTelegramUpdate\\(ctx\\.update\\?\\.update_id,session\\.last_update_id\\)/);
-  assert.match(source,/SELECT step,ticket_id,category,updated_at,last_update_id FROM support_sessions WHERE telegram_user_id=\\? AND updated_at>=DATE_SUB\\(UTC_TIMESTAMP\\(\\),INTERVAL 24 HOUR\\) FOR UPDATE/);
-  assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions WHERE telegram_user_id=\\? AND step=\\? AND created_at>=DATE_SUB\\(UTC_TIMESTAMP\\(\\),INTERVAL 24 HOUR\\) FOR UPDATE/);
+  assert.match(source,/isStaleTelegramUpdate\(ctx\.update\?\.update_id,profileSession\.last_update_id\)/);
+  assert.match(source,/isStaleTelegramUpdate\(ctx\.update\?\.update_id,session\.last_update_id\)/);
+  assert.match(source,/SELECT step,ticket_id,category,updated_at,last_update_id FROM support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\) FOR UPDATE/);
+  assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions WHERE telegram_user_id=\? AND step=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\) FOR UPDATE/);
 });
 
 test('participant session replay migration clears legacy sessions that have no cursor',()=>{
