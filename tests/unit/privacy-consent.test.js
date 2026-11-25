@@ -109,8 +109,8 @@ test('every registration and profile-gate privacy prompt supplies the configured
   ];
   for(const file of files){
     const source=readFileSync(new URL(file,import.meta.url),'utf8');
-    const calls=[...source.matchAll(/privacyNoticeKeyboard\\(([^)]*)\\)/g)];
+    const calls=[...source.matchAll(/privacyNoticeKeyboard\(([^)]*)\)/g)];
     assert.ok(calls.length>0,file+' must contain a privacy prompt');
-    for(const call of calls)assert.match(call[1],/config\\.PRIVACY_NOTICE_VERSION/,file+' has a privacy keyboard call without a notice version');
+    for(const call of calls)assert.match(call[1],/config\.PRIVACY_NOTICE_VERSION/,file+' has a privacy keyboard call without a notice version');
   }
 });
