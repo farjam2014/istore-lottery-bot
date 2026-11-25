@@ -107,7 +107,7 @@ test('admin role assignment rejects updates at or before the session-start curso
 
 test('admin role assignment consumes its wizard session exactly once',async()=>{
   const db=fakeAssignDatabase();
-  await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
+  await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
   await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',updateId:102,database:db}),/نشست افزودن مدیر منقضی شده/);
   assert.equal(db.state.target.telegram_user_id,'12345');
   assert.equal(db.state.inserts.length,1);
