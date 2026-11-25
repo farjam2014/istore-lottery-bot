@@ -91,14 +91,15 @@ Only after separate approval:
    set +x
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
    test -n "$ACTIVE" && test -f "$ACTIVE/.env"
+   MYSQL_DATABASE="$(node --input-type=module -e "import dotenv from 'dotenv'; import {readFileSync} from 'node:fs'; const parsed=dotenv.parse(readFileSync(process.argv[1])); process.stdout.write(parsed.MYSQL_DATABASE ?? '');" "$ACTIVE/.env")"
+   test -n "$MYSQL_DATABASE"
+   export MYSQL_DATABASE
    set -a
-   . "$ACTIVE/.env"
    . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
    set +a
    test "$MYSQL_DATABASE" = "$MIGRATION_TARGET_DATABASE"
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
-   unset BOT_TOKEN MYSQL_PASSWORD MYSQL_MIGRATION_PASSWORD
-   unset MYSQL_MIGRATION_USER MIGRATION_TARGET_DATABASE
+   unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
    ```
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
