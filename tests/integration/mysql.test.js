@@ -48,6 +48,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await saveSession(replaySessionId,'awaiting_instagram',{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-25T10:00:00.000Z'},123456);
     const savedReplaySession=await getSession(replaySessionId);
     assert.equal(savedReplaySession.lastUpdateId,123456,'Consent session save must retain the replay cursor.');
+    await saveSession(replaySessionId,'awaiting_name',{privacyConsentVersion:'stale'},123455);
+    const staleReplaySession=await getSession(replaySessionId);
+    assert.equal(staleReplaySession.lastUpdateId,123456,'An older consent callback must not roll back the replay cursor.');
+    assert.equal(staleReplaySession.step,'awaiting_instagram','An older consent callback must not overwrite the newer session step.');
+    assert.equal(staleReplaySession.payload.privacyConsentVersion,'v1','An older consent callback must not overwrite the newer session payload.');
     await clearSession(replaySessionId);
 
     // Verify the current migration set and the complete legacy admin wizard contract.
@@ -107,7 +112,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
       '20261124_003_registration_session_replay.sql',
-      '20261124_004_admin_wizard_replay.sql'
+      '20261124_003_registration_session_replay.sql',
+      '20261124_003_registration_session_replay.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -121,8 +127,6 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261115_009_correlation_and_delivery_history.sql',
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
-      '20261124_003_registration_session_replay.sql',
-      '20261124_004_admin_wizard_replay.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
