@@ -7,7 +7,7 @@ export const userMenuKeyboard=()=>Markup.inlineKeyboard([
  [Markup.button.callback('📚 سوابق شرکت من','user:history'),Markup.button.callback('🧾 سفارش‌ها','user:orders')],
  [Markup.button.callback('👤 حساب کاربری','user:account'),Markup.button.callback('💬 پشتیبانی','user:support')]
 ]);
-export const cancelKeyboard=lastUpdateId=>Markup.inlineKeyboard([[Markup.button.callback('انصراف از ثبت‌نام','registration:cancel:'+String(lastUpdateId===null||lastUpdateId===undefined?-1:(Number.isSafeInteger(Number(lastUpdateId))?Number(lastUpdateId):-1)))]]);
+export const cancelKeyboard=lastUpdateId=>Markup.inlineKeyboard([[Markup.button.callback('انصراف از ثبت‌نام','registration:cancel:'+String(Number.isSafeInteger(Number(lastUpdateId))?Number(lastUpdateId):-1))]]);
 export const phoneShareKeyboard=()=>Markup.keyboard([
  [Markup.button.contactRequest('📱 اشتراک‌گذاری شماره موبایل')],
  ['❌ انصراف از ثبت‌نام']
