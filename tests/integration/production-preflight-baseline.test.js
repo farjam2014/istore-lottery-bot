@@ -71,7 +71,8 @@ test('post-migration integrity SQL executes after all versioned migrations are a
     const statements=splitSql(integrity);
     assert.equal(statements.length,4);
     for(const statement of statements){
-      const executable=statement.replace(/^\\s*--.*$/gm,'').trim();\n      assert.match(executable,/^SELECT\\b/i,'Post-migration integrity statements must remain SELECT-only.');
+      const executable=statement.replace(/^\s*--.*$/gm,'').trim();
+      assert.match(executable,/^SELECT\b/i,'Post-migration integrity statements must remain SELECT-only.');
       const [rows]=await pool.execute(statement);
       assert.ok(Array.isArray(rows));
     }
