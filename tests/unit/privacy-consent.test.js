@@ -24,6 +24,14 @@ test('privacy notice acceptance callback is allowed before a participant profile
   assert.equal(isRegistrationUpdateAllowed({message:{text:'my phone'},session:null}),false);
 });
 
+test('cursor-bound privacy and cancellation callbacks pass the registration gate',()=>{
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:-1'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:12345'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:cancel:-1'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:cancel:12345'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:not-a-cursor'}),false);
+});
+
 test('re-accepting a privacy notice preserves an in-progress registration step and collected data',()=>{
   const existing={step:'awaiting_instagram',payload:{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'old-v1',privacyConsentAt:'2026-11-20T09:00:00.000Z'},lastUpdateId:101};
   const next=buildPrivacyAcceptedSession(existing,'new-v2','2026-11-25T11:00:00.000Z',150);
@@ -58,7 +66,8 @@ test('invalid privacy acceptance timestamps are rejected',()=>{
 test('privacy re-acceptance records the current callback update as the replay cursor',()=>{
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
   const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
-  assert.match(handler,/buildPrivacyAcceptedSession\(await getSession\(ctx\.from\.id\),version,new Date\(\),ctx\.update\.update_id\)/);
+  assert.match(handler,/buildPrivacyAcceptedSession\(existingSession,version,new Date\(\),ctx\.update\.update_id\)/);
+  assert.match(handler,/registrationSessionCursorMatches\(existingSession,expectedCursor\)/);
   assert.match(handler,/saveSession\(ctx\.from\.id,step,accepted\.payload,accepted\.lastUpdateId\)/);
   assert.match(repository,/saveSession\(id,step,payload,lastUpdateId\)/);
   assert.match(repository,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
