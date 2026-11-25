@@ -22,7 +22,7 @@ import {prepareCampaignDraw,completeCampaignDraw} from '../../modules/draw/draw.
 import {getCampaignDrawProof} from '../../modules/draw/draw-proof.service.js';
 import {isValidPublicationReference} from '../../modules/draw/draw-verifier.js';
 import {archiveCampaign,closeCampaign,setCampaignStatus,createCampaignFromWizard,copyCampaign} from '../../modules/campaigns/campaign-admin.service.js';
-import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../modules/admin/admin-wizard-replay.js';
+import {isOlderAdminWizardReplay,isExpiredAdminWizardSession,isStaleAdminReplyUpdate} from '../../modules/admin/admin-wizard-replay.js';
 
 async function isAdmin(ctx){
   const id=ctx.from?.id;if(!id)return false;
@@ -110,7 +110,7 @@ const typeMenu=(selected=null)=>Markup.inlineKeyboard([
   [Markup.button.callback('لغو','admin:campaign:cancel')]
 ]);
 async function getWizard(id){const [r]=await pool.execute('SELECT step,payload,last_update_id,updated_at FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);if(!r[0])return null;if(isExpiredAdminWizardSession(r[0].updated_at)){await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=? AND step=? AND updated_at=? AND last_update_id <=> ?',[String(id),r[0].step,r[0].updated_at,r[0].last_update_id]);return {expired:true};}return {step:r[0].step,payload:typeof r[0].payload==='string'?JSON.parse(r[0].payload):r[0].payload,lastUpdateId:r[0].last_update_id===null?null:Number(r[0].last_update_id)};}
-async function saveWizard(id,step,payload,updateId){const cursor=Number(updateId);if(!Number.isSafeInteger(cursor))throw new TypeError('Telegram update ID is required for admin wizard advancement.');await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(id),step,JSON.stringify(payload),cursor]);}
+async function saveWizard(id,step,payload,updateId){const cursor=Number(updateId);if(!Number.isSafeInteger(cursor))throw new TypeError('Telegram update ID is required for admin wizard advancement.');await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(id)]);await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(id),step,JSON.stringify(payload),cursor]);}
 async function clearWizard(id){await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[String(id)]);}
 async function audit(id,action,type,entityId,details={}){await pool.execute('INSERT INTO admin_audit_log(admin_telegram_id,correlation_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?,?)',[String(id),getCorrelationId(),action,type,entityId,JSON.stringify(details)]);}
 async function showPaymentCards(ctx){
@@ -126,6 +126,7 @@ async function showPaymentCards(ctx){
 }
 async function beginPaymentCardSession(ctx,step,cardId=null,payload={}){
   const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment-card wizard advancement.');
+  await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
   await pool.execute('INSERT INTO payment_card_admin_sessions(telegram_user_id,step,card_id,payload,last_update_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),card_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(card_id),card_id),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,cardId,JSON.stringify(payload),updateId]);
 }
 async function advancePaymentCardSession(ctx,expectedStep,step,payload){
@@ -202,7 +203,7 @@ export function registerAdminHandlers(bot){
   bot.command('cancel',async(ctx,next)=>{if(!isConfiguredSuperAdmin(ctx.from.id))return next();const [result]=await pool.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);if(!result.affectedRows)return next();return respond(ctx,'مرحله افزودن مدیر لغو شد.');});
   bot.action('admin:roles',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await ctx.answerCbQuery();const [rows]=await pool.execute('SELECT telegram_user_id,role,is_active,display_name FROM admin_users ORDER BY role,telegram_user_id');const buttons=rows.map(r=>[Markup.button.callback((Number(r.is_active)?'🟢 ':'🔴 ')+r.telegram_user_id+' | '+r.role,'admin:roles:member:'+r.telegram_user_id)]);buttons.unshift([Markup.button.callback('➕ افزودن مدیر','admin:roles:add')]);buttons.push([Markup.button.callback('بازگشت','admin:home')]);return respond(ctx,'🛡 مدیریت دسترسی مدیران\nمدیران ثبت‌شده: '+rows.length+'\nمدیران تعریف‌شده در BOT_ADMIN_IDS همیشه مدیر کل هستند.',Markup.inlineKeyboard(buttons));});
   bot.action('admin:roles:add',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await ctx.answerCbQuery();return respond(ctx,'نقش مدیر جدید را انتخاب کنید:',Markup.inlineKeyboard([[Markup.button.callback('مدیر کمپین','admin:roles:select:campaign_manager')],[Markup.button.callback('مدیر مالی','admin:roles:select:finance_manager')],[Markup.button.callback('اپراتور پشتیبانی','admin:roles:select:support_agent')],[Markup.button.callback('↩️ بازگشت به مدیران','admin:roles')],[Markup.button.callback('بازگشت به پنل مدیریت','admin:home')]]));});
-  bot.action(/^admin:roles:select:(campaign_manager|finance_manager|support_agent)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await pool.execute('INSERT INTO admin_role_sessions(telegram_user_id,role) VALUES(?,?) ON DUPLICATE KEY UPDATE role=VALUES(role),created_at=CURRENT_TIMESTAMP',[String(ctx.from.id),ctx.match[1]]);await ctx.answerCbQuery();return respond(ctx,'شناسه عددی تلگرام مدیر جدید را ارسال کنید.\nبرای لغو این مرحله، /cancel را بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو افزودن مدیر','admin:roles:cancel')]]));});
+  bot.action(/^admin:roles:select:(campaign_manager|finance_manager|support_agent)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);await pool.execute('INSERT INTO admin_role_sessions(telegram_user_id,role) VALUES(?,?) ON DUPLICATE KEY UPDATE role=VALUES(role),created_at=CURRENT_TIMESTAMP',[String(ctx.from.id),ctx.match[1]]);await ctx.answerCbQuery();return respond(ctx,'شناسه عددی تلگرام مدیر جدید را ارسال کنید.\nبرای لغو این مرحله، /cancel را بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو افزودن مدیر','admin:roles:cancel')]]));});
   bot.action('admin:roles:cancel',async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);await pool.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await ctx.answerCbQuery('مرحله لغو شد.');return respond(ctx,'افزودن مدیر لغو شد.');});
   bot.action(/^admin:roles:member:(\d+)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);const id=ctx.match[1];const [[r]]=await pool.execute('SELECT telegram_user_id,role,is_active,display_name FROM admin_users WHERE telegram_user_id=?',[id]);if(!r)return ctx.answerCbQuery('مدیر پیدا نشد.',{show_alert:true});await ctx.answerCbQuery();return respond(ctx,'مدیر: '+id+'\nنقش: '+r.role+'\nوضعیت: '+(Number(r.is_active)?'فعال':'غیرفعال'),Markup.inlineKeyboard([[Markup.button.callback('تغییر به مدیر کمپین','admin:roles:change:'+id+':campaign_manager')],[Markup.button.callback('تغییر به مدیر مالی','admin:roles:change:'+id+':finance_manager')],[Markup.button.callback('تغییر به پشتیبانی','admin:roles:change:'+id+':support_agent')],[Markup.button.callback(Number(r.is_active)?'غیرفعال‌سازی':'فعال‌سازی','admin:roles:set-active:'+id+':'+Number(r.is_active)+':'+(Number(r.is_active)?0:1))],[Markup.button.callback('بازگشت','admin:roles')]]));});
   bot.action(/^admin:roles:change:(\d+):(campaign_manager|finance_manager|support_agent)$/,async ctx=>{if(!isConfiguredSuperAdmin(ctx.from.id))return deny(ctx);try{await changeAdminRole({targetId:ctx.match[1],actorId:ctx.from.id,role:ctx.match[2]});}catch(e){return ctx.answerCbQuery(e.message||'تغییر نقش ناموفق بود.',{show_alert:true});}await ctx.answerCbQuery('نقش تغییر کرد.');return respond(ctx,'نقش مدیر به‌روزرسانی شد.',Markup.inlineKeyboard([[Markup.button.callback('بازگشت به مدیران','admin:roles')]]));});
@@ -421,6 +422,7 @@ export function registerAdminHandlers(bot){
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
+    await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id) VALUES(?,'campaign_code',?) ON DUPLICATE KEY UPDATE step=VALUES(step),campaign_id=VALUES(campaign_id),created_at=CURRENT_TIMESTAMP",[String(ctx.from.id),campaignId]);
     await ctx.answerCbQuery();
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
@@ -448,6 +450,7 @@ export function registerAdminHandlers(bot){
   bot.action('admin:participants',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);await ctx.answerCbQuery();return showParticipants(ctx,0);});
   bot.action('admin:participants:search',async ctx=>{
     if(!await hasPermission(ctx.from.id,'participant.directory.read'))return deny(ctx);
+    await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text) VALUES(?,'participant',NULL,NULL) ON DUPLICATE KEY UPDATE step='participant',campaign_id=NULL,query_text=NULL,created_at=CURRENT_TIMESTAMP",[String(ctx.from.id)]);
     await ctx.answerCbQuery();
     return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
@@ -528,7 +531,25 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery('اولویت تغییر کرد.');
     return respond(ctx,'اولویت تیکت تغییر کرد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('صف تیکت‌ها','admin:support')],[Markup.button.callback('مدیریت','admin:home')]]));
   });
-  bot.action(/^admin:support:reply:(\d+)$/,async ctx=>{if(!await hasPermission(ctx.from.id,'support.reply'))return deny(ctx);const id=Number(ctx.match[1]);const [rows]=await pool.execute("SELECT id FROM support_tickets WHERE id=? AND status<>'closed'",[id]);if(!rows.length)return ctx.answerCbQuery('تیکت بسته است یا وجود ندارد.',{show_alert:true});await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,ticket_id) VALUES(?,'admin_reply',?) ON DUPLICATE KEY UPDATE step='admin_reply',ticket_id=VALUES(ticket_id),category=NULL,updated_at=CURRENT_TIMESTAMP",[String(ctx.from.id),id]);await ctx.answerCbQuery();return respond(ctx,'پاسخ خود را به مشتری در یک پیام ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('❌ لغو پاسخ','admin:support:reply:cancel')],[Markup.button.callback('↩️ مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('🏠 مدیریت','admin:home')]]));});
+  bot.action(/^admin:support:reply:(\d+)$/,async ctx=>{
+    if(!await hasPermission(ctx.from.id,'support.reply'))return deny(ctx);
+    const id=Number(ctx.match[1]),adminId=String(ctx.from.id),updateId=Number(ctx.update?.update_id);
+    if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
+    const [rows]=await pool.execute("SELECT id FROM support_tickets WHERE id=? AND status<>'closed'",[id]);
+    if(!rows.length)return ctx.answerCbQuery('تیکت بسته است یا وجود ندارد.',{show_alert:true});
+    const c=await pool.getConnection();
+    try{
+      await c.beginTransaction();
+      // Starting support reply is an explicit switch: cancel other pending admin text-entry flows.
+      for(const table of ['admin_wizards','payment_card_admin_sessions','payment_admin_sessions','admin_search_sessions','admin_role_sessions']){
+        await c.execute('DELETE FROM '+table+' WHERE telegram_user_id=?',[adminId]);
+      }
+      await c.execute("INSERT INTO support_sessions(telegram_user_id,step,ticket_id,last_update_id) VALUES(?,'admin_reply',?,?) ON DUPLICATE KEY UPDATE step='admin_reply',ticket_id=VALUES(ticket_id),category=NULL,last_update_id=VALUES(last_update_id),updated_at=CURRENT_TIMESTAMP",[adminId,id,updateId]);
+      await c.commit();
+    }catch(error){await c.rollback();throw error;}finally{c.release();}
+    await ctx.answerCbQuery();
+    return respond(ctx,'پاسخ خود را به مشتری در یک پیام ارسال کنید. نشست‌های متنی قبلی مدیریت لغو شدند.',Markup.inlineKeyboard([[Markup.button.callback('❌ لغو پاسخ','admin:support:reply:cancel')],[Markup.button.callback('↩️ مشاهده تیکت','admin:support:view:'+id)],[Markup.button.callback('🏠 مدیریت','admin:home')]]));
+  });
   bot.action('admin:support:reply:cancel',async ctx=>{if(!await hasPermission(ctx.from.id,'support.reply'))return deny(ctx);await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);await ctx.answerCbQuery('پاسخ لغو شد.');return showSupportQueue(ctx,0,'all');});
   bot.action('admin:payments',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
@@ -549,6 +570,7 @@ export function registerAdminHandlers(bot){
   });
   bot.action('admin:payment:search',async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
+    await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
     await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,status_filter) VALUES(?,'search_order','all') ON DUPLICATE KEY UPDATE step=VALUES(step),status_filter='all',created_at=CURRENT_TIMESTAMP",[String(ctx.from.id)]);
     await ctx.answerCbQuery();return respond(ctx,'شناسه سفارش، شناسه پرداخت (ISTPAY-...)، Telegram ID یا شماره موبایل را ارسال کنید.');
   });
@@ -709,8 +731,40 @@ export function registerAdminHandlers(bot){
     }
     const wizard=await getWizard(ctx.from.id);
     if(wizard?.expired)return respond(ctx,'فرایند مدیریت پس از ۲۴ ساعت عدم فعالیت منقضی شد؛ از پنل مدیریت دوباره شروع کنید.');
-    const [supportRows]=await pool.execute("SELECT step,ticket_id,updated_at FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);if(supportRows[0]&&isExpiredAdminWizardSession(supportRows[0].updated_at)){await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply' AND updated_at=?",[String(ctx.from.id),supportRows[0].updated_at]);return respond(ctx,'نشست پاسخ‌گویی پشتیبانی پس از ۲۴ ساعت منقضی شد؛ تیکت را دوباره باز کنید.');}
-    if(supportRows[0]){const body=ctx.message.text.trim();if(!body||body.startsWith('/'))return respond(ctx,'متن پاسخ را ارسال کنید.');if(body.length>4000)return respond(ctx,'پاسخ حداکثر ۴۰۰۰ نویسه باشد.');const ticketId=supportRows[0].ticket_id;const c=await pool.getConnection();let chatId;try{await c.beginTransaction();const [[lockedSession]]=await c.execute("SELECT step,ticket_id,updated_at FROM support_sessions WHERE telegram_user_id=? FOR UPDATE",[String(ctx.from.id)]);if(!lockedSession||lockedSession.step!=='admin_reply'||Number(lockedSession.ticket_id)!==Number(ticketId)||isExpiredAdminWizardSession(lockedSession.updated_at))throw new Error('نشست پاسخ‌گویی منقضی شده است؛ تیکت را دوباره باز کنید.');const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');chatId=String(t.telegram_user_id);await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);await enqueueTelegramNotification({chatId,text:'پاسخ پشتیبانی برای تیکت شما:\n'+body,executor:c});await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}return respond(ctx,'پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));}
+    const [supportRows]=await pool.execute("SELECT step,ticket_id,last_update_id,updated_at FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
+    if(supportRows[0]){
+      const ticketId=supportRows[0].ticket_id,updateId=Number(ctx.update?.update_id),body=ctx.message.text.trim();
+      if(!Number.isSafeInteger(updateId))return respond(ctx,'شناسه پیام معتبر نیست؛ دوباره تلاش کنید.');
+      const c=await pool.getConnection();let chatId;
+      try{
+        await c.beginTransaction();
+        const [[lockedSession]]=await c.execute("SELECT step,ticket_id,last_update_id,updated_at FROM support_sessions WHERE telegram_user_id=? FOR UPDATE",[String(ctx.from.id)]);
+        if(!lockedSession||lockedSession.step!=='admin_reply'||Number(lockedSession.ticket_id)!==Number(ticketId))throw new Error('نشست پاسخ‌گویی تغییر کرده است؛ تیکت را دوباره باز کنید.');
+        if(isExpiredAdminWizardSession(lockedSession.updated_at)){
+          await c.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);
+          await c.commit();
+          return respond(ctx,'نشست پاسخ‌گویی پشتیبانی پس از ۲۴ ساعت منقضی شد؛ تیکت را دوباره باز کنید.');
+        }
+        if(isStaleAdminReplyUpdate(updateId,lockedSession.last_update_id)){
+          await c.rollback();
+          return respond(ctx,'این پیام قدیمی یا تکراری است و به‌عنوان پاسخ ثبت نشد.');
+        }
+        if(!body||body.startsWith('/')||body.length>4000){
+          await c.execute("UPDATE support_sessions SET last_update_id=? WHERE telegram_user_id=? AND step='admin_reply'",[updateId,String(ctx.from.id)]);
+          await c.commit();
+          return respond(ctx,!body||body.startsWith('/')?'متن پاسخ را ارسال کنید؛ پیام فرمان یا خالی پذیرفته نمی‌شود.':'پاسخ حداکثر ۴۰۰۰ نویسه باشد.');
+        }
+        const [[t]]=await c.execute("SELECT t.id,t.ticket_number,t.status,p.telegram_user_id FROM support_tickets t JOIN participants p ON p.id=t.participant_id WHERE t.id=? FOR UPDATE",[ticketId]);
+        if(!t||t.status==='closed')throw new Error('تیکت بسته شده یا وجود ندارد.');
+        chatId=String(t.telegram_user_id);
+        await c.execute("INSERT INTO support_messages(ticket_id,sender_type,sender_telegram_id,body) VALUES(?,'admin',?,?)",[ticketId,String(ctx.from.id),body]);
+        await c.execute("UPDATE support_tickets SET status='answered',last_message_at=UTC_TIMESTAMP() WHERE id=?",[ticketId]);
+        await c.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+        await enqueueTelegramNotification({chatId,text:'پاسخ پشتیبانی برای تیکت شما:\n'+body,executor:c});
+        await c.commit();
+      }catch(e){await c.rollback();throw e;}finally{c.release();}
+      return respond(ctx,'پاسخ ثبت شد و برای مشتری ارسال شد.',Markup.inlineKeyboard([[Markup.button.callback('مشاهده تیکت','admin:support:view:'+ticketId)]]));
+    }
     if(!wizard)return next();
     if(isOlderAdminWizardReplay(ctx,wizard))return respond(ctx,'این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی را ادامه دهید.');
     if(wizard.step==='draw_publication_reference'){

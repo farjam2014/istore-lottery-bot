@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../src/modules/admin/admin-wizard-replay.js';
+import {isOlderAdminWizardReplay,isExpiredAdminWizardSession,isStaleAdminReplyUpdate} from '../../src/modules/admin/admin-wizard-replay.js';
 
 test('admin wizard rejects a replayed update already applied to the current step',()=>{
   const wizard={step:'title',lastUpdateId:101};
@@ -59,3 +59,5 @@ test('callback transactions recheck admin wizard expiry while holding the row lo
   assert.match(handler,/lockedWizard\.step!=='draw_publication_confirm'\|\|isExpiredAdminWizardSession\(lockedWizard\.updated_at\)/);
   assert.match(handler,/lockedWizard\.step!=='campaign_edit_value'\|\|isExpiredAdminWizardSession\(lockedWizard\.updated_at\)/);
 });
+
+test('admin support reply rejects updates at or before the session-start cursor',()=>{\n  assert.equal(isStaleAdminReplyUpdate(102,101),false);\n  assert.equal(isStaleAdminReplyUpdate(101,101),true);\n  assert.equal(isStaleAdminReplyUpdate(100,101),true);\n  assert.equal(isStaleAdminReplyUpdate(102,null),true);\n});

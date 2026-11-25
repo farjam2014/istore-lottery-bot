@@ -116,6 +116,7 @@ FROM (
   UNION ALL SELECT '20261124_002_privacy_consent.sql'
   UNION ALL SELECT '20261124_003_registration_session_replay.sql'
   UNION ALL SELECT '20261124_004_admin_wizard_replay.sql'
+  UNION ALL SELECT '20261125_001_support_reply_replay.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
@@ -135,6 +136,7 @@ WHERE table_schema=DATABASE()
     OR (table_name='admin_wizards' AND column_name='step')
     OR (table_name='admin_wizards' AND column_name='last_update_id')
     OR (table_name='payment_card_admin_sessions' AND column_name='last_update_id')
+    OR (table_name='support_sessions' AND column_name='last_update_id')
     OR (table_name='telegram_user_sessions' AND column_name='last_update_id')
     OR (table_name='participants' AND column_name IN ('privacy_consent_version','privacy_consent_at'))
     OR (table_name='admin_action_idempotency' AND column_name IN ('idempotency_key','action_type','actor_telegram_id','entity_id','created_at'))

@@ -89,6 +89,11 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index===1)return hasNullableBigintColumn(connection,'payment_card_admin_sessions','last_update_id');
     throw new Error('Unexpected statement index in 20261124_004_admin_wizard_replay.sql.');
   }
+  if(file==='20261125_001_support_reply_replay.sql'){
+    if(index===0)return false;
+    if(index===1)return hasNullableBigintColumn(connection,'support_sessions','last_update_id');
+    throw new Error('Unexpected statement index in 20261125_001_support_reply_replay.sql.');
+  }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
       hasColumn(connection,'participants','privacy_consent_version'),

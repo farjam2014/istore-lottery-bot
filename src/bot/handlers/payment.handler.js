@@ -101,7 +101,7 @@ async function showUserOrderDetail(ctx,id){
   return screenReply(ctx,text,userOrderDetailKeyboard(o));
 }
 
-async function savePaymentAdminWizard(ctx,step,payload){const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment administration.');await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,JSON.stringify(payload),updateId]);}
+async function savePaymentAdminWizard(ctx,step,payload){const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))throw new TypeError('Telegram update ID is required for payment administration.');await pool.execute("DELETE FROM support_sessions WHERE telegram_user_id=? AND step='admin_reply'",[String(ctx.from.id)]);await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),payload=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(payload),payload),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))',[String(ctx.from.id),step,JSON.stringify(payload),updateId]);}
 export function registerPaymentHandlers(bot){
  bot.action(/^payment:start:(\d+)$/,async ctx=>{
   const campaignId=Number(ctx.match[1]);

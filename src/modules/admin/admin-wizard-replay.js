@@ -13,3 +13,8 @@ export function isExpiredAdminWizardSession(updatedAt,now=Date.now(),ttlMs=24*60
   const updated=updatedAt instanceof Date?updatedAt.getTime():Date.parse(updatedAt);
   return !Number.isFinite(updated)||!Number.isFinite(now)||!Number.isFinite(ttlMs)||ttlMs<=0||now-updated>=ttlMs;
 }
+
+export function isStaleAdminReplyUpdate(updateId,lastUpdateId){
+  const current=Number(updateId),last=Number(lastUpdateId);
+  return !Number.isSafeInteger(current)||!Number.isSafeInteger(last)||current<=last;
+}
