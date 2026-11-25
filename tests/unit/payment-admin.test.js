@@ -35,3 +35,13 @@ test('sensitive payment order reads and searches are audited without storing sea
   assert.ok(!source.includes("payment.orders_searched','payment_order',null,{queryText"));
   assert.ok(!source.includes("payment.orders_searched','payment_order',null,{query:"));
 });
+
+
+test('payment receipt session replay guard fails closed without a persisted cursor',async()=>{
+  const {isStalePaymentReceiptUpdate}=await import('../../src/bot/handlers/payment.handler.js');
+  assert.equal(isStalePaymentReceiptUpdate(101,null),true);
+  assert.equal(isStalePaymentReceiptUpdate(101,undefined),true);
+  assert.equal(isStalePaymentReceiptUpdate(100,101),true);
+  assert.equal(isStalePaymentReceiptUpdate(101,101),true);
+  assert.equal(isStalePaymentReceiptUpdate(102,101),false);
+});

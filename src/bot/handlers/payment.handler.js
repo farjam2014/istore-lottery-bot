@@ -16,7 +16,7 @@ const QUANTITY_PAGE_SIZE=10;
 export function isStalePaymentReceiptUpdate(updateId,lastUpdateId){
   const current=Number(updateId);
   if(!Number.isSafeInteger(current))return true;
-  if(lastUpdateId===null||lastUpdateId===undefined)return false;
+  if(lastUpdateId===null||lastUpdateId===undefined)return true;
   const previous=Number(lastUpdateId);
   return !Number.isSafeInteger(previous)||current<=previous;
 }
