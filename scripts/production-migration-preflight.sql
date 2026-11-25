@@ -92,7 +92,7 @@ FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
 
--- Migration history and presence of all fourteen release migrations.
+-- Migration history and presence of all fifteen release migrations.
 SELECT version, checksum, applied_at
 FROM schema_migrations
 ORDER BY version;
