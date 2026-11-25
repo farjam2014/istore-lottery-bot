@@ -31,3 +31,37 @@ test('unknown session types and empty Telegram IDs are rejected',async()=>{
   await assert.rejects(clearAdminTextSessions({telegramUserId:'',keep:'admin_wizards',executor:db}),/Telegram user ID is required/);
   assert.equal(db.calls.length,0);
 });
+
+test('pool-backed session clearing commits all deletions atomically',async()=>{
+  const calls=[];
+  const connection={
+    async beginTransaction(){calls.push('begin');},
+    async execute(sql,params){calls.push({sql,params});return [{affectedRows:1},[]];},
+    async commit(){calls.push('commit');},
+    async rollback(){calls.push('rollback');},
+    release(){calls.push('release');}
+  };
+  const database={async getConnection(){calls.push('acquire');return connection;}};
+  await clearAdminTextSessions({telegramUserId:'12345',keep:'admin_wizards',executor:database});
+  assert.equal(calls[0],'acquire');
+  assert.equal(calls[1],'begin');
+  assert.equal(calls.filter(x=>typeof x==='object').length,5);
+  assert.equal(calls.at(-2),'commit');
+  assert.equal(calls.at(-1),'release');
+});
+
+test('pool-backed session clearing rolls back if one deletion fails',async()=>{
+  const calls=[];
+  const connection={
+    async beginTransaction(){calls.push('begin');},
+    async execute(sql){calls.push(sql);if(calls.filter(x=>typeof x==='string'&&x.startsWith('DELETE')).length===3)throw new Error('database unavailable');return [{affectedRows:1},[]];},
+    async commit(){calls.push('commit');},
+    async rollback(){calls.push('rollback');},
+    release(){calls.push('release');}
+  };
+  const database={async getConnection(){return connection;}};
+  await assert.rejects(clearAdminTextSessions({telegramUserId:'12345',keep:'admin_wizards',executor:database}),/database unavailable/);
+  assert.ok(calls.includes('rollback'));
+  assert.ok(calls.includes('release'));
+  assert.ok(!calls.includes('commit'));
+});
