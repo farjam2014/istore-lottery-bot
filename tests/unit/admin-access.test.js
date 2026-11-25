@@ -92,6 +92,7 @@ test('assigning a role preserves an existing inactive admin state',async()=>{
   assert.equal(result.changed,true);
   assert.equal(db.state.target.role,'campaign_manager');
   assert.equal(db.state.target.is_active,0);
+  assert.equal(result.isActive,0);
   assert.equal(db.state.session,null);
   assert.equal(db.state.commits,1);
 });
