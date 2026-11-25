@@ -6,6 +6,7 @@ export const getSession=repo.getSession;
 export const saveSession=repo.saveSession;
 export const advanceSession=repo.advanceSession;
 export const clearSession=repo.clearSession;
+export const clearSessionIfNewer=repo.clearSessionIfNewer;
 
 export function normalizePhone(value){
   let phone=String(value??'').trim().replace(/[\s()-]/g,'');
