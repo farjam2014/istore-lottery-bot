@@ -42,7 +42,7 @@ A database dump alone is not a complete backup for prepared draws. Losing the hi
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files lexicographically by filename. The current source contains 27 migrations, applied in this order:
+The migration runner sorts SQL files lexicographically by filename. The current source contains 28 migrations, applied in this order:
 
 1. `20261114_001_payment_expiry_reference.sql` — removes the one-order-per-entry restriction, adds unique payment references, expiry metadata, and outbox delivery metadata.
 2. `20261114_002_campaign_details.sql` — adds campaign poster, prize, draw, terms, and payment-method fields and expands the campaign wizard.
