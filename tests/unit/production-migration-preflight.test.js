@@ -65,3 +65,8 @@ test('production migration preflight detects campaign code counter drift and dup
     assert.ok(preflight.includes(fragment),`preflight is missing code sequence integrity check: ${fragment}`);
   }
 });
+
+
+test('production migration preflight remains read-only SQL',()=>{
+  assert.doesNotMatch(preflight,/^\\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\\b/im);
+});
