@@ -52,7 +52,7 @@ test('support text consumption rechecks the cursor under lock and deletes only t
   assert.match(source,/DELETE FROM support_sessions WHERE telegram_user_id=\? AND step='user_reply' AND last_update_id=\?/);
 });
 
-test('participant profile and support sessions enforce their documented 24-hour inactivity window',()=>{
+test('participant profile and support sessions enforce their documented 24-hour lifetime from start',()=>{
   assert.match(source,/profile_change_sessions WHERE telegram_user_id=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
 });
