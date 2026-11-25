@@ -37,3 +37,10 @@ test('invalid support reply does not destroy an active profile-change session',(
   const handler=source.slice(start,end);
   assert.ok(handler.indexOf("SELECT t.id FROM support_tickets")<handler.indexOf("DELETE FROM profile_change_sessions"));
 });
+
+test('sensitive admin reads are recorded in the append-oriented audit stream',()=>{
+  const admin=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(admin,/audit\(ctx\.from\.id,'participant\.viewed','participant',id\)/);
+  assert.match(admin,/audit\(ctx\.from\.id,'profile_change_request\.viewed','profile_change_request',id\)/);
+  assert.match(admin,/audit\(ctx\.from\.id,'support_ticket\.viewed','support_ticket',id\)/);
+});
