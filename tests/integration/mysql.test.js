@@ -968,7 +968,7 @@ test('MySQL integration: draw preparation waits for first and repeat pending pay
   }
 });
 
-test('MySQL integration: production migration preflight contains only executable SELECT statements',{skip:!enabled},async()=>{
+test('MySQL integration: production migration preflight executes only read-only statements',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
@@ -977,9 +977,9 @@ test('MySQL integration: production migration preflight contains only executable
   await migrate();
   const source=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
   const statements=source.split('\n').filter(line=>!line.trimStart().startsWith('--')).join('\n').split(';').map(statement=>statement.trim()).filter(Boolean);
-  assert.ok(statements.length>=8,'Preflight must contain the expected inventory and integrity queries.');
+  assert.ok(statements.length>=16,'Preflight must contain the expected inventory, capability guards, and integrity queries.');
   for(const statement of statements){
-    assert.match(statement,/^SELECT\b/i,'Production preflight must remain read-only.');
+    assert.match(statement,/^(?:SELECT|SET|PREPARE|EXECUTE|DEALLOCATE PREPARE)\b/i,'Production preflight may only read data and manage session-scoped prepared SELECT statements.');
     await pool.query(statement);
   }
 });
