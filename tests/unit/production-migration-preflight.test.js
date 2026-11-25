@@ -105,3 +105,9 @@ test('append-only audit trigger recovery verifies the protected table identity',
   assert.match(migration,/SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema\\.TRIGGERS/);
   assert.match(migration,/row\\.EVENT_OBJECT_TABLE!=='admin_audit_log'/);
 });
+
+test('append-only audit trigger recovery rejects additional trigger statements',()=>{
+  const migration=readFileSync(new URL('../../src/database/migrate.js',import.meta.url),'utf8');
+  assert.match(migration,/statement!==["']SIGNAL SQLSTATE/);
+  assert.doesNotMatch(migration,/statement\\.includes\\('SQLSTATE/);
+});
