@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
-after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
+after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');const {closeMigrationPool}=await import('../../src/database/migration-pool.js');try{await pool.end();}finally{await closeMigrationPool();}}});
 
 test('MySQL integration: concurrent campaign confirmations create and audit exactly one campaign',{skip:!enabled},async()=>{
   const {pool}=await import('../../src/database/pool.js');
