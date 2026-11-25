@@ -43,7 +43,7 @@ export function registerRegistrationHandlers(bot){
     }
     if(!s||!Number.isSafeInteger(s.lastUpdateId)||s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION){
       await ctx.answerCbQuery();
-      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId,config.PRIVACY_NOTICE_VERSION));
+      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
     }
     await ctx.answerCbQuery();
     if(s.step==='awaiting_phone'){
@@ -93,7 +93,7 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
-    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
     if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id))return ctx.reply('شماره موبایل ثبت شد. حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
     const contact=ctx.message.contact;
@@ -113,9 +113,9 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     const value=ctx.message.text.trim();
-    if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
+    if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
     if(!s)return next();
-    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
     if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id)){
       if(s.step==='awaiting_phone')return ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید.',phoneShareKeyboard());
