@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 
@@ -47,6 +48,81 @@ test('MySQL integration: production migration preflight runs against the baselin
     if(setup)await setup.end().catch(()=>{});
     if(admin){
       if(readerCreated)await admin.query("DROP USER IF EXISTS '"+reader+"'@'"+readerHost+"'").catch(()=>{});
+      if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
+      await admin.end().catch(()=>{});
+    }
+  }
+});
+
+
+
+test('MySQL integration: draw relational-integrity migration rejects legacy draw rows before any DDL, then proceeds after reconciliation',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
+  const suffix=randomBytes(6).toString('hex');
+  const database='ustore_drawguard_'+suffix+'_ci';
+  const quoteId=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
+  let admin,setup,databaseCreated=false;
+  const runMigration=stopBefore=>{
+    const env={...process.env,NODE_ENV:'test',MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,MYSQL_USER:adminUser,MYSQL_PASSWORD:adminPassword,ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_TEST_DATABASE_MIGRATIONS:'1'};
+    delete env.MYSQL_MIGRATION_USER;
+    delete env.MYSQL_MIGRATION_PASSWORD;
+    delete env.ALLOW_PRODUCTION_MIGRATIONS;
+    delete env.MIGRATION_TARGET_DATABASE;
+    const argument=stopBefore?'{stopBefore:'+JSON.stringify(stopBefore)+'}':'{}';
+    const source='import {migrate} from "./src/database/migrate.js";\nimport {pool} from "./src/database/pool.js";\ntry{await migrate('+argument+');}finally{await pool.end();}';
+    return spawnSync(process.execPath,['--input-type=module','-e',source],{cwd:process.cwd(),env,encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024});
+  };
+  try{
+    admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
+    await admin.query('CREATE DATABASE '+quoteId(database)+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    databaseCreated=true;
+    const beforeDrawIntegrity='20261117_006_draw_relational_integrity.sql';
+    const prepared=runMigration(beforeDrawIntegrity);
+    assert.equal(prepared.status,0,prepared.stderr||prepared.stdout);
+    setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
+    const telegramUserId=String(690000000000000000n+BigInt(parseInt(suffix,16)));
+    const code='MG'+suffix.toUpperCase();
+    const [participant]=await setup.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramUserId,'Migration Guard Fixture','+989120000000','migration_guard_'+suffix]);
+    const [campaign]=await setup.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'closed','free',0,1)",['migration-guard-'+suffix,'Migration guard fixture']);
+    const [entry]=await setup.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('source','migration-guard'),'eligible')",[campaign.insertId,participant.insertId]);
+    const [campaignCode]=await setup.execute('INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code) VALUES(?,?,?)',[entry.insertId,campaign.insertId,code]);
+    const [draw]=await setup.execute("INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','hmac-sha256-v1',?,1,123456)",[campaign.insertId,'a'.repeat(64)]);
+    const [candidate]=await setup.execute('INSERT INTO draw_candidates(draw_id,campaign_id,participant_id,campaign_code_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?)',[draw.insertId,campaign.insertId,participant.insertId,campaignCode.insertId,code,'b'.repeat(64)]);
+    await setup.execute('INSERT INTO draw_winners(draw_id,campaign_id,participant_id,candidate_id,campaign_code_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,1)',[draw.insertId,campaign.insertId,participant.insertId,candidate.insertId,campaignCode.insertId,code]);
+    const blocked=runMigration();
+    assert.notEqual(blocked.status,0,'The migration runner must refuse to infer historical draw identity.');
+    assert.match(blocked.stderr,/Draw relational-integrity migration requires empty legacy draw tables/);
+    const [[candidateCount]]=await setup.query('SELECT COUNT(*) AS total FROM draw_candidates');
+    const [[winnerCount]]=await setup.query('SELECT COUNT(*) AS total FROM draw_winners');
+    const [[candidateColumn]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='draw_candidates' AND column_name='campaign_entry_id'");
+    const [[entryIndex]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='campaign_entries' AND index_name='uq_entry_campaign_participant'");
+    const [[codeIndex]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='campaign_codes' AND index_name='uq_code_entry_campaign_value'");
+    const [[migrationRecord]]=await setup.execute('SELECT COUNT(*) AS total FROM schema_migrations WHERE version=?',[beforeDrawIntegrity]);
+    assert.equal(Number(candidateCount.total),1);
+    assert.equal(Number(winnerCount.total),1);
+    assert.equal(Number(candidateColumn.total),0,'No candidate backfill column may be added before legacy draw rows are reconciled.');
+    assert.equal(Number(entryIndex.total),0,'No migration DDL may run before the legacy draw precondition.');
+    assert.equal(Number(codeIndex.total),0,'No migration DDL may run before the legacy draw precondition.');
+    assert.equal(Number(migrationRecord.total),0,'The blocked migration must not be marked applied.');
+    await setup.execute('DELETE FROM draw_winners WHERE draw_id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM draw_candidates WHERE draw_id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM campaign_draws WHERE id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM campaign_codes WHERE id=?',[campaignCode.insertId]);
+    await setup.execute('DELETE FROM campaign_entries WHERE id=?',[entry.insertId]);
+    await setup.execute('DELETE FROM campaigns WHERE id=?',[campaign.insertId]);
+    await setup.execute('DELETE FROM participants WHERE id=?',[participant.insertId]);
+    const clean=runMigration();
+    assert.equal(clean.status,0,clean.stderr||clean.stdout);
+    const [[applied]]=await setup.execute('SELECT COUNT(*) AS total FROM schema_migrations WHERE version=?',[beforeDrawIntegrity]);
+    const [[columnAfter]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='draw_candidates' AND column_name='campaign_entry_id'");
+    assert.equal(Number(applied.total),1,'The same migration must proceed once legacy draw rows are reconciled.');
+    assert.equal(Number(columnAfter.total),1);
+  }finally{
+    if(setup)await setup.end().catch(()=>{});
+    if(admin){
       if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
       await admin.end().catch(()=>{});
     }
