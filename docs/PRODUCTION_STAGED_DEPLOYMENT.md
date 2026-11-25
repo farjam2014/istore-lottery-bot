@@ -92,13 +92,19 @@ Only after separate approval:
    set +x
    trap 'unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE' EXIT
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
-   test -n "$ACTIVE" && test -f "$ACTIVE/.env"
+    SERVICE_USER="$(systemctl show ustore-telegram-bot.service -p User --value)"
+    test -n "$ACTIVE" && test -n "$SERVICE_USER"
+    test -f "$ACTIVE/.env" && test ! -L "$ACTIVE/.env"
+    test "$(stat -c '%U' "$ACTIVE/.env")" = "$SERVICE_USER"
+    test "$(stat -c '%a' "$ACTIVE/.env")" = 600
    MYSQL_DATABASE="$(node --input-type=module -e "import dotenv from 'dotenv'; import {readFileSync} from 'node:fs'; const parsed=dotenv.parse(readFileSync(process.argv[1])); process.stdout.write(parsed.MYSQL_DATABASE ?? '');" "$ACTIVE/.env")"
-   test -n "$MYSQL_DATABASE"
+    [[ "$MYSQL_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
    export MYSQL_DATABASE
    set -a
    . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
    set +a
+    [[ "$MYSQL_MIGRATION_USER" =~ ^[A-Za-z0-9_]{1,32}$ ]]
+    [[ "$MIGRATION_TARGET_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
    test "$MYSQL_DATABASE" = "$MIGRATION_TARGET_DATABASE"
    GRANTS="$(mysql --protocol=socket -NBe "SHOW GRANTS FOR '$MYSQL_MIGRATION_USER'@'127.0.0.1'")"
    case "$GRANTS" in *"TRIGGER ON"*|*"ALL PRIVILEGES ON"*) ;; *) echo 'Migration account lacks TRIGGER privilege; stop and obtain separate DBA approval before granting it.' >&2; exit 1 ;; esac
