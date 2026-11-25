@@ -54,6 +54,15 @@ test('production migration preflight includes campaign-edit wizard migration and
 });
 
 
+test('fresh installation requires and writes a published privacy notice',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/Published HTTPS privacy notice URL/);
+  assert.match(script,/PRIVACY_NOTICE_URL=\$PRIVACY_NOTICE_URL/);
+  assert.match(script,/PRIVACY_NOTICE_VERSION=\$PRIVACY_NOTICE_VERSION/);
+  assert.match(script,/PRIVACY_NOTICE_URL must be a published, non-placeholder HTTPS URL/);
+  assert.match(script,/PRIVACY_NOTICE_VERSION in \.env is missing or invalid/);
+});
+
 test('installer keeps DDL privileges on a separate root-protected migration account',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE ON \$DB_NAME\.\* TO '\$DB_USER'@'127\.0\.0\.1'/);

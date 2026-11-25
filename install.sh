@@ -87,6 +87,10 @@ if [[ ! -e "$ENV_FILE" ]]; then
   [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "Telegram bot token format is invalid."
   read -r -p "Numeric Telegram admin ID: " ADMIN_ID </dev/tty
   [[ "$ADMIN_ID" =~ ^[0-9]{5,20}$ ]] || fail "Admin ID must contain 5–20 digits."
+  read -r -p "Published HTTPS privacy notice URL: " PRIVACY_NOTICE_URL </dev/tty
+  node --input-type=module -e 'const value=process.argv[1];let u;try{u=new URL(value)}catch{process.exit(1)}const h=u.hostname;if(u.protocol!=="https:"||["example.com","www.example.com","localhost"].includes(h)||h.endsWith(".example")||h.endsWith(".test")||h.endsWith(".invalid"))process.exit(1)' "$PRIVACY_NOTICE_URL" || fail "A published, non-placeholder HTTPS privacy notice URL is required."
+  read -r -p "Privacy notice version: " PRIVACY_NOTICE_VERSION </dev/tty
+  [[ "$PRIVACY_NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]] || fail "Privacy notice version must be 1–40 letters, digits, dots, underscores, or hyphens."
 
   suffix="$(openssl rand -hex 6)"
   DB_NAME="ustore_bot_${suffix}"
@@ -109,11 +113,13 @@ MYSQL_PASSWORD=$DB_PASSWORD
 MYSQL_POOL_SIZE=5
 LOG_LEVEL=info
 DRAW_SEED_ENCRYPTION_KEY=$DRAW_SEED_KEY
+PRIVACY_NOTICE_URL=$PRIVACY_NOTICE_URL
+PRIVACY_NOTICE_VERSION=$PRIVACY_NOTICE_VERSION
 ENV
   chown "$APP_USER:$APP_USER" "$tmp_env"
   chmod 600 "$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
-  unset BOT_TOKEN DB_PASSWORD MIGRATION_DB_PASSWORD DRAW_SEED_KEY
+  unset BOT_TOKEN DB_PASSWORD MIGRATION_DB_PASSWORD DRAW_SEED_KEY PRIVACY_NOTICE_URL PRIVACY_NOTICE_VERSION
 else
   log "Existing .env found; preserving it and not prompting for or printing secrets."
   [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail ".env must be a regular file, not a symlink."
@@ -127,6 +133,8 @@ DB_PASSWORD="$(read_env MYSQL_PASSWORD)"
 DB_HOST="$(read_env MYSQL_HOST)"
 BOT_TOKEN="$(read_env BOT_TOKEN)"
 ADMIN_ID="$(read_env BOT_ADMIN_IDS)"
+PRIVACY_NOTICE_URL="$(read_env PRIVACY_NOTICE_URL)"
+PRIVACY_NOTICE_VERSION="$(read_env PRIVACY_NOTICE_VERSION)"
 DRAW_SEED_ENCRYPTION_KEY="$(read_env DRAW_SEED_ENCRYPTION_KEY)"
 DRAW_SEED_ENCRYPTION_KEYS="$(read_env DRAW_SEED_ENCRYPTION_KEYS)"
 NODE_ENV_VALUE="$(read_env NODE_ENV)"
@@ -180,6 +188,8 @@ fi
 [[ "${#BOT_TOKEN}" -ge 30 && "$BOT_TOKEN" == *:* ]] || fail "BOT_TOKEN in .env is missing or invalid."
 admin_ids_csv="${ADMIN_ID//[[:space:]]/}"
 [[ "$admin_ids_csv" =~ ^[0-9]{5,20}(,[0-9]{5,20})*$ ]] || fail "BOT_ADMIN_IDS in .env must be a comma-separated list of numeric Telegram IDs."
+node --input-type=module -e 'const value=process.argv[1];let u;try{u=new URL(value)}catch{process.exit(1)}const h=u.hostname;if(u.protocol!=="https:"||["example.com","www.example.com","localhost"].includes(h)||h.endsWith(".example")||h.endsWith(".test")||h.endsWith(".invalid"))process.exit(1)' "$PRIVACY_NOTICE_URL" || fail "PRIVACY_NOTICE_URL must be a published, non-placeholder HTTPS URL."
+[[ "$PRIVACY_NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]] || fail "PRIVACY_NOTICE_VERSION in .env is missing or invalid."
 [[ -n "$DRAW_SEED_ENCRYPTION_KEY" || -n "$DRAW_SEED_ENCRYPTION_KEYS" ]] || fail "Draw encryption key is missing. Add DRAW_SEED_ENCRYPTION_KEY (64 hex characters) or a valid DRAW_SEED_ENCRYPTION_KEYS keyring to .env; existing installations are never assigned a replacement key automatically."
 
 # Validate the existing service target before any stop/update operation.
