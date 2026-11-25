@@ -39,7 +39,7 @@ export function registerRegistrationHandlers(bot){
     const s=await getSession(ctx.from.id);
     if(!s||!Number.isSafeInteger(s.lastUpdateId)||s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION){
       await ctx.answerCbQuery();
-      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
+      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId,config.PRIVACY_NOTICE_VERSION));
     }
     await ctx.answerCbQuery();
     if(s.step==='awaiting_phone'){
@@ -47,12 +47,14 @@ export function registerRegistrationHandlers(bot){
     }
     return ctx.reply(promptFor(s.step),cancelKeyboard(s.lastUpdateId));
   });
-  bot.action(/^privacy:accept:(-1|[0-9]{1,16})$/,async ctx=>{
+  bot.action(/^pa:(-1|[0-9]{1,16}):([A-Za-z0-9._-]{1,40})$/,async ctx=>{
     const expectedCursor=Number(ctx.match[1]);
+    const callbackVersion=ctx.match[2];
     const existingSession=await getSession(ctx.from.id);
     if(!registrationSessionCursorMatches(existingSession,expectedCursor))return ctx.answerCbQuery('این دکمه مربوط به مرحله قبلی ثبت‌نام است. لطفاً ثبت‌نام را دوباره باز کنید.',{show_alert:true});
     const version=config.PRIVACY_NOTICE_VERSION;
     if(!version||!config.PRIVACY_NOTICE_URL)return ctx.answerCbQuery('اطلاعیه حریم خصوصی هنوز پیکربندی نشده است.',{show_alert:true});
+    if(callbackVersion!==version)return ctx.answerCbQuery('نسخه اطلاعیه تغییر کرده است؛ لطفاً نسخه جدید را مطالعه و تأیید کنید.',{show_alert:true});
     const profile=await findProfile(ctx.from.id);
     if(profile){
       await updatePrivacyConsent(ctx.from.id,version);
