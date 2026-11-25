@@ -27,9 +27,9 @@ test('MySQL integration: production migration preflight runs against the baselin
     for(const statement of schema.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean))await setup.query(statement);
     await setup.query('CREATE TABLE schema_migrations (version VARCHAR(120) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     await setup.end();setup=null;
-    await admin.query("CREATE USER '"+reader+"'@'127.0.0.1' IDENTIFIED BY '"+readerPassword+"'");
+    await admin.query("CREATE USER '"+reader+"'@'%' IDENTIFIED BY '"+readerPassword+"'");
     readerCreated=true;
-    await admin.query('GRANT SELECT ON '+quoteId(database)+".* TO '"+reader+"'@'127.0.0.1'");
+    await admin.query('GRANT SELECT ON '+quoteId(database)+".* TO '"+reader+"'@'%'");
     readonly=await mysql.createConnection({host:'127.0.0.1',port,user:reader,password:readerPassword,database});
     const preflight=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
     const statements=preflight.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean);
@@ -37,13 +37,13 @@ test('MySQL integration: production migration preflight runs against the baselin
     for(const statement of statements)results.push(await readonly.query(statement));
     const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
     assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
-    const [[grants]]=await admin.query("SHOW GRANTS FOR '"+reader+"'@'127.0.0.1'");
+    const [[grants]]=await admin.query("SHOW GRANTS FOR '"+reader+"'@'%'");
     assert.ok(Object.values(grants||{}).some(value=>String(value).includes('SELECT ON `'+database+'`.*')),'Preflight fixture reader must have only the intended SELECT grant.');
   }finally{
     if(readonly)await readonly.end().catch(()=>{});
     if(setup)await setup.end().catch(()=>{});
     if(admin){
-      if(readerCreated)await admin.query("DROP USER IF EXISTS '"+reader+"'@'127.0.0.1'").catch(()=>{});
+      if(readerCreated)await admin.query("DROP USER IF EXISTS '"+reader+"'@'%'").catch(()=>{});
       if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
       await admin.end().catch(()=>{});
     }
