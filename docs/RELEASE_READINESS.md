@@ -20,7 +20,7 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
 - [ ] Confirm the active key ID and every historical key ID referenced by prepared draws are present.
-- [ ] Confirm there are no prepared draws with missing ciphertext, nonce, tag, unknown key IDs, or unsupported algorithms.
+- [ ] Confirm every historical draw key ID is accounted for in the protected keyring backup; do not infer ciphertext decryptability from the baseline preflight alone.
 - [ ] Confirm no legacy campaign-code ownership mismatch and no campaign exceeds the 999999 sequence limit.
 - [ ] Confirm no old prepared draw requires manual recovery before applying the draw migrations.
 - [ ] Run `scripts/production-migration-preflight.sql` against the exact target database using a read-only MySQL account; retain its output with the release evidence.
@@ -100,7 +100,8 @@ Run production migrations only after explicit approval, a verified backup, and a
 5. Install production dependencies with the repository's supported Node.js version.
 6. Run the approved migration command once against the exact target database using the protected migration-only credential file; do not inject migration credentials into the service environment.
 7. If a migration fails, stop. Capture the error and inspect `schema_migrations` plus `information_schema`; do not blindly rerun or manually drop objects.
-8. Verify migration checksums and the expected schema before enabling application traffic.
+8. Run `scripts/post-migration-integrity-check.sql` with a dedicated SELECT-only account after migrations. Confirm no missing/invalid prepared-draw metadata, unsupported algorithms, counter drift, or duplicate code sequences; compare reported key IDs with the protected keyring and restore rehearsal.
+9. Verify migration checksums and the expected schema before enabling application traffic.
 9. Start or restart the systemd service only after separate deployment approval.
 10. Observe logs and service health before re-enabling registration and payment workflows.
 
@@ -117,6 +118,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] `/start` and the participant profile flow work.
 - [ ] Duplicate registration is idempotent and does not return revoked/disqualified codes.
 - [ ] New code format, sequence boundaries, per-campaign counter isolation, and database uniqueness are correct.
+- [ ] Post-migration integrity SQL returns no missing/invalid draw encryption metadata, unsupported algorithms, code-counter drift, or duplicate sequence values.
 - [ ] Paid-order creation, receipt submission, approval/rejection, and code issuance work end-to-end.
 - [ ] Admin role and permission checks are enforced server-side.
 - [ ] Campaign editing opens the input prompt for every editable field (title, description, prize title/description, terms, start/end/draw dates, capacity, price, and codes per participant); invalid inputs are rejected without changing campaign data, and valid inputs persist and appear in campaign details.

@@ -69,7 +69,7 @@ Stop release preparation if it reports any of the following:
 - code/entry campaign ownership mismatches;
 - sequence overflow;
 - existing draw candidates or winners that block migration 006;
-- prepared draws with unresolved key/ciphertext/algorithm state;
+- prepared draw rows requiring historical review. This baseline phase reports draw IDs/status/commitment only; ciphertext, nonce, tag, and keyring metadata are checked in the post-migration phase below;
 - unexpected migration history or missing required schema;
 - migration checksum disagreement.
 
@@ -130,8 +130,9 @@ Only after separate approval:
    ```
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
-4. Capture migration output and verify `schema_migrations` checksums and expected schema.
-5. If migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
+4. If a migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
+5. After all migrations complete successfully, run `scripts/post-migration-integrity-check.sql` against the same target database using a dedicated SELECT-only MySQL account, not the migration account. Retain all four result sets. Stop if any prepared draw reports MISSING, MISSING_OR_INVALID, or UNSUPPORTED metadata; compare every returned key ID with the protected keyring inventory and the independent decrypt/restore rehearsal. Any counter-drift or duplicate-sequence row is also a release blocker.
+6. Capture migration and post-migration outputs and verify `schema_migrations` checksums and expected schema before enabling application traffic.
 
 ## 6. Point systemd at the staged release
 
