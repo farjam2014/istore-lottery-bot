@@ -64,7 +64,7 @@ function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmi
     async rollback(){state.rollbacks++;},
     release(){},
     async execute(sql,params=[]){
-      if(sql.startsWith('SELECT role FROM admin_role_sessions'))return [[state.session?{...state.session}:undefined].filter(Boolean),[]];
+      if(sql.startsWith('SELECT role,created_at FROM admin_role_sessions'))return [[state.session?{...state.session}:undefined].filter(Boolean),[]];
       if(sql.startsWith('SELECT role,is_active FROM admin_users'))return [[state.target?{role:state.target.role,is_active:state.target.is_active}:undefined].filter(Boolean),[]];
       if(sql.startsWith("SELECT telegram_user_id FROM admin_users WHERE role='super_admin'"))return [state.activeSuperAdmins,[]];
       if(sql.startsWith('UPDATE admin_users SET role=')){state.target.role=params[0];return [{affectedRows:1},[]];}
