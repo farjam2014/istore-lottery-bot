@@ -300,7 +300,11 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     }
   }
   if(file==='20261117_006_draw_relational_integrity.sql'){
-    if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
+    if(index===0){
+      const [[legacy]]=await connection.execute('SELECT (SELECT COUNT(*) FROM draw_candidates)+(SELECT COUNT(*) FROM draw_winners) AS total');
+      if(Number(legacy.total)>0) throw new Error('Draw relational-integrity migration requires empty legacy draw tables. Existing draw evidence must be reviewed and reconciled explicitly; no historical candidate snapshot will be inferred.');
+      return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
+    }
     if(index===1) return hasIndex(connection,'campaign_codes','uq_code_entry_campaign_value');
     if(index===2){
       const [[legacy]]=await connection.execute('SELECT (SELECT COUNT(*) FROM draw_candidates)+(SELECT COUNT(*) FROM draw_winners) AS total');
@@ -392,7 +396,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
   return false;
 }
 
-export async function migrate(){
+export async function migrate({stopBefore}={}){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await getMigrationPool().getConnection();
@@ -413,6 +417,10 @@ export async function migrate(){
 
     const dir=path.join(here,'migrations');
     const files=(await readdir(dir)).filter(x=>x.endsWith('.sql')).sort();
+    if(stopBefore!==undefined){
+      if(config.NODE_ENV!=='test')throw new Error('Migration stopBefore is available only in test environments.');
+      if(typeof stopBefore!=='string'||!files.includes(stopBefore))throw new Error('Unknown migration stopBefore target.');
+    }
     const [appliedRows]=await c.execute('SELECT version FROM schema_migrations ORDER BY version');
     assertMigrationHistoryIntegrity(appliedRows.map(row=>row.version),files);
 
@@ -420,6 +428,7 @@ export async function migrate(){
     // references migration files that are absent from this release source.
     for(const statement of splitSql(base))await c.query(statement);
     for(const file of files){
+      if(file===stopBefore)break;
       const sql=await readFile(path.join(dir,file),'utf8');
       const checksum=createHash('sha256').update(sql).digest('hex');
       const [[existing]]=await c.execute('SELECT checksum FROM schema_migrations WHERE version=?',[file]);
