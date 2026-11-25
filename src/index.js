@@ -1,5 +1,5 @@
 import {createBot} from './bot/register.js';
-import {pingDatabase,pool} from './database/pool.js';
+import {pingDatabase,pool,adminLockPool} from './database/pool.js';
 import {logger} from './shared/logger.js';
 import {expirePendingOrders} from './modules/payments/payment.service.js';
 import {processNotificationOutbox} from './modules/notifications/outbox.worker.js';
@@ -59,7 +59,7 @@ async function main(){
   logger.info({signal},'Shutting down');
   clearInterval(expiryTimer);clearInterval(outboxTimer);clearInterval(campaignScheduleTimer);clearInterval(updateInboxTimer);clearInterval(retentionCleanupTimer);
   try{bot.stop(signal);}catch{}
-  await pool.end();
+  await Promise.all([pool.end(),adminLockPool.end()]);
   process.exit(0);
  };
  process.once('SIGINT',()=>shutdown('SIGINT'));
