@@ -29,6 +29,13 @@ test('admin wizard session expiry fails closed for invalid timestamps',()=>{
   assert.equal(isExpiredAdminWizardSession('not-a-date',Date.now()),true);
 });
 
+test('admin support reply sessions expire after 24 hours before consuming text',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/support_sessions WHERE telegram_user_id=\? AND step='admin_reply'[^\n]*updated_at/);
+  assert.match(source,/isExpiredAdminWizardSession\(lockedSession\.updated_at\)/);
+});
+
 test('admin search sessions enforce a 24-hour TTL and refresh it when restarted',()=>{
   const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
   assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND step='participant' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
