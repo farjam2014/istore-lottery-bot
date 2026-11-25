@@ -39,3 +39,12 @@ test('production migration preflight checks current privacy and replay schema ca
     assert.ok(preflight.includes(fragment),`preflight is missing schema capability check: ${fragment}`);
   }
 });
+
+test('baseline preflight gates migration-added tables and columns before querying them',()=>{
+  assert.match(preflight,/TABLE_NAME='telegram_rate_limits'/);
+  assert.doesNotMatch(preflight,/UNION ALL SELECT 'telegram_rate_limits', COUNT\(\) FROM telegram_rate_limits/);
+  assert.match(preflight,/PREPARE preflight_stmt FROM @preflight_sql/);
+  assert.match(preflight,/PENDING_MIGRATION_003/);
+  assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_candidates'[\s\S]*?COLUMN_NAME='campaign_id'/);
+  assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_winners'[\s\S]*?COLUMN_NAME='campaign_id'/);
+});
