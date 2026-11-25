@@ -99,3 +99,9 @@ test('release runbook verifies append-only admin audit triggers after migration'
   assert.match(runbook,/trg_admin_audit_log_no_delete/);
   assert.match(runbook,/AUDIT_TRIGGER_COUNT/);
 });
+
+test('append-only audit trigger recovery verifies the protected table identity',()=>{
+  const migration=readFileSync(new URL('../../src/database/migrate.js',import.meta.url),'utf8');
+  assert.match(migration,/SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema\\.TRIGGERS/);
+  assert.match(migration,/row\\.EVENT_OBJECT_TABLE!=='admin_audit_log'/);
+});
