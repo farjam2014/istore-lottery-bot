@@ -48,6 +48,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await saveSession(replaySessionId,'awaiting_instagram',{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-25T10:00:00.000Z'},123456);
     const savedReplaySession=await getSession(replaySessionId);
     assert.equal(savedReplaySession.lastUpdateId,123456,'Consent session save must retain the replay cursor.');
+    await saveSession(replaySessionId,'awaiting_name',{privacyConsentVersion:'stale'},123455);
+    const staleReplaySession=await getSession(replaySessionId);
+    assert.equal(staleReplaySession.lastUpdateId,123456,'An older consent callback must not roll back the replay cursor.');
+    assert.equal(staleReplaySession.step,'awaiting_instagram','An older consent callback must not overwrite the newer session step.');
+    assert.equal(staleReplaySession.payload.privacyConsentVersion,'v1','An older consent callback must not overwrite the newer session payload.');
     await clearSession(replaySessionId);
 
     // Verify the current migration set and the complete legacy admin wizard contract.
