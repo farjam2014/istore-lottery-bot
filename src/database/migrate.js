@@ -59,6 +59,18 @@ async function hasTable(connection,table){
   );
   return Number(row.total)>0;
 }
+async function hasAppendOnlyAuditTrigger(connection,trigger,event){
+  const [[row]]=await connection.execute(
+    'SELECT EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?',
+    [trigger]
+  );
+  if(!row)return false;
+  const statement=String(row.ACTION_STATEMENT||'').replace(/\s+/g,' ').toUpperCase();
+  if(row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||!statement.includes('SQLSTATE \'45000\'')||!statement.includes('ADMIN_AUDIT_LOG IS APPEND-ONLY')){
+    throw new Error('Incompatible existing audit trigger '+trigger+'. Inspect before migration recovery.');
+  }
+  return true;
+}
 
 // These guards make replay safe if MySQL committed DDL but the process stopped
 // before schema_migrations could record the completed migration.
@@ -109,6 +121,11 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index===1)return hasNullableBigintColumn(connection,'profile_change_sessions','last_update_id');
     if(index===2)return false; // Clear pre-cursor profile sessions after adding the cursor.
     throw new Error('Unexpected statement index in 20261125_003_participant_session_replay.sql.');
+  }
+  if(file==='20261125_004_admin_audit_append_only.sql'){
+    if(index===0)return hasAppendOnlyAuditTrigger(connection,'trg_admin_audit_log_no_update','UPDATE');
+    if(index===1)return hasAppendOnlyAuditTrigger(connection,'trg_admin_audit_log_no_delete','DELETE');
+    throw new Error('Unexpected statement index in 20261125_004_admin_audit_append_only.sql.');
   }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
