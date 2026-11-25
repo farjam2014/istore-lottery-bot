@@ -75,6 +75,8 @@ Stop release preparation if it reports any of the following:
 
 Reconcile the exact target database and key inventory before any write.
 
+**Migration execution boundary:** Never execute any file under `src/database/migrations/` directly with the MySQL client, Workbench, or an ad-hoc SQL session. Those files are ordered inputs to `src/database/migrate.js`; direct execution bypasses the runner's migration-history, checksum, and data precondition guards. This is especially important for `20261117_006_draw_relational_integrity.sql`: the runner must verify that both legacy draw tables are empty before the first migration DDL. If the preflight finds any draw candidate or winner, stop. Do not delete those rows, hand-edit the migration, or run its backfill manually; preserve the evidence and prepare a separately reviewed reconciliation plan.
+
 ## 5. Approved maintenance window
 
 Before applying the replay-cursor migrations, announce a short maintenance window. Pre-cursor in-progress registration, pending receipt-upload, participant support/profile, and admin text-wizard sessions are intentionally cleared because they cannot be safely associated with a Telegram Update ID. Existing participant profiles, submitted payment receipts, payment orders, and issued raffle codes are not deleted by these session-cleanup statements. Users with an interrupted receipt-upload flow may need to resend the receipt after service recovery.
