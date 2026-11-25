@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createAdminUpdateLock} from '../../src/bot/middleware/admin-update-lock.js';
+import {readFileSync} from 'node:fs';
 
 function fakeLockDatabase(){
   const tails=new Map();
@@ -91,4 +92,12 @@ test('database-backed admin status is revalidated after the per-admin lock is ac
   await lock(ctx(12345),async()=>{nextCalls++;});
   assert.equal(lookups,2,'the middleware must re-read admin status after GET_LOCK succeeds');
   assert.equal(nextCalls,1,'the now-deactivated account proceeds only as an ordinary user');
+});
+
+test('admin advisory locks use a pool isolated from application queries',()=>{
+  const middleware=readFileSync(new URL('../../src/bot/middleware/admin-update-lock.js',import.meta.url),'utf8');
+  const pools=readFileSync(new URL('../../src/database/pool.js',import.meta.url),'utf8');
+  assert.match(middleware,/import \{adminLockPool\} from '\.\.\/\.\.\/database\/pool\.js'/);
+  assert.match(middleware,/database=adminLockPool/);
+  assert.match(pools,/export const adminLockPool=mysql\.createPool/);
 });
