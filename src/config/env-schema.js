@@ -18,6 +18,10 @@ export const envSchema = z.object({
   PRIVACY_NOTICE_VERSION: z.string().regex(/^[A-Za-z0-9._-]{1,40}$/).optional()
 }).superRefine((value,ctx)=>{
   if(value.NODE_ENV==='production'){
+    const adminIds=value.BOT_ADMIN_IDS.split(',').map(id=>id.trim()).filter(Boolean);
+    if(!adminIds.length)ctx.addIssue({code:'custom',path:['BOT_ADMIN_IDS'],message:'At least one production super-admin Telegram ID is required.'});
+    if(adminIds.some(id=>!/^\d{5,20}$/.test(id)))ctx.addIssue({code:'custom',path:['BOT_ADMIN_IDS'],message:'Production super-admin IDs must be numeric Telegram IDs (5–20 digits).'});
+    if(!value.MYSQL_PASSWORD)ctx.addIssue({code:'custom',path:['MYSQL_PASSWORD'],message:'A non-empty MySQL password is required in production.'});
     if(!value.PRIVACY_NOTICE_URL)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'A published privacy notice URL is required in production.'});
     if(!value.PRIVACY_NOTICE_VERSION)ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_VERSION'],message:'A privacy notice version is required in production.'});
     if(value.PRIVACY_NOTICE_URL){const host=new URL(value.PRIVACY_NOTICE_URL).hostname;if(['example.com','www.example.com','localhost'].includes(host)||host.endsWith('.example')||host.endsWith('.test')||host.endsWith('.invalid'))ctx.addIssue({code:'custom',path:['PRIVACY_NOTICE_URL'],message:'Replace the placeholder privacy notice URL with the published production notice.'});}
