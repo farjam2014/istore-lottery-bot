@@ -5,7 +5,7 @@ import {isRegistrationUpdateAllowed} from '../../src/bot/middleware/registration
 import {buildPrivacyAcceptedSession,isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
 
 const base={
-  NODE_ENV:'production',BOT_TOKEN:'12345678901234567890:test-token',BOT_ADMIN_IDS:'123',
+  NODE_ENV:'production',BOT_TOKEN:'12345678901234567890:test-token',BOT_ADMIN_IDS:'123456789',
   MYSQL_HOST:'127.0.0.1',MYSQL_PORT:'3306',MYSQL_DATABASE:'ustore_test',MYSQL_USER:'ustore',MYSQL_PASSWORD:'test'
 };
 
@@ -24,15 +24,15 @@ test('privacy notice acceptance callback is allowed before a participant profile
 });
 
 test('re-accepting a privacy notice preserves an in-progress registration step and collected data',()=>{
-  const existing={step:'awaiting_instagram',payload:{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'old-v1'},lastUpdateId:101};
-  const next=buildPrivacyAcceptedSession(existing,'new-v2');
+  const existing={step:'awaiting_instagram',payload:{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'old-v1',privacyConsentAt:'2026-11-20T09:00:00.000Z'},lastUpdateId:101};
+  const next=buildPrivacyAcceptedSession(existing,'new-v2','2026-11-25T11:00:00.000Z');
   assert.equal(next.step,'awaiting_instagram');
   assert.equal(next.lastUpdateId,101);
-  assert.deepEqual(next.payload,{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'new-v2'});
+  assert.deepEqual(next.payload,{fullName:'Test User',phone:'+989121234567',privacyConsentVersion:'new-v2',privacyConsentAt:'2026-11-25T11:00:00.000Z'});
 });
 
 test('first privacy acceptance starts a new registration at the name step',()=>{
-  assert.deepEqual(buildPrivacyAcceptedSession(null,'v1'),{step:'awaiting_name',payload:{privacyConsentVersion:'v1'},lastUpdateId:null});
+  assert.deepEqual(buildPrivacyAcceptedSession(null,'v1','2026-11-25T11:00:00.000Z'),{step:'awaiting_name',payload:{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-25T11:00:00.000Z'},lastUpdateId:null});
 });
 
 test('an older retried registration message cannot be mistaken for input to a later step',()=>{
@@ -41,4 +41,15 @@ test('an older retried registration message cannot be mistaken for input to a la
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:false},update:{update_id:100}},session),false);
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:102}},session),false);
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:101}},session),false);
+});
+
+test('reaccepting the same privacy notice version preserves the original consent timestamp',()=>{
+  const existing={step:'awaiting_phone',payload:{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-20T09:00:00.000Z'},lastUpdateId:500};
+  const next=buildPrivacyAcceptedSession(existing,'v1','2026-11-25T11:00:00.000Z');
+  assert.equal(next.payload.privacyConsentAt,'2026-11-20T09:00:00.000Z');
+  assert.equal(next.lastUpdateId,500);
+});
+
+test('invalid privacy acceptance timestamps are rejected',()=>{
+  assert.throws(()=>buildPrivacyAcceptedSession(null,'v1','not-a-date'),/timestamp must be valid/);
 });
