@@ -95,7 +95,7 @@ test('admin wizard advancement is an atomic expected-step and expected-cursor co
   const calls=[];
   const execute=async(sql,params)=>{calls.push({sql,params});return [{affectedRows:1}];};
   assert.equal(await advanceAdminWizard({execute,telegramUserId:'123456',expectedStep:'title',expectedLastUpdateId:100,step:'description',payload:{title:'Example'},updateId:101}),true);
-  assert.match(calls[0].sql,/WHERE telegram_user_id=\\? AND step=\\? AND last_update_id=\\? AND last_update_id<\\?/);
+  assert.ok(calls[0].sql.includes('WHERE telegram_user_id=? AND step=? AND last_update_id=? AND last_update_id<?'));
   assert.deepEqual(calls[0].params,['description',JSON.stringify({title:'Example'}),101,'123456','title',100,101]);
 });
 
