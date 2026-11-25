@@ -31,6 +31,7 @@ export async function completeRegistration(ctx,data){
     fullName:normalizeFullName(data.fullName),
     phone:normalizePhone(data.phone),
     instagramHandle:normalizeInstagram(data.instagramHandle),
-    privacyConsentVersion:data.privacyConsentVersion
+    privacyConsentVersion:data.privacyConsentVersion,
+    privacyConsentAt:data.privacyConsentAt
   });
 }
