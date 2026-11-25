@@ -20,7 +20,8 @@ test('non-production configuration can omit the privacy notice while developing'
 });
 
 test('privacy notice acceptance callback is allowed before a participant profile exists',()=>{
-  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept'}),false);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:-1'}),true);
   assert.equal(isRegistrationUpdateAllowed({message:{text:'my phone'},session:null}),false);
 });
 
@@ -30,6 +31,7 @@ test('cursor-bound privacy and cancellation callbacks pass the registration gate
   assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:cancel:-1'}),true);
   assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:cancel:12345'}),true);
   assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:not-a-cursor'}),false);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:cancel'}),false);
 });
 
 test('re-accepting a privacy notice preserves an in-progress registration step and collected data',()=>{
