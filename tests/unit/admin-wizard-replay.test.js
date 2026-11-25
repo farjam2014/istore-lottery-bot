@@ -9,14 +9,17 @@ test('admin wizard rejects a replayed update already applied to the current step
   assert.equal(isOlderAdminWizardReplay({state:{durableReplay:true},update:{update_id:100}},wizard),true);
 });
 
-test('admin wizard allows a newer update and all first-attempt updates',()=>{
+test('admin wizard accepts only updates newer than the persisted cursor, regardless of inbox attempt',()=>{
   const wizard={step:'description',lastUpdateId:101};
   assert.equal(isOlderAdminWizardReplay({state:{durableReplay:true},update:{update_id:102}},wizard),false);
-  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:false},update:{update_id:100}},wizard),false);
+  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:false},update:{update_id:102}},wizard),false);
+  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:false},update:{update_id:100}},wizard),true);
+  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:true},update:{update_id:101}},wizard),true);
 });
 
-test('admin wizard does not reject when there is no persisted cursor',()=>{
-  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:true},update:{update_id:100}},{step:'title',lastUpdateId:null}),false);
+test('admin wizard fails closed when the persisted cursor or incoming update ID is missing or invalid',()=>{
+  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:false},update:{update_id:100}},{step:'title',lastUpdateId:null}),true);
+  assert.equal(isOlderAdminWizardReplay({state:{durableReplay:false},update:{}},{step:'title',lastUpdateId:100}),true);
 });
 
 test('admin wizard session expires at the configured TTL boundary',()=>{
