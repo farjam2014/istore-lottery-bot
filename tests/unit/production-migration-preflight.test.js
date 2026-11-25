@@ -109,5 +109,5 @@ test('append-only audit trigger recovery verifies the protected table identity',
 test('append-only audit trigger recovery rejects additional trigger statements',()=>{
   const migration=readFileSync(new URL('../../src/database/migrate.js',import.meta.url),'utf8');
   assert.match(migration,/statement!==["']SIGNAL SQLSTATE/);
-  assert.doesNotMatch(migration,/statement\\.includes\\('SQLSTATE/);
+  assert.doesNotMatch(migration,/statement\.includes\('SQLSTATE/);
 });
