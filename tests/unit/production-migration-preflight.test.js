@@ -48,3 +48,15 @@ test('baseline preflight gates migration-added tables and columns before queryin
   assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_candidates'[\s\S]*?COLUMN_NAME='campaign_id'/);
   assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_winners'[\s\S]*?COLUMN_NAME='campaign_id'/);
 });
+
+test('MySQL migration history and replay fixtures include each admin wizard migration once',()=>{
+  const mysqlIntegration=readFileSync(new URL('../integration/mysql.test.js',import.meta.url),'utf8');
+  const history=mysqlIntegration.split('// Verify the current migration set')[1]?.split(']){')[0]||'';
+  const replay=mysqlIntegration.split('// Simulate DDL committed but migration history not recorded')[1]?.split(']){')[0]||'';
+  for(const [label,section] of [['history',history],['replay',replay]]){
+    assert.ok(section,'Missing '+label+' migration fixture.');
+    for(const migration of ['20261124_003_registration_session_replay.sql','20261124_004_admin_wizard_replay.sql']){
+      assert.equal(section.split(migration).length-1,1,label+' fixture must include '+migration+' exactly once.');
+    }
+  }
+});
