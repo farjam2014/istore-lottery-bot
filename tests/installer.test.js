@@ -66,7 +66,7 @@ test('fresh installation requires and writes a published privacy notice',()=>{
 test('installer keeps DDL privileges on a separate root-protected migration account',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE ON \$DB_NAME\.\* TO '\$DB_USER'@'127\.0\.0\.1'/);
-  assert.doesNotMatch(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON \$DB_NAME\.\* TO '\$DB_USER'/);
+  assert.doesNotMatch(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON \$DB_NAME\.\* TO '\$DB_USER'/);
   assert.ok(script.includes("SET DEFAULT ROLE NONE TO '$DB_USER'@'127.0.0.1';"));
   assert.ok(script.includes("SET DEFAULT ROLE NONE TO '$MIGRATION_DB_USER'@'127.0.0.1';"));
   assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON \$DB_NAME\.\* TO '\$MIGRATION_DB_USER'/);
