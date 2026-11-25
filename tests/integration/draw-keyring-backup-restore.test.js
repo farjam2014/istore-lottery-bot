@@ -68,21 +68,21 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     drawId=draw.insertId;
 
     if(!process.env.MYSQL_RESTORE_DATABASE){
-      execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:adminEnv,stdio:'pipe'});
+      execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:adminEnv,stdio:'pipe',timeout:60000});
       restoreCreated=true;
     }
     if(process.env.MYSQL_RESTORE_DATABASE){
-      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:adminEnv,encoding:'utf8'}).trim();
+      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:adminEnv,encoding:'utf8',timeout:60000}).trim();
       assert.equal(existingObjects,'0','Restore database must be empty.');
     }
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',user,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
       '--column-statistics=0',database
-    ],{env:childEnv,encoding:'buffer',maxBuffer:128*1024*1024});
+    ],{env:childEnv,encoding:'buffer',maxBuffer:128*1024*1024,timeout:180000});
     assert.ok(backup.length>0,'mysqldump returned an empty backup.');
     execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,restoreDatabase],{
-      env:adminEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024
+      env:adminEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
     });
 
     restored=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:restoreDatabase});
