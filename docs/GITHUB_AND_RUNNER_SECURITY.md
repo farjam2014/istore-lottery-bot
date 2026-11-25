@@ -1,62 +1,46 @@
-# GitHub Governance and Self-Hosted Runner Security
+# GitHub and Runner Security
 
-## Current audit status
+## Verified repository state — 2026-11-25
 
-The repository branch and ruleset inventory reviewed during this audit showed no enforced branch protection/ruleset on the critical branches. The VPS diagnostic workflow on the legacy main branch also uses a persistent self-hosted runner and must be treated as a privileged host-execution surface.
+- Repository visibility is currently **Public**. The owner must confirm that this is intentional. A complete secret scan across all Git history has not been demonstrated by this audit; current-file searches are not a substitute.
+- The current `main` branch contains only `.github/workflows/tests.yml`, which uses GitHub-hosted `ubuntu-latest` runners and immutable action commit pins.
+- The `release/ustore-unified` branch contains only `.github/workflows/ci.yml`; it also uses GitHub-hosted runners and immutable action pins.
+- PR #82 was merged as `7ef2c2a4aac46add9e0c5f92cd0c7f2aaf58626f`, removing the two legacy VPS diagnostics workflows.
+- PR #86 was merged as `905c37da8bc95689615f7cdd9368a77a2e632a1b`, removing the remaining VPS operations workflow.
+- Therefore, the currently inspected `main` and `release/ustore-unified` workflow sets do not target the Production self-hosted runner.
 
-This document is a required configuration checklist. Repository settings and the actual runner host are not changed by a source-code PR.
+## Remaining host-side runner risk
 
-## Required branch rules
+The latest available read-only host audit snapshot, dated 2026-11-24, still showed the GitHub self-hosted runner service installed and active. It also showed a root-owned `/usr/local/sbin/istore-admin` helper reachable through passwordless sudo, with `status`, `health`, `start`, and `restart` actions.
 
-Apply rules to:
-- main
-- release/ustore-unified
-- remediation/release-hardening-release-base (and the final release branch)
+Removing workflow YAML does **not** unregister the runner, stop its service, or revoke the sudo helper. The host state has not been re-queried after that snapshot.
 
-Require:
-- Pull requests before merge.
-- At least one independent approval for production/release changes.
-- Required CI checks on the exact proposed head SHA.
-- Dismissal of stale approvals after new commits.
-- Conversation resolution before merge.
-- No force pushes and no branch deletion.
-- Restrict who can bypass the rules; avoid broad administrator bypass.
-- Require linear history if the repository's merge strategy supports it.
+Before Production release:
 
-Do not treat a green check from an old commit as approval for a newer head SHA.
+1. Disable and unregister the self-hosted runner from the host and GitHub repository.
+2. Remove its passwordless sudo rule and helper, or reduce the helper to non-mutating `status`/`health` operations if a documented operational need remains.
+3. Confirm the runner no longer appears online in repository Actions settings.
+4. Do not restore any workflow that targets a Production host or self-hosted runner.
 
-## GitHub Actions
+## Required GitHub repository controls
 
-- Set explicit minimal workflow permissions; the release CI workflow now uses contents: read.
-- Pin third-party actions to verified full commit SHAs and use Dependabot/Renovate to update them.
-- Keep CI on GitHub-hosted ephemeral runners.
-- Do not expose production secrets to pull-request workflows.
-- Restrict workflow_dispatch and deployment environments to named maintainers and protected refs.
-- Use immutable commit SHAs as deployment inputs; never deploy a mutable branch name.
-- Require an environment approval before production deployment.
+The GitHub API currently reports `protected=false` for both `main` and `release/ustore-unified`. These branches therefore do not enforce required reviews or status checks.
 
-## Persistent self-hosted runner
+Before release, the repository owner should enable branch protection/rulesets for both branches:
 
-Before any self-hosted workflow is allowed to execute:
-- Place the runner in a dedicated runner group restricted to this repository and trusted branches.
-- Use an ephemeral or disposable runner; do not reuse a long-lived machine with ambient production credentials.
-- Do not allow arbitrary repository writers to dispatch shell workflows on the runner.
-- Remove broad sudo rights. The runner account should not be able to read application secrets, database backups, or unrelated host files.
-- Review the exact source and argument validation of any sudo helper such as the reported istore-admin helper.
-- Restrict outbound network access where feasible and record runner job provenance.
-- Never print environment variables, credentials, .env contents, or unredacted host/user inventory in job logs.
+- Require pull requests before merging.
+- Require at least one independent approval.
+- Require the exact CI status check and require the branch to be up to date.
+- Require review conversations to be resolved.
+- Block force pushes and branch deletion.
+- Restrict bypass permissions to a documented break-glass role.
 
-## Legacy workflow requiring action
+Because the repository is Public, run a full-history secret scan (for example, Gitleaks) before release. Rotate any Telegram token, database password, encryption key, or other credential that was ever committed, even if the file was later deleted. No comprehensive history scan or rotation was performed as part of this repository-only work.
 
-The legacy `vps-safe-diagnostics.yml` and `vps-readonly-diagnostics.yml` workflows were identified on `main`. Both execute on a persistent self-hosted runner through workflow dispatch. Their removal is prepared separately in Draft PR82 because these files live on the default `main` branch, not the Release source tree.
+## Workflow policy
 
-Before any self-hosted workflow is restored:
-1. Merge and verify the workflow-removal change on `main`; until then, treat the workflows as active.
-2. Apply branch protection and required checks to `main` and release branches.
-3. Confirm the runner's actual OS account, groups, sudo rules, work directory, and persistence model from the host.
-4. Verify that a repository write cannot turn a workflow file into arbitrary privileged shell execution.
-5. Restore only a reviewed, allowlisted diagnostic workflow after the runner is isolated from production credentials and application data.
-
-## Release gate
-
-This is not closed by editing application code. A repository administrator must apply the branch rules and a host administrator must verify runner isolation and sudo boundaries. Attach evidence (settings screenshots or API output with sensitive values removed) to the release record.
+- Use GitHub-hosted `ubuntu-latest` runners only.
+- Pin every third-party action to a reviewed full commit SHA.
+- Grant the minimum workflow token permissions; default to read-only.
+- Never expose Production credentials to pull-request workflows.
+- Never let CI run database migrations, restart services, or execute host administration commands.
