@@ -6,11 +6,11 @@ import mysql from 'mysql2/promise';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 
-test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled},async()=>{
+test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
   const host=process.env.MYSQL_HOST||'127.0.0.1';
   const port=Number(process.env.MYSQL_PORT||3306);
-  const adminUser=process.env.MYSQL_TEST_ADMIN_USER||process.env.MYSQL_USER;
-  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD??process.env.MYSQL_PASSWORD??'';
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
   assert.ok(adminUser,'A disposable MySQL admin account is required for the baseline preflight fixture.');
   const suffix=randomBytes(6).toString('hex');
   const database='ustore_preflight_'+suffix+'_ci';
