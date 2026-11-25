@@ -12,7 +12,7 @@ export function profileGate(){return async(ctx,next)=>{
     ctx.state.profile=p;
     if(p.privacy_consent_version!==config.PRIVACY_NOTICE_VERSION){
       const callbackData=ctx.callbackQuery?.data||'';
-      if(['privacy:accept','registration:cancel'].includes(callbackData)||/^(?:privacy:accept|registration:cancel):(?:-1|[0-9]{1,16})$/.test(callbackData))return next();
+      if(/^(?:privacy:accept|registration:cancel):(?:-1|[0-9]{1,16})$/.test(callbackData))return next();
       if(ctx.callbackQuery)await ctx.answerCbQuery('برای ادامه باید اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',{show_alert:true}).catch(()=>{});
       else await ctx.reply('برای ادامه استفاده از ربات، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
       return;
