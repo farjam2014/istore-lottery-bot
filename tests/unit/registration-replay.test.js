@@ -46,7 +46,7 @@ test('registration cancel callbacks carry the expected session cursor and delete
   const keyboard=readFileSync(new URL('../../src/bot/keyboards/user.keyboard.js',import.meta.url),'utf8');
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
   const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
-  assert.match(keyboard,/registration:cancel:'\\+String\\(lastUpdateId===null\\|\\|lastUpdateId===undefined\\?-1:/);
+  assert.match(keyboard,/registration:cancel:'\+String\(lastUpdateId===null\|\|lastUpdateId===undefined\?-1:/);
   assert.match(handler,/registration:cancel:\(-1\|\[0-9\]\{1,16\}\)/);
   assert.match(handler,/registrationSessionCursorMatches\(current,expectedCursor\)/);
   assert.match(repository,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\? AND last_update_id=\?/);
