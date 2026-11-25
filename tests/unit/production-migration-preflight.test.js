@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 
 const preflight=readFileSync(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
 
@@ -64,5 +64,16 @@ test('MySQL migration history and replay fixtures include each admin wizard migr
     for(const migration of ['20261124_003_registration_session_replay.sql','20261124_004_admin_wizard_replay.sql','20261125_001_support_reply_replay.sql','20261125_002_admin_search_replay.sql']){
       assert.equal(section.split(migration).length-1,1,label+' fixture must include '+migration+' exactly once.');
     }
+  }
+});
+
+test('release readiness inventory lists every SQL migration in the repository',()=>{
+  const migrations=readdirSync(new URL('../../src/database/migrations/',import.meta.url))
+    .filter(name=>name.endsWith('.sql'))
+    .sort();
+  const readiness=readFileSync(new URL('../../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
+  assert.equal(migrations.length,26,'Update the release-readiness inventory when adding or removing migrations.');
+  for(const migration of migrations){
+    assert.ok(readiness.includes('`'+migration+'`'),'Release readiness inventory is missing '+migration);
   }
 });
