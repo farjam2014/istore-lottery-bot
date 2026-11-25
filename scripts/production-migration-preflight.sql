@@ -62,17 +62,56 @@ SELECT 'draw_rows_blocking_migration_006' AS check_name,
        (SELECT COUNT(*) FROM draw_candidates) AS candidate_rows,
        (SELECT COUNT(*) FROM draw_winners) AS winner_rows;
 
--- Prepared draws need special handling: the old schema stores seed_hash only.
--- Do not cancel/recreate these draws or assume the seed can be recovered.
+-- Prepared draws need special handling. Report integrity metadata without
+-- exposing seed material or encryption-key values. Any MISSING/UNSUPPORTED
+-- result is a release blocker and requires manual historical-draw review.
 SELECT status, COUNT(*) AS draw_count
 FROM campaign_draws
 GROUP BY status
 ORDER BY status;
 
-SELECT id, campaign_id, status, algorithm, seed_hash, created_at
+SELECT id, campaign_id, status, algorithm, seed_key_id, seed_hash,
+       CASE WHEN seed_ciphertext IS NULL OR LENGTH(TRIM(seed_ciphertext))=0
+            THEN 'MISSING' ELSE 'PRESENT' END AS ciphertext_status,
+       CASE WHEN seed_nonce IS NULL OR LENGTH(seed_nonce)<>24
+            THEN 'MISSING_OR_INVALID' ELSE 'PRESENT' END AS nonce_status,
+       CASE WHEN seed_tag IS NULL OR LENGTH(seed_tag)<>32
+            THEN 'MISSING_OR_INVALID' ELSE 'PRESENT' END AS tag_status,
+       CASE WHEN algorithm<>'HMAC-SHA256 candidate-commitment-rank-v2'
+            THEN 'UNSUPPORTED' ELSE 'SUPPORTED' END AS algorithm_status
 FROM campaign_draws
 WHERE status='prepared'
 ORDER BY id;
+
+-- Key IDs are identifiers, not key material. Compare this list with the
+-- configured keyring in the approved secret manager without printing values.
+SELECT seed_key_id, COUNT(*) AS prepared_draw_count
+FROM campaign_draws
+WHERE status='prepared'
+GROUP BY seed_key_id
+ORDER BY seed_key_id;
+
+-- Counter drift can make future code issuance fail on the unique sequence
+-- constraint. Return only campaigns where the stored counter is behind data.
+SELECT c.id AS campaign_id,
+       COALESCE(counter.last_sequence,0) AS counter_last_sequence,
+       COALESCE(MAX(cc.sequence_number),0) AS max_existing_sequence
+FROM campaigns c
+LEFT JOIN campaign_code_counters counter ON counter.campaign_id=c.id
+LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id AND cc.sequence_number IS NOT NULL
+GROUP BY c.id,counter.last_sequence
+HAVING COALESCE(counter.last_sequence,0)<COALESCE(MAX(cc.sequence_number),0)
+    OR (counter.campaign_id IS NULL AND COUNT(cc.id)>0)
+ORDER BY c.id;
+
+-- Duplicate sequence values should be impossible after migration 001; report
+-- any unexpected legacy or manually modified rows explicitly.
+SELECT campaign_id, sequence_number, COUNT(*) AS duplicate_count
+FROM campaign_codes
+WHERE sequence_number IS NOT NULL
+GROUP BY campaign_id,sequence_number
+HAVING COUNT(*)>1
+ORDER BY campaign_id,sequence_number;
 
 -- Migration history and presence of all fourteen release migrations.
 SELECT version, checksum, applied_at
