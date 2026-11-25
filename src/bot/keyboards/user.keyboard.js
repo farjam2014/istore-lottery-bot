@@ -1,6 +1,6 @@
 import {Markup} from 'telegraf';
 export const registrationKeyboard=()=>Markup.inlineKeyboard([[Markup.button.callback('ثبت‌نام','registration:start')]]);
-export const privacyNoticeKeyboard=(url,expectedCursor=null)=>{const cursor=Number.isSafeInteger(Number(expectedCursor))?Number(expectedCursor):-1;return Markup.inlineKeyboard([...(url?[[Markup.button.url('مطالعه اطلاعیه حریم خصوصی',url)]]:[]),[Markup.button.callback('خواندم و می‌پذیرم','privacy:accept:'+cursor)],[Markup.button.callback('انصراف از ثبت‌نام','registration:cancel:'+cursor)]]);};
+export const privacyNoticeKeyboard=(url,expectedCursor=null)=>{const cursor=expectedCursor===null||expectedCursor===undefined?-1:(Number.isSafeInteger(Number(expectedCursor))?Number(expectedCursor):-1);return Markup.inlineKeyboard([...(url?[[Markup.button.url('مطالعه اطلاعیه حریم خصوصی',url)]]:[]),[Markup.button.callback('خواندم و می‌پذیرم','privacy:accept:'+cursor)],[Markup.button.callback('انصراف از ثبت‌نام','registration:cancel:'+cursor)]]);};
 export const registrationStartKeyboard=()=>Markup.keyboard([['ثبت‌نام']]).resize().oneTime();
 export const userMenuKeyboard=()=>Markup.inlineKeyboard([
  [Markup.button.callback('🎁 کمپین‌ها','user:campaigns'),Markup.button.callback('🎟 کدهای من','user:codes')],
