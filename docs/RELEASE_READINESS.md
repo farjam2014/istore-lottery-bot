@@ -76,7 +76,7 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 Important migration properties:
 
 - The application service uses `MYSQL_USER`/`MYSQL_PASSWORD`, restricted to DML on the application database. It must not have `CREATE`, `ALTER`, `INDEX`, or `REFERENCES` privileges. The admin audit table is protected by database triggers that reject UPDATE and DELETE, including attempts made by the runtime DML account.
-- Production migrations use `MYSQL_MIGRATION_USER`/`MYSQL_MIGRATION_PASSWORD` from `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by root with directory mode `700` and file mode `600`. These credentials must never be copied into the release `.env` or the systemd service environment.
+- Production migrations use `MYSQL_MIGRATION_USER`/`MYSQL_MIGRATION_PASSWORD` with the explicit `TRIGGER` privilege required by the append-only audit migration from `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by root with directory mode `700` and file mode `600`. These credentials must never be copied into the release `.env` or the systemd service environment.
 - The migration runner refuses to use the runtime account in production. CI/test environments may reuse their disposable test database account.
 
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
