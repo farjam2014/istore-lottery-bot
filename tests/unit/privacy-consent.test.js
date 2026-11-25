@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {privacyNoticeKeyboard} from '../../src/bot/keyboards/user.keyboard.js';
 import {envSchema} from '../../src/config/env-schema.js';
 import {isRegistrationUpdateAllowed} from '../../src/bot/middleware/registration-gate.js';
 import {buildPrivacyAcceptedSession,isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
@@ -77,4 +78,16 @@ test('privacy re-acceptance records the current callback update as the replay cu
 
 test('privacy acceptance requires a valid Telegram update ID',()=>{
   assert.throws(()=>buildPrivacyAcceptedSession(null,'v1','2026-11-25T11:00:00.000Z',NaN),/update ID must be a safe integer/);
+});
+
+test('privacy consent callback binds the exact notice version and remains within Telegram callback limits',()=>{
+  const markup=privacyNoticeKeyboard('https://ustore.ir/privacy',1234567890123456,'notice-version-2026.11').reply_markup;
+  const callback=markup.inline_keyboard.flat().find(button=>button.text==='خواندم و می‌پذیرم').callback_data;
+  assert.equal(callback,'pa:1234567890123456:notice-version-2026.11');
+  assert.ok(Buffer.byteLength(callback,'utf8')<=64);
+});
+test('handler rejects consent callbacks issued for a superseded privacy notice',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
+  assert.match(handler,/pa:\(-1\|\[0-9\]\{1,16\}\):\(\[A-Za-z0-9\._-\]\{1,40\}\)/);
+  assert.match(handler,/callbackVersion!==version/);
 });
