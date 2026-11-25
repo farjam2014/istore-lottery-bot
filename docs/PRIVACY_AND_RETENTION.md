@@ -16,6 +16,7 @@ The application may process:
 - Support ticket subjects, messages, assignments, status, and timestamps.
 - Admin identifiers, role changes, security/audit events, and export activity.
 - Admin participant-search terms in `admin_search_sessions.query_text`; these may contain a name, phone number, Telegram ID, or Instagram handle and must be treated as personal data.
+- In-progress payment-card administration sessions in `payment_card_admin_sessions.payload` and payment-settings wizard state; these may temporarily contain bank name, card number, cardholder name, and payment instructions.
 - Operational metadata such as update IDs, correlation IDs, retry state, and delivery errors.
 - In-progress registration session payloads, which can temporarily contain a name, verified phone number, and self-declared Instagram handle before a participant profile is created.
 
@@ -42,6 +43,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | telegram_rate_limits | Buckets older than 1 day are deleted by the 15-minute retention worker. |
 | In-progress registration sessions | Sessions expire after 24 hours of inactivity and rows are physically deleted in bounded batches by the retention worker. The 24-hour operational default still requires business/legal approval. |
 | Admin participant-search terms (`admin_search_sessions.query_text`) | Search sessions expire after 24 hours and the retention worker physically deletes expired rows in bounded batches every 15 minutes. Query text can contain names, phone numbers, Telegram IDs, or Instagram handles. The 24-hour operational default still requires business/legal approval. |
+| Payment-card administration sessions and payment-settings wizard state | Temporary card and payment-setting values are held in `payment_card_admin_sessions.payload` or `admin_wizards.payload`; expired rows are deleted in bounded batches every 15 minutes after 24 hours. The operational TTL and treatment of bank/card data still require business/legal approval. |
 | Participant support/profile-change sessions | Active text sessions are gated by a 24-hour inactivity window; pre-cursor sessions are cleared during the replay migration and expired rows are physically deleted by the 15-minute retention worker. |
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
@@ -66,7 +68,7 @@ The business owner and qualified local counsel must approve:
 - The public privacy notice, legal basis/consent language, and a privacy contact channel.
 - Retention periods for participant profiles, campaign participation and draw evidence.
 - Applicable statutory retention periods for financial records and payment receipts.
-- Retention periods for admin participant-search terms, participant support/profile-change sessions, support messages, Telegram file references, outbox payloads, audit logs, and exports, including automated cleanup of expired session/query rows.
+- Retention periods for admin participant-search terms, payment-card/admin wizard session payloads, participant support/profile-change sessions, support messages, Telegram file references, outbox payloads, audit logs, and exports, including automated cleanup of expired session/query rows.
 - The process for access, correction, deletion, and objection requests, including exceptions where financial, fraud-prevention, or draw-integrity evidence must be retained.
 - Whether data is transferred to, or processed by, hosting, Telegram, backup, monitoring, and other service providers, and the disclosures required.
 - Who may approve a deletion/anonymization request and how the action is audited.
