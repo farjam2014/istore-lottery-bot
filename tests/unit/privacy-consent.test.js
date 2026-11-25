@@ -58,6 +58,6 @@ test('invalid privacy acceptance timestamps are rejected',()=>{
 test('privacy re-acceptance forwards the existing replay cursor to session persistence',()=>{
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
   const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
-  assert.match(handler,/saveSession\(ctx\.from\.id,accepted\.step,accepted\.payload,accepted\.lastUpdateId\)/);
+  assert.match(handler,/saveSession\(ctx\.from\.id,step,accepted\.payload,accepted\.lastUpdateId\)/);
   assert.match(repository,/saveSession\(id,step,payload,lastUpdateId=null\)/);
 });
