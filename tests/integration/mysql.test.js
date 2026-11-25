@@ -545,6 +545,34 @@ test('MySQL integration: admin role tables and audit history schema exist',{skip
 });
 
 
+test('MySQL integration: admin audit evidence rejects runtime UPDATE and DELETE', {skip:!enabled}, async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const actor=String(700000000000n+(BigInt(Date.now())%100000000000n));
+  let auditId;
+  try{
+    await migrate();
+    const [insert]=await pool.execute(
+      "INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,'test.append_only','test_fixture',NULL,JSON_OBJECT('fixture',TRUE))",
+      [actor]
+    );
+    auditId=insert.insertId;
+    await assert.rejects(
+      pool.execute('UPDATE admin_audit_log SET action=? WHERE id=?',['tampered',auditId]),
+      error=>error.sqlState==='45000'||String(error.message).includes('append-only')
+    );
+    await assert.rejects(
+      pool.execute('DELETE FROM admin_audit_log WHERE id=?',[auditId]),
+      error=>error.sqlState==='45000'||String(error.message).includes('append-only')
+    );
+    const [[row]]=await pool.execute('SELECT action FROM admin_audit_log WHERE id=?',[auditId]);
+    assert.equal(row.action,'test.append_only');
+  }finally{}
+});
+
+
 test('MySQL integration: admin roles can be assigned changed and deactivated with audit events',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
