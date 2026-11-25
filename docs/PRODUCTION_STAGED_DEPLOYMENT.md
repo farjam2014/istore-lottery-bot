@@ -88,7 +88,9 @@ Only after separate approval:
 3. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release. The shell must export both the runtime database identity (read from the active release `.env`) and the separately protected migration credentials to the migration process, without printing either file or enabling shell tracing. Use this exact pattern:
 
    ```bash
+   set -Eeuo pipefail
    set +x
+   trap 'unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE' EXIT
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
    test -n "$ACTIVE" && test -f "$ACTIVE/.env"
    MYSQL_DATABASE="$(node --input-type=module -e "import dotenv from 'dotenv'; import {readFileSync} from 'node:fs'; const parsed=dotenv.parse(readFileSync(process.argv[1])); process.stdout.write(parsed.MYSQL_DATABASE ?? '');" "$ACTIVE/.env")"
@@ -101,7 +103,8 @@ Only after separate approval:
    GRANTS="$(mysql --protocol=socket -NBe "SHOW GRANTS FOR '$MYSQL_MIGRATION_USER'@'127.0.0.1'")"
    case "$GRANTS" in *"TRIGGER ON"*|*"ALL PRIVILEGES ON"*) ;; *) echo 'Migration account lacks TRIGGER privilege; stop and obtain separate DBA approval before granting it.' >&2; exit 1 ;; esac
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
-   unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
+   AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete')")"
+   test "$AUDIT_TRIGGER_COUNT" = 2
    ```
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
