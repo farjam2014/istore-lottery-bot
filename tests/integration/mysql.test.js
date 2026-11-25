@@ -1,8 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import mysql from 'mysql2/promise';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+
+test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled},async()=>{
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER||process.env.MYSQL_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD??process.env.MYSQL_PASSWORD??'';
+  assert.ok(adminUser,'A disposable MySQL admin account is required for the baseline preflight fixture.');
+  const suffix=randomBytes(6).toString('hex');
+  const database='ustore_preflight_'+suffix+'_ci';
+  const reader='preflight_'+suffix;
+  const readerPassword=randomBytes(24).toString('hex');
+  const quoteId=value=>'`'+String(value).replaceAll('`','``')+'`';
+  let admin,setup,readonly,readerCreated=false,databaseCreated=false;
+  try{
+    admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
+    await admin.query('CREATE DATABASE '+quoteId(database)+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    databaseCreated=true;
+    setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
+    const schema=await readFile(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
+    for(const statement of schema.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean))await setup.query(statement);
+    await setup.query('CREATE TABLE schema_migrations (version VARCHAR(120) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    await setup.end();setup=null;
+    await admin.query("CREATE USER '"+reader+"'@'127.0.0.1' IDENTIFIED BY '"+readerPassword+"'");
+    readerCreated=true;
+    await admin.query('GRANT SELECT ON '+quoteId(database)+".* TO '"+reader+"'@'127.0.0.1'");
+    readonly=await mysql.createConnection({host:'127.0.0.1',port,user:reader,password:readerPassword,database});
+    const preflight=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+    const statements=preflight.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean);
+    const results=[];
+    for(const statement of statements)results.push(await readonly.query(statement));
+    const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
+    assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
+    const [[grants]]=await admin.query("SHOW GRANTS FOR '"+reader+"'@'127.0.0.1'");
+    assert.ok(Object.values(grants||{}).some(value=>String(value).includes('SELECT ON '+database+'.*')),'Preflight fixture reader must have only the intended SELECT grant.');
+  }finally{
+    if(readonly)await readonly.end().catch(()=>{});
+    if(setup)await setup.end().catch(()=>{});
+    if(admin){
+      if(readerCreated)await admin.query("DROP USER IF EXISTS '"+reader+"'@'127.0.0.1'").catch(()=>{});
+      if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
+      await admin.end().catch(()=>{});
+    }
+  }
+});
 
 
 test('MySQL integration: clean schema, unique profile, multiple campaigns, frozen snapshot and idempotent codes',{skip:!enabled},async()=>{
