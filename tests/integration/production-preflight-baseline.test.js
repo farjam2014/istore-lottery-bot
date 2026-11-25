@@ -49,7 +49,7 @@ test('read-only production preflight executes against the legacy base schema wit
     const pendingDrawChecks=resultSets.filter(row=>row?.check_status==='PENDING_MIGRATION_003');
     assert.equal(pendingDrawChecks.length,2,'Both draw relational checks must report pending instead of querying migration-only columns.');
     const historyRows=resultSets.filter(row=>row?.migration_status==='MISSING');
-    assert.equal(historyRows.length,27,'Preflight must report all 27 release migrations as pending on a legacy baseline.');
+    assert.equal(historyRows.length,28,'Preflight must report all 27 release migrations as pending on a legacy baseline.');
   }finally{
     if(readOnlyConnection)await readOnlyConnection.end();
     if(baseConnection)await baseConnection.end();
