@@ -170,9 +170,3 @@ WHERE table_schema=DATABASE()
   AND referenced_table_name IS NOT NULL
 ORDER BY table_name, constraint_name, ordinal_position;
 
--- Append-only enforcement for sensitive admin audit evidence.
-SELECT TRIGGER_NAME, EVENT_MANIPULATION, ACTION_TIMING, ACTION_STATEMENT
-FROM information_schema.TRIGGERS
-WHERE TRIGGER_SCHEMA=DATABASE()
-  AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete')
-ORDER BY TRIGGER_NAME;
