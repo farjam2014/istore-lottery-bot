@@ -52,3 +52,12 @@ test('registration cancel callbacks carry the expected session cursor and delete
   assert.match(repository,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\? AND last_update_id=\?/);
   assert.match(repository,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\? AND last_update_id IS NOT NULL AND last_update_id<\?/);
 });
+
+
+test('registration /cancel is scoped to registration steps and cannot clear a pending payment receipt session',()=>{
+  assert.equal(isRegistrationSessionCancellable({step:'awaiting_name'}),true);
+  assert.equal(isRegistrationSessionCancellable({step:'awaiting_phone'}),true);
+  assert.equal(isRegistrationSessionCancellable({step:'awaiting_instagram'}),true);
+  assert.equal(isRegistrationSessionCancellable({step:'awaiting_payment_receipt'}),false);
+  assert.equal(isRegistrationSessionCancellable(null),false);
+});

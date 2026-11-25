@@ -10,6 +10,10 @@ export function isOlderRegistrationReplay(ctx,session){
   return !Number.isSafeInteger(updateId)||!Number.isSafeInteger(lastUpdateId)||updateId<lastUpdateId;
 }
 
+export function isRegistrationSessionCancellable(session){
+  return ['awaiting_name','awaiting_phone','awaiting_instagram'].includes(session?.step);
+}
+
 export function registrationSessionCursorMatches(session,expectedCursor){
   const expected=Number(expectedCursor);
   if(!Number.isSafeInteger(expected))return false;
@@ -73,6 +77,9 @@ export function registerRegistrationHandlers(bot){
   });
   bot.command('cancel',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
+    const session=await getSession(ctx.from.id);
+    if(!isRegistrationSessionCancellable(session))return next();
+    if(isOlderRegistrationReplay(ctx,session))return ctx.reply('درخواست لغو قدیمی است؛ مرحله فعلی ثبت‌نام را دوباره باز کنید.');
     const removed=await clearSessionIfNewer(ctx.from.id,ctx.update.update_id);
     if(!removed)return ctx.reply('درخواست لغو قدیمی است یا ثبت‌نام فعالی وجود ندارد.');
     await ctx.reply('فرآیند ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
