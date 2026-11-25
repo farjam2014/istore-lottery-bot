@@ -15,6 +15,7 @@ export function isExpiredAdminWizardSession(updatedAt,now=Date.now(),ttlMs=24*60
 }
 
 export function isStaleAdminReplyUpdate(updateId,lastUpdateId){
+  if(lastUpdateId===null||lastUpdateId===undefined||lastUpdateId==='')return true;
   const current=Number(updateId),last=Number(lastUpdateId);
   return !Number.isSafeInteger(current)||!Number.isSafeInteger(last)||current<=last;
 }
