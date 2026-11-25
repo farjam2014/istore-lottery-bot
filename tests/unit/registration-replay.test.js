@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isOlderRegistrationReplay,registrationSessionCursorMatches} from '../../src/bot/handlers/registration.handler.js';
+import {isOlderRegistrationReplay,isRegistrationSessionCancellable,registrationSessionCursorMatches} from '../../src/bot/handlers/registration.handler.js';
 
 test('registration rejects older updates even on their first inbox delivery',()=>{
   assert.equal(isOlderRegistrationReplay({update:{update_id:100},state:{durableReplay:false}},{lastUpdateId:101}),true);
