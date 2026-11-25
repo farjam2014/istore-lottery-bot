@@ -37,10 +37,11 @@ export function createUpdateGuard({
       let heartbeatTimer=null;
       let heartbeatRunning=false;
       try{
-        await database.execute(
+        const [insertResult]=await database.execute(
           "INSERT IGNORE INTO telegram_update_inbox(update_id,payload,status,available_at) VALUES(?,?,'pending',UTC_TIMESTAMP())",
           [updateId,JSON.stringify(ctx.update)]
         );
+        const alreadyPersisted=Number(insertResult?.affectedRows)===0;
         const [claim]=await database.execute(
           "UPDATE telegram_update_inbox SET status='processing',locked_at=UTC_TIMESTAMP(),lease_token=?,attempts=attempts+1,last_error=NULL WHERE update_id=? AND ((status IN ('pending','failed') AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND locked_at<UTC_TIMESTAMP()-INTERVAL ? MINUTE))",
           [leaseToken,updateId,leaseMinutes]
@@ -66,7 +67,7 @@ export function createUpdateGuard({
         heartbeatTimer.unref?.();
 
         const [[attempt]]=await database.execute('SELECT attempts FROM telegram_update_inbox WHERE update_id=?',[updateId]);
-        const replay=Number(attempt?.attempts)>1;
+        const replay=alreadyPersisted||Number(attempt?.attempts)>1;
         ctx.state.durableReplay=replay;
 
         if(ctx.callbackQuery){

@@ -186,3 +186,14 @@ test('expired callback acknowledgement does not abort a fresh callback handler',
   assert.equal(calls,1,'business handler should continue when only callback acknowledgement expired');
   assert.equal(database.inbox.get(902).status,'completed');
 });
+
+test('an existing inbox update is marked as durable replay on its first recovery claim',async()=>{
+  const database=fakeDatabase();
+  database.inbox.set(950,{payload:JSON.stringify({update_id:950}),status:'pending',attempts:0,lease:null});
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const ctx=context({id:950,userId:'12345'});
+  let durableReplay=false;
+  await guard(ctx,async()=>{durableReplay=ctx.state.durableReplay;});
+  assert.equal(durableReplay,true);
+  assert.equal(database.inbox.get(950).status,'completed');
+});
