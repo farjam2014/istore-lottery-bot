@@ -26,10 +26,11 @@ test('payment admin wizard uses the fetched wizard row for step dispatch',async(
 });
 
 
+
 test('sensitive payment order reads and searches are audited without storing search text',async()=>{
   const source=await readFile(resolve(here,'../../src/bot/handlers/admin.handler.js'),'utf8');
-  assert.match(source,/audit\\(ctx\\.from\\.id,'payment\\.orders_listed','payment_order',null,\\{status,page,resultCount:r\\.rows\\.length\\}\\)/);
-  assert.match(source,/audit\\(ctx\\.from\\.id,'payment\\.order_viewed','payment_order',Number\\(id\\),\\{receiptCount:d\\.receipts\\.length,eventCount:d\\.events\\.length\\}\\)/);
-  assert.match(source,/audit\\(ctx\\.from\\.id,'payment\\.orders_searched','payment_order',null,\\{queryLength:query\\.length,resultCount:rows\\.length\\}\\)/);
-  assert.doesNotMatch(source,/payment\\.orders_searched[^\\n]*queryText|payment\\.orders_searched[^\\n]*query\\s*[,}]/);
+  assert.match(source,/audit\(ctx\.from\.id,'payment\.orders_listed','payment_order',null,\{status,page,resultCount:r\.rows\.length\}\)/);
+  assert.match(source,/audit\(ctx\.from\.id,'payment\.order_viewed','payment_order',Number\(id\),\{receiptCount:d\.receipts\.length,eventCount:d\.events\.length\}\)/);
+  assert.match(source,/audit\(ctx\.from\.id,'payment\.orders_searched','payment_order',null,\{queryLength:query\.length,resultCount:rows\.length\}\)/);
+  assert.doesNotMatch(source,/payment\.orders_searched[^\n]*queryText|payment\.orders_searched[^\n]*query\s*[,}]/);
 });
