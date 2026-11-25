@@ -29,6 +29,16 @@ test('admin wizard session expiry fails closed for invalid timestamps',()=>{
   assert.equal(isExpiredAdminWizardSession('not-a-date',Date.now()),true);
 });
 
+test('admin search sessions enforce a 24-hour TTL and refresh it when restarted',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND step='participant' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/admin_search_sessions WHERE telegram_user_id=\? AND step='campaign_code' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/payment_admin_sessions WHERE telegram_user_id=\? AND step='search_order' AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/campaign_id=VALUES\(campaign_id\),created_at=CURRENT_TIMESTAMP/);
+  assert.match(source,/query_text=NULL,created_at=CURRENT_TIMESTAMP/);
+  assert.match(source,/status_filter='all',created_at=CURRENT_TIMESTAMP/);
+});
+
 test('admin wizard handler applies expiry to every text-consuming wizard step',()=>{
   const source=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
   assert.match(source,/if\(isExpiredAdminWizardSession\(r\[0\]\.updated_at\)\)/);
