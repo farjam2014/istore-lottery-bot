@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {retryOutboxNotification} from '../../src/modules/notifications/outbox-admin.service.js';
 
 function fakeDatabase({status='uncertain',auditFails=false}={}){
@@ -62,4 +63,9 @@ test('manual outbox retry rejects invalid status',async()=>{
   const database=fakeDatabase({status:'pending'});
   await assert.rejects(retryOutboxNotification({notificationId:7,adminId:'99',expectedStatus:'pending',database}),/Only failed or uncertain/);
   assert.equal(database.state.updates,0);
+});
+
+test('manual retry keeps the bounded last_error column within its schema limit',()=>{
+  const source=readFileSync(new URL('../../src/modules/notifications/outbox-admin.service.js',import.meta.url),'utf8');
+  assert.match(source,/last_error=CONCAT\(LEFT\(COALESCE\(last_error,''\),470\),' \| manually requeued'\)/);
 });
