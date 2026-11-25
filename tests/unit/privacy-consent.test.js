@@ -39,7 +39,7 @@ test('first privacy acceptance starts a new registration at the name step',()=>{
 test('an older retried registration message cannot be mistaken for input to a later step',()=>{
   const session={step:'awaiting_instagram',lastUpdateId:101};
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:100}},session),true);
-  assert.equal(isOlderRegistrationReplay({state:{durableReplay:false},update:{update_id:100}},session),false);
+  assert.equal(isOlderRegistrationReplay({state:{durableReplay:false},update:{update_id:100}},session),true);
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:102}},session),false);
   assert.equal(isOlderRegistrationReplay({state:{durableReplay:true},update:{update_id:101}},session),false);
 });
@@ -60,8 +60,8 @@ test('privacy re-acceptance records the current callback update as the replay cu
   const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
   assert.match(handler,/buildPrivacyAcceptedSession\(await getSession\(ctx\.from\.id\),version,new Date\(\),ctx\.update\.update_id\)/);
   assert.match(handler,/saveSession\(ctx\.from\.id,step,accepted\.payload,accepted\.lastUpdateId\)/);
-  assert.match(repository,/saveSession\(id,step,payload,lastUpdateId=null\)/);
-  assert.match(repository,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),COALESCE\(VALUES\(last_update_id\),-1\)\)/);
+  assert.match(repository,/saveSession\(id,step,payload,lastUpdateId\)/);
+  assert.match(repository,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
 });
 
 test('privacy acceptance requires a valid Telegram update ID',()=>{

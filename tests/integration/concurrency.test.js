@@ -202,8 +202,9 @@ test('MySQL integration: registration session records the update that advanced i
   const {saveSession,getSession,advanceSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
   const telegramId=String(7350000000000n+(BigInt(Date.now())%100000000000n));
   try{
-    await saveSession(telegramId,'awaiting_name',{privacyConsentVersion:'ci-v1'});
-    const updateId=Number(800000000+Math.floor(Math.random()*100000000));
+    const startUpdateId=Number(800000000+Math.floor(Math.random()*100000000));
+    await saveSession(telegramId,'awaiting_name',{privacyConsentVersion:'ci-v1'},startUpdateId);
+    const updateId=startUpdateId+1;
     await advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1',fullName:'Replay Tester'},updateId);
     const session=await getSession(telegramId);
     assert.equal(session.step,'awaiting_phone');
