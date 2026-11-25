@@ -9,6 +9,8 @@ export const envSchema = z.object({
   MYSQL_DATABASE: z.string().regex(/^[A-Za-z0-9_]+$/),
   MYSQL_USER: z.string().min(1),
   MYSQL_PASSWORD: z.string(),
+  MYSQL_MIGRATION_USER: z.string().min(1).optional(),
+  MYSQL_MIGRATION_PASSWORD: z.string().min(1).optional(),
   MYSQL_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DRAW_SEED_ENCRYPTION_KEYS: z.string().optional(),

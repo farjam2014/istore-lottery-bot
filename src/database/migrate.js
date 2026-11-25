@@ -1,4 +1,4 @@
-import {pool} from './pool.js';
+import {getMigrationPool} from './migration-pool.js';
 import {config} from '../config/env.js';
 import {assertMigrationAllowed} from './migration-guard.js';
 import {readFile,readdir} from 'node:fs/promises';
@@ -392,7 +392,7 @@ async function migrationStatementAlreadyApplied(connection,file,index){
 export async function migrate(){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
-  const c=await pool.getConnection();
+  const c=await getMigrationPool().getConnection();
   let lockAcquisitionResolved=false,lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);

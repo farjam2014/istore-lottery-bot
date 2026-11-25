@@ -67,3 +67,17 @@ test('production requires at least one valid admin ID and a non-empty MySQL pass
   assert.equal(missingPassword.success,false);
   assert.ok(missingPassword.error.flatten().fieldErrors.MYSQL_PASSWORD);
 });
+
+
+test('runtime environment accepts absent migration-only credentials',()=>{
+  const result=parseEnvironment({...validEnvironment});
+  assert.equal(result.success,true);
+  assert.equal(result.data.MYSQL_MIGRATION_USER,undefined);
+  assert.equal(result.data.MYSQL_MIGRATION_PASSWORD,undefined);
+});
+
+test('migration-only credentials are parsed when supplied to an approved migration process',()=>{
+  const result=parseEnvironment({...validEnvironment,MYSQL_MIGRATION_USER:'ustore_migrate_abcdef123456',MYSQL_MIGRATION_PASSWORD:'m'.repeat(64)});
+  assert.equal(result.success,true);
+  assert.equal(result.data.MYSQL_MIGRATION_USER,'ustore_migrate_abcdef123456');
+});
