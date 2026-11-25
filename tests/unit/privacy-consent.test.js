@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {envSchema} from '../../src/config/env-schema.js';
 import {isRegistrationUpdateAllowed} from '../../src/bot/middleware/registration-gate.js';
 import {buildPrivacyAcceptedSession,isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
@@ -52,4 +53,11 @@ test('reaccepting the same privacy notice version preserves the original consent
 
 test('invalid privacy acceptance timestamps are rejected',()=>{
   assert.throws(()=>buildPrivacyAcceptedSession(null,'v1','not-a-date'),/timestamp must be valid/);
+});
+
+test('privacy re-acceptance forwards the existing replay cursor to session persistence',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
+  const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
+  assert.match(handler,/saveSession\(ctx\.from\.id,step,accepted\.payload,accepted\.lastUpdateId\)/);
+  assert.match(repository,/saveSession\(id,step,payload,lastUpdateId=null\)/);
 });
