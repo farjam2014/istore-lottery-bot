@@ -5,6 +5,16 @@ import {readFileSync,readdirSync} from 'node:fs';
 const preflight=readFileSync(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
 
 const expectedReleaseMigrations=[
+  '20261114_001_payment_expiry_reference.sql',
+  '20261114_002_campaign_details.sql',
+  '20261114_003_support_tickets.sql',
+  '20261114_004_admin_roles.sql',
+  '20261114_005_payment_admin_sessions.sql',
+  '20261114_006_admin_search_and_rate_limits.sql',
+  '20261114_007_profile_change_sessions.sql',
+  '20261114_008_outbox_uncertain_delivery.sql',
+  '20261115-payment-bank-cards.sql',
+  '20261115_009_correlation_and_delivery_history.sql',
   '20261117_001_campaign_code_sequence.sql',
   '20261117_002_admin_campaign_code_search.sql',
   '20261117_003_verifiable_campaign_draws.sql',
@@ -24,7 +34,8 @@ const expectedReleaseMigrations=[
   '20261125_003_participant_session_replay.sql'
 ];
 
-test('production migration preflight enumerates every release migration after the baseline',()=>{
+test('production migration preflight enumerates every release migration in order',()=>{
+  assert.equal(expectedReleaseMigrations.length,27);
   for(const migration of expectedReleaseMigrations){
     assert.ok(preflight.includes(migration),`preflight is missing ${migration}`);
   }

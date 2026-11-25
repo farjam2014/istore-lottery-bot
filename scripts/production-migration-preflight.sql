@@ -102,7 +102,17 @@ SELECT expected.version,
        actual.checksum AS recorded_checksum,
        actual.applied_at
 FROM (
-  SELECT '20261117_001_campaign_code_sequence.sql' AS version
+  SELECT '20261114_001_payment_expiry_reference.sql' AS version
+  UNION ALL SELECT '20261114_002_campaign_details.sql'
+  UNION ALL SELECT '20261114_003_support_tickets.sql'
+  UNION ALL SELECT '20261114_004_admin_roles.sql'
+  UNION ALL SELECT '20261114_005_payment_admin_sessions.sql'
+  UNION ALL SELECT '20261114_006_admin_search_and_rate_limits.sql'
+  UNION ALL SELECT '20261114_007_profile_change_sessions.sql'
+  UNION ALL SELECT '20261114_008_outbox_uncertain_delivery.sql'
+  UNION ALL SELECT '20261115-payment-bank-cards.sql'
+  UNION ALL SELECT '20261115_009_correlation_and_delivery_history.sql'
+  UNION ALL SELECT '20261117_001_campaign_code_sequence.sql'
   UNION ALL SELECT '20261117_002_admin_campaign_code_search.sql'
   UNION ALL SELECT '20261117_003_verifiable_campaign_draws.sql'
   UNION ALL SELECT '20261117_004_draw_commitment_publication.sql'

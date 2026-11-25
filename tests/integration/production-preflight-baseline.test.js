@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {randomBytes} from 'node:crypto';
+import mysql from 'mysql2/promise';
+
+const enabled=process.env.RUN_MYSQL_TESTS==='1'&&Boolean(process.env.MYSQL_TEST_ADMIN_USER);
+const splitSql=source=>source.split(/;\\s*(?:\\n|$)/).map(statement=>statement.trim()).filter(Boolean);
+
+test('read-only production preflight executes against the legacy base schema with all release migrations pending',{skip:!enabled},async()=>{
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
+  const suffix=process.pid+'_'+Date.now();
+  const databaseName='istore_preflight_'+suffix;
+  const readOnlyUser='preflight_ro_'+suffix;
+  const readOnlyPassword=randomBytes(18).toString('hex');
+  const admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
+  let baseConnection=null,readOnlyConnection=null,userCreated=false,databaseCreated=false;
+  try{
+    await admin.query('CREATE DATABASE `'+databaseName+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    databaseCreated=true;
+    baseConnection=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database:databaseName});
+    const baseSchema=readFileSync(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
+    for(const statement of splitSql(baseSchema))await baseConnection.query(statement);
+    await baseConnection.query(`CREATE TABLE schema_migrations (
+      version VARCHAR(120) PRIMARY KEY,
+      checksum CHAR(64) NOT NULL,
+      applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await admin.query("CREATE USER '${readOnlyUser}'@'127.0.0.1' IDENTIFIED BY '${readOnlyPassword}'");
+    userCreated=true;
+    await admin.query('GRANT SELECT ON `'+databaseName+'`.* TO \' '+readOnlyUser+' \'@\'127.0.0.1\'');
+    readOnlyConnection=await mysql.createConnection({host,port,user:readOnlyUser,password:readOnlyPassword,database:databaseName});
+    const preflight=readFileSync(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+    const resultSets=[];
+    for(const statement of splitSql(preflight)){
+      const [result]=await readOnlyConnection.query(statement);
+      if(Array.isArray(result))resultSets.push(...result);
+    }
+    const pendingDrawChecks=resultSets.filter(row=>row?.check_status==='PENDING_MIGRATION_003');
+    assert.equal(pendingDrawChecks.length,2,'Both draw relational checks must report pending instead of querying migration-only columns.');
+    const historyRows=resultSets.filter(row=>row?.migration_status==='MISSING');
+    assert.equal(historyRows.length,27,'Preflight must report all 27 release migrations as pending on a legacy baseline.');
+  }finally{
+    if(readOnlyConnection)await readOnlyConnection.end();
+    if(baseConnection)await baseConnection.end();
+    if(userCreated)await admin.query("DROP USER IF EXISTS '${readOnlyUser}'@'127.0.0.1'");
+    if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS `'+databaseName+'`');
+    await admin.end();
+  }
+});
