@@ -56,15 +56,15 @@ test('admin deactivation writes state and audit event in one transaction',async(
 });
 
 
-function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmins=[],createdAt=new Date()}={}){
-  const state={target:target?{...target}:null,session:{role,created_at:createdAt},activeSuperAdmins:activeSuperAdmins.map(x=>({...x})),events:[],commits:0,rollbacks:0,inserts:[]};
+function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmins=[],createdAt=new Date(),lastUpdateId=100}={}){
+  const state={target:target?{...target}:null,session:{role,created_at:createdAt,last_update_id:lastUpdateId},activeSuperAdmins:activeSuperAdmins.map(x=>({...x})),events:[],commits:0,rollbacks:0,inserts:[]};
   const connection={
     async beginTransaction(){},
     async commit(){state.commits++;},
     async rollback(){state.rollbacks++;},
     release(){},
     async execute(sql,params=[]){
-      if(sql.startsWith('SELECT role,created_at FROM admin_role_sessions'))return [[state.session?{...state.session}:undefined].filter(Boolean),[]];
+      if(sql.startsWith('SELECT role,created_at,last_update_id FROM admin_role_sessions'))return [[state.session?{...state.session}:undefined].filter(Boolean),[]];
       if(sql.startsWith('SELECT role,is_active FROM admin_users'))return [[state.target?{role:state.target.role,is_active:state.target.is_active}:undefined].filter(Boolean),[]];
       if(sql.startsWith("SELECT telegram_user_id FROM admin_users WHERE role='super_admin'"))return [state.activeSuperAdmins,[]];
       if(sql.startsWith('UPDATE admin_users SET role=')){state.target.role=params[0];return [{affectedRows:1},[]];}
@@ -80,7 +80,7 @@ function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmi
 test('assigning a role cannot demote the last active super admin',async()=>{
   const admin={telegram_user_id:'12345',role:'super_admin',is_active:1};
   const db=fakeAssignDatabase({target:admin,activeSuperAdmins:[admin]});
-  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db}),/آخرین مدیر کل فعال/);
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db}),/آخرین مدیر کل فعال/);
   assert.equal(db.state.target.role,'super_admin');
   assert.ok(db.state.session);
   assert.equal(db.state.rollbacks,1);
@@ -97,17 +97,17 @@ test('assigning a role preserves an existing inactive admin state',async()=>{
   assert.equal(db.state.commits,1);
 });
 
-test('admin role assignment consumes its wizard session exactly once',async()=>{
+test('admin role assignment rejects updates at or before the session-start cursor',async()=>{\n  const db=fakeAssignDatabase({lastUpdateId:200});\n  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:200,database:db}),/پیش از شروع نشست فعلی/);\n  assert.equal(db.state.target,null);\n  assert.ok(db.state.session);\n  assert.equal(db.state.rollbacks,1);\n});\n\ntest('admin role assignment consumes its wizard session exactly once',async()=>{
   const db=fakeAssignDatabase();
   await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
-  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',database:db}),/نشست افزودن مدیر منقضی شده/);
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',updateId:102,database:db}),/نشست افزودن مدیر منقضی شده/);
   assert.equal(db.state.target.telegram_user_id,'12345');
   assert.equal(db.state.inserts.length,1);
 });
 
 test('expired admin role assignment session is consumed without granting access',async()=>{
   const db=fakeAssignDatabase({createdAt:new Date(Date.now()-25*60*60*1000)});
-  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
+  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
   assert.equal(result.expired,true);
   assert.equal(db.state.session,null);
   assert.equal(db.state.target,null);
