@@ -5,7 +5,7 @@ import {randomBytes} from 'node:crypto';
 import mysql from 'mysql2/promise';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1'&&Boolean(process.env.MYSQL_TEST_ADMIN_USER);
-const splitSql=source=>source.split(/;\\s*(?:\\n|$)/).map(statement=>statement.trim()).filter(Boolean);
+const splitSql=source=>source.split(/;\s*(?:\n|$)/).map(statement=>statement.trim()).filter(Boolean);
 
 test('read-only production preflight executes against the legacy base schema with all release migrations pending',{skip:!enabled},async()=>{
   const host=process.env.MYSQL_HOST||'127.0.0.1';
@@ -29,9 +29,9 @@ test('read-only production preflight executes against the legacy base schema wit
       checksum CHAR(64) NOT NULL,
       applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-    await admin.query("CREATE USER '${readOnlyUser}'@'127.0.0.1' IDENTIFIED BY '${readOnlyPassword}'");
+    await admin.query(`CREATE USER '${readOnlyUser}'@'127.0.0.1' IDENTIFIED BY '${readOnlyPassword}'`);
     userCreated=true;
-    await admin.query('GRANT SELECT ON `'+databaseName+'`.* TO \' '+readOnlyUser+' \'@\'127.0.0.1\'');
+    await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO '${readOnlyUser}'@'127.0.0.1'`);
     readOnlyConnection=await mysql.createConnection({host,port,user:readOnlyUser,password:readOnlyPassword,database:databaseName});
     const preflight=readFileSync(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
     const resultSets=[];
@@ -46,7 +46,7 @@ test('read-only production preflight executes against the legacy base schema wit
   }finally{
     if(readOnlyConnection)await readOnlyConnection.end();
     if(baseConnection)await baseConnection.end();
-    if(userCreated)await admin.query("DROP USER IF EXISTS '${readOnlyUser}'@'127.0.0.1'");
+    if(userCreated)await admin.query(`DROP USER IF EXISTS '${readOnlyUser}'@'127.0.0.1'`);
     if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS `'+databaseName+'`');
     await admin.end();
   }
