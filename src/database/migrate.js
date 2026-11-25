@@ -61,12 +61,12 @@ async function hasTable(connection,table){
 }
 async function hasAppendOnlyAuditTrigger(connection,trigger,event){
   const [[row]]=await connection.execute(
-    'SELECT EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?',
+    'SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?',
     [trigger]
   );
   if(!row)return false;
   const statement=String(row.ACTION_STATEMENT||'').replace(/\s+/g,' ').toUpperCase();
-  if(row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||!statement.includes('SQLSTATE \'45000\'')||!statement.includes('ADMIN_AUDIT_LOG IS APPEND-ONLY')){
+  if(row.EVENT_OBJECT_TABLE!=='admin_audit_log'||row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||!statement.includes('SQLSTATE \'45000\'')||!statement.includes('ADMIN_AUDIT_LOG IS APPEND-ONLY')){
     throw new Error('Incompatible existing audit trigger '+trigger+'. Inspect before migration recovery.');
   }
   return true;
