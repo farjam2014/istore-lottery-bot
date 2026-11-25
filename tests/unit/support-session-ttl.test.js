@@ -46,3 +46,10 @@ test('profile-change request transaction rechecks its cursor under the session r
   assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions[\s\S]*?FOR UPDATE/);
   assert.match(source,/isStaleTelegramUpdate\(updateId,session\.last_update_id\)/);
 });
+
+
+test('stale participant updates stop the handler chain instead of falling through to another session',()=>{
+  assert.match(source,/if\(isStaleTelegramUpdate\(ctx\.update\?\.update_id,session\.last_update_id\)\)return;/);
+  assert.match(source,/if\(isStaleTelegramUpdate\(ctx\.update\?\.update_id,profileSession\.last_update_id\)\)return;/);
+  assert.match(source,/if\(isStaleTelegramUpdate\(ctx\.update\?\.update_id,lockedSession\.last_update_id\)\)\{await c\.rollback\(\);return;\}/);
+});
