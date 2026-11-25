@@ -73,3 +73,22 @@ test('inactive and non-admin accounts bypass the database lock',async()=>{
   await unknown(ctx(22222),async()=>{calls++;});
   assert.equal(calls,2);
 });
+
+
+test('database-backed admin status is revalidated after the per-admin lock is acquired',async()=>{
+  const database=fakeLockDatabase();
+  let lookups=0;
+  let nextCalls=0;
+  const lock=createAdminUpdateLock({
+    database,
+    isSuperAdmin:()=>false,
+    lookupAdmin:async()=>{
+      lookups++;
+      if(lookups===1)return {is_active:1};
+      return {is_active:0};
+    }
+  });
+  await lock(ctx(12345),async()=>{nextCalls++;});
+  assert.equal(lookups,2,'the middleware must re-read admin status after GET_LOCK succeeds');
+  assert.equal(nextCalls,1,'the now-deactivated account proceeds only as an ordinary user');
+});
