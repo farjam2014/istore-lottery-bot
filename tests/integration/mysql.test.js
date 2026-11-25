@@ -86,6 +86,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[searchQueryColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='query_text'");
     assert.equal(Number(searchQueryColumn.total),1,'Participant search query must persist for result pagination.');
     const [[adminRoleReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_role_sessions' AND COLUMN_NAME='last_update_id'");
+    const [[profileChangeReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_sessions' AND COLUMN_NAME='last_update_id'");
+    assert.equal(Number(profileChangeReplayColumn.total),1,'Profile-change sessions must persist their start update cursor.');
     assert.equal(Number(adminRoleReplayColumn.total),1,'Admin role assignment sessions must persist their start update cursor.');
     const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
     const [[privacyConsentColumns]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME IN ('privacy_consent_version','privacy_consent_at')");
@@ -116,7 +118,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_003_registration_session_replay.sql',
       '20261124_004_admin_wizard_replay.sql',
       '20261125_001_support_reply_replay.sql',
-      '20261125_002_admin_search_replay.sql'
+      '20261125_002_admin_search_replay.sql',
+      '20261125_003_participant_session_replay.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -134,6 +137,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_004_admin_wizard_replay.sql',
       '20261125_001_support_reply_replay.sql',
       '20261125_002_admin_search_replay.sql',
+      '20261125_003_participant_session_replay.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',

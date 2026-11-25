@@ -21,3 +21,28 @@ test('profile change sessions expire after 24 hours and are revalidated under lo
   assert.match(source,/created_at=CURRENT_TIMESTAMP/);
   assert.match(source,/profile_change_sessions WHERE telegram_user_id=\? AND step=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\) FOR UPDATE/);
 });
+
+
+test('participant support and profile sessions persist their starting Telegram update cursor',()=>{
+  assert.match(source,/support_sessions\(telegram_user_id,step,category,last_update_id\) VALUES\(\?,'new_message',\?,\?\)/);
+  assert.match(source,/support_sessions\(telegram_user_id,step,ticket_id,last_update_id\) VALUES\(\?,'user_reply',\?,\?\)/);
+  assert.match(source,/profile_change_sessions\(telegram_user_id,step,last_update_id\) VALUES\(\?,\?,\?\)/);
+});
+
+test('delayed participant text and contact updates are rejected against the session cursor',()=>{
+  assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions/);
+  assert.match(source,/SELECT step,ticket_id,category,updated_at,last_update_id FROM support_sessions/);
+  assert.match(source,/Number\(ctx\.update\.update_id\)<=Number\(profileSession\.last_update_id\)/);
+  assert.match(source,/Number\(ctx\.update\.update_id\)<=Number\(session\.last_update_id\)/);
+});
+
+test('participant support handlers recheck the replay cursor after acquiring the row lock',()=>{
+  assert.match(source,/SELECT step,ticket_id,category,updated_at,last_update_id FROM support_sessions[\s\S]*?FOR UPDATE/);
+  assert.match(source,/SELECT step,ticket_id,updated_at,last_update_id FROM support_sessions[\s\S]*?FOR UPDATE/);
+  assert.match(source,/Number\(ctx\.update\.update_id\)<=Number\(lockedSession\.last_update_id\)/);
+});
+
+test('profile-change request transaction rechecks its cursor under the session row lock',()=>{
+  assert.match(source,/SELECT step,last_update_id FROM profile_change_sessions[\s\S]*?FOR UPDATE/);
+  assert.match(source,/updateId<=Number\(session\.last_update_id\)/);
+});

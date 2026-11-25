@@ -118,6 +118,7 @@ FROM (
   UNION ALL SELECT '20261124_004_admin_wizard_replay.sql'
   UNION ALL SELECT '20261125_001_support_reply_replay.sql'
   UNION ALL SELECT '20261125_002_admin_search_replay.sql'
+  UNION ALL SELECT '20261125_003_participant_session_replay.sql'
 ) expected
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
@@ -138,6 +139,7 @@ WHERE table_schema=DATABASE()
     OR (table_name='admin_wizards' AND column_name='last_update_id')
     OR (table_name='payment_card_admin_sessions' AND column_name='last_update_id')
     OR (table_name='support_sessions' AND column_name='last_update_id')
+    OR (table_name='profile_change_sessions' AND column_name='last_update_id')
     OR (table_name='admin_search_sessions' AND column_name='last_update_id')
     OR (table_name='payment_admin_sessions' AND column_name='last_update_id')
     OR (table_name='admin_role_sessions' AND column_name='last_update_id')

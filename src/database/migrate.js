@@ -101,6 +101,12 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     if(index===1)return hasNullableBigintColumn(connection,'payment_admin_sessions','last_update_id');
     throw new Error('Unexpected statement index in 20261125_002_admin_search_replay.sql.');
   }
+  if(file==='20261125_003_participant_session_replay.sql'){
+    if(index===0)return false; // Clear pre-cursor participant support sessions; they cannot be safely replay-guarded.
+    if(index===1)return hasNullableBigintColumn(connection,'profile_change_sessions','last_update_id');
+    if(index===2)return false; // Clear pre-cursor profile sessions after adding the cursor.
+    throw new Error('Unexpected statement index in 20261125_003_participant_session_replay.sql.');
+  }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
       hasColumn(connection,'participants','privacy_consent_version'),
