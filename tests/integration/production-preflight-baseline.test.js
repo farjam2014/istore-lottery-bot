@@ -33,6 +33,10 @@ test('read-only production preflight executes against the legacy base schema wit
     userCreated=true;
     await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO '${readOnlyUser}'@'127.0.0.1'`);
     readOnlyConnection=await mysql.createConnection({host,port,user:readOnlyUser,password:readOnlyPassword,database:databaseName});
+    await assert.rejects(
+      readOnlyConnection.query("INSERT INTO campaigns(slug,title,status,participation_type) VALUES('preflight-write-denied','Preflight write denied','draft','free')"),
+      error=>error.code==='ER_TABLEACCESS_DENIED_ERROR'
+    );
     const preflight=readFileSync(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
     const resultSets=[];
     for(const statement of splitSql(preflight)){
