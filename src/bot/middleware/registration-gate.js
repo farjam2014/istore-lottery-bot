@@ -1,4 +1,4 @@
-const callbacks=new Set(['registration:start','registration:cancel','privacy:accept']);
+const callbacks=new Set(['registration:start']);
 const commands=new Set(['/start','/cancel','/admin']);
 export function isRegistrationUpdateAllowed({callbackData,command,session,message}={}){
   if(callbackData&&(callbacks.has(callbackData)||/^(?:privacy:accept|registration:cancel):(?:-1|[0-9]{1,16})$/.test(callbackData)))return true;
