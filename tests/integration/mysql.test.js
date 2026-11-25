@@ -983,9 +983,15 @@ test('MySQL integration: production migration preflight executes only read-only 
   const source=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
   const statements=source.split('\n').filter(line=>!line.trimStart().startsWith('--')).join('\n').split(';').map(statement=>statement.trim()).filter(Boolean);
   assert.ok(statements.length>=16,'Preflight must contain the expected inventory, capability guards, and integrity queries.');
-  for(const statement of statements){
-    assert.match(statement,/^(?:SELECT|SET|PREPARE|EXECUTE|DEALLOCATE PREPARE)\b/i,'Production preflight may only read data and manage session-scoped prepared SELECT statements.');
-    await pool.query(statement);
+  const connection=await pool.getConnection();
+  try{
+    for(const statement of statements){
+      assert.match(statement,/^(?:SELECT|SET|PREPARE|EXECUTE|DEALLOCATE PREPARE)\b/i,'Production preflight may only read data and manage session-scoped prepared SELECT statements.');
+      await connection.query(statement);
+    }
+  }finally{
+    try{await connection.query('SET @preflight_sql=NULL,@has_candidate_campaign_id=NULL,@has_winner_campaign_id=NULL');}catch{}
+    connection.release();
   }
 });
 
