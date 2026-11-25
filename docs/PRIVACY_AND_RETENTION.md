@@ -9,6 +9,7 @@
 The application may process:
 
 - Telegram identifiers, usernames, display names, and message/update metadata.
+- Raw Telegram Update JSON stored in `telegram_update_inbox`; depending on update type this can include message text, callback data, contact name and phone number, photo file identifiers/captions, and other message metadata. The payload is stored in a MySQL JSON column and is not application-level encrypted by this code.
 - Participant full name, phone number, and self-declared Instagram handle.
 - Campaign participation, entry status, generated codes, and draw eligibility evidence.
 - Payment order references, amounts, bank-card snapshots, Telegram receipt file identifiers, receipt notes, and review decisions.
@@ -35,7 +36,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 
 | Data | Existing behavior |
 |---|---|
-| telegram_update_inbox | Completed records are deleted after 3 days; pending/failed and stale processing records are deleted after 30 days (worker policy). |
+| telegram_update_inbox raw payload | Stores the full Telegram Update JSON, not only update metadata. Completed payloads are deleted after 3 days; pending/failed and stale processing payloads are deleted after 30 days (worker policy). The payload may duplicate phone numbers, message text, names, callback data, and receipt file identifiers. |
 | processed_updates | Records older than 3 days are deleted. |
 | telegram_rate_limits | Buckets older than 1 day are deleted. |
 | In-progress registration sessions | Session rows have an `updated_at` timestamp but no approved expiry/cleanup policy; abandoned partial registrations can retain personal data. |
@@ -72,6 +73,7 @@ Do not delete payment, draw, or audit evidence automatically until the applicabl
 ## Engineering safeguards required
 
 - Keep personal data out of logs. The logger redaction list includes common Telegram, phone, Instagram, and actor identifiers; unit tests cover nested and top-level keys.
+- Treat `telegram_update_inbox.payload` and its backups as personal data. Restrict database/backup access, apply the same approved retention and deletion policy, and do not copy raw payloads into diagnostics or exports.
 - Keep participant export and payment export behind explicit permissions. Export actions must be audited.
 - Support agents must not receive global participant-profile access by default.
 - Do not place full receipt contents, phone numbers, or participant profiles in operational logs.
