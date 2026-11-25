@@ -71,6 +71,6 @@ test('installer keeps DDL privileges on a separate root-protected migration acco
   assert.match(script,/MIGRATION_ENV_DIR="\/etc\/ustore-telegram-bot"/);
   assert.match(script,/stat -c '%U:%G:%a' "\$MIGRATION_ENV_FILE"\)" == "root:root:600"/);
   assert.match(script,/MYSQL_MIGRATION_PASSWORD=\$MIGRATION_DB_PASSWORD/);
-  assert.match(script,/admin_ids_csv="\$\{ADMIN_ID\/\[\[:space:\]\]\/\/\}"/);
-  assert.match(script,/\^\[0-9\]\{5,20\}\(,\[0-9\]\{5,20\}\)\*\$/);
+  assert.ok(script.includes('admin_ids_csv="${ADMIN_ID//[[:space:]]/}"'));
+  assert.ok(script.includes('[[ "$admin_ids_csv" =~ ^[0-9]{5,20}(,[0-9]{5,20})*$ ]]'));
 });
