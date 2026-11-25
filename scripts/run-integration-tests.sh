@@ -31,3 +31,4 @@ printf 'Running integration tests against disposable database: %s\n' "$MYSQL_DAT
 printf 'Application database is not used: %s\n' "$APP_DB"
 node --test --test-concurrency=1 tests/integration/mysql.test.js
 node --test --test-concurrency=1 tests/integration/draw-keyring-backup-restore.test.js
+node --test --test-concurrency=1 tests/integration/production-preflight-baseline.test.js
