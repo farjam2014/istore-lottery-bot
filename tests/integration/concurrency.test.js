@@ -325,12 +325,15 @@ test('MySQL integration: participant profile/support session starts serialize an
       startProfileChangeSession({telegramUserId:telegramId,step:'full_name',updateId:980000001}),
       startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'technical',updateId:980000002})
     ]);
-    assert.equal(concurrent.filter(Boolean).length,1,'Only one concurrent flow start may own the participant text session.');
+    assert.ok(concurrent.some(Boolean),'The newest concurrent flow start must succeed.');
     const [[counts]]=await pool.execute(
       "SELECT (SELECT COUNT(*) FROM profile_change_sessions WHERE telegram_user_id=?) profile_count,(SELECT COUNT(*) FROM support_sessions WHERE telegram_user_id=? AND step IN ('new_message','user_reply')) support_count",
       [telegramId,telegramId]
     );
-    assert.equal(Number(counts.profile_count)+Number(counts.support_count),1,'Profile and participant-support sessions must never coexist.');
+    assert.equal(Number(counts.profile_count),0,'The newer support flow must replace the older profile flow.');
+    assert.equal(Number(counts.support_count),1,'Exactly one participant text session may remain after concurrent starts.');
+    const [[winner]]=await pool.execute("SELECT last_update_id FROM support_sessions WHERE telegram_user_id=? AND step='new_message'",[telegramId]);
+    assert.equal(Number(winner?.last_update_id),980000002,'The higher Telegram update ID must win regardless of transaction scheduling.');
 
     assert.equal(await startProfileChangeSession({telegramUserId:telegramId,step:'full_name',updateId:980000003}),true);
     assert.equal(await startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'technical',updateId:980000004}),true);
