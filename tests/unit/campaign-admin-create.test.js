@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCampaignFromWizard,copyCampaign} from '../../src/modules/campaigns/campaign-admin.service.js';
 
-function fakeDatabase({auditFails=false}={}){
-  const state={wizard:{step:'confirm',payload:{type:'free',title:'Test Campaign',description:'Description',codes:2,capacity:null,starts_at:null,ends_at:null,draw_at:null}},source:{id:9,title:'Source',description:'Source description',poster_file_id:null,prize_title:null,prize_description:null,prize_value:null,participation_type:'free',entry_price:0,payment_methods:'[]',starts_at:null,ends_at:null,draw_at:null,terms:null,capacity:null,codes_per_entry:1},campaigns:[],audits:[],idempotency:null,commits:0,rollbacks:0,releases:0};
+function fakeDatabase({auditFails=false,wizardUpdatedAt=new Date()}={}){
+  const state={wizard:{step:'confirm',updated_at:wizardUpdatedAt,payload:{type:'free',title:'Test Campaign',description:'Description',codes:2,capacity:null,starts_at:null,ends_at:null,draw_at:null}},source:{id:9,title:'Source',description:'Source description',poster_file_id:null,prize_title:null,prize_description:null,prize_value:null,participation_type:'free',entry_price:0,payment_methods:'[]',starts_at:null,ends_at:null,draw_at:null,terms:null,capacity:null,codes_per_entry:1},campaigns:[],audits:[],idempotency:null,commits:0,rollbacks:0,releases:0};
   let snapshot=null;
   const connection={
     async beginTransaction(){snapshot=JSON.parse(JSON.stringify(state));},
@@ -11,7 +11,7 @@ function fakeDatabase({auditFails=false}={}){
     async rollback(){state.rollbacks++;if(snapshot){for(const key of Object.keys(state))delete state[key];Object.assign(state,snapshot);state.rollbacks++;snapshot=null;}},
     release(){state.releases++;},
     async execute(sql,params=[]){
-      if(sql.startsWith('SELECT step,payload FROM admin_wizards'))return [[state.wizard?{step:state.wizard.step,payload:state.wizard.payload}:undefined].filter(Boolean),[]];
+      if(sql.startsWith('SELECT step,payload,updated_at FROM admin_wizards'))return [[state.wizard?{step:state.wizard.step,payload:state.wizard.payload,updated_at:state.wizard.updated_at}:undefined].filter(Boolean),[]];
       if(sql.startsWith('SELECT * FROM campaigns WHERE id=? FOR UPDATE'))return [[state.source&&Number(params[0])===Number(state.source.id)?state.source:undefined].filter(Boolean),[]];
       if(sql.startsWith('INSERT IGNORE INTO admin_action_idempotency')){if(!state.idempotency)state.idempotency={idempotency_key:params[0],action_type:'campaign.copy',actor_telegram_id:params[1],entity_id:null};return [{affectedRows:1},[]];}
       if(sql.startsWith('SELECT action_type,actor_telegram_id,entity_id FROM admin_action_idempotency'))return [[state.idempotency?{...state.idempotency}:undefined].filter(Boolean),[]];
@@ -99,4 +99,13 @@ test('campaign wizard rejects malformed optional dates before inserting a campai
   await assert.rejects(createCampaignFromWizard({telegramUserId:'123',actorId:'123',database}),/قالب تاریخ UTC نامعتبر است/);
   assert.equal(database.state.campaigns.length,0);
   assert.equal(database.state.commits,0);
+});
+
+test('expired campaign confirmation cannot create a campaign',async()=>{
+  const database=fakeDatabase({wizardUpdatedAt:new Date(Date.now()-25*60*60*1000)});
+  await assert.rejects(createCampaignFromWizard({telegramUserId:'123',actorId:'123',database}),/فرایند ساخت کمپین منقضی شده است/);
+  assert.equal(database.state.campaigns.length,0);
+  assert.equal(database.state.audits.length,0);
+  assert.equal(database.state.commits,0);
+  assert.equal(database.state.rollbacks,1);
 });
