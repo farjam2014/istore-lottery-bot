@@ -88,7 +88,7 @@ test('assigning a role cannot demote the last active super admin',async()=>{
 
 test('assigning a role preserves an existing inactive admin state',async()=>{
   const db=fakeAssignDatabase({target:{telegram_user_id:'12345',role:'support_agent',is_active:0}});
-  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
+  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
   assert.equal(result.changed,true);
   assert.equal(db.state.target.role,'campaign_manager');
   assert.equal(db.state.target.is_active,0);
@@ -97,7 +97,15 @@ test('assigning a role preserves an existing inactive admin state',async()=>{
   assert.equal(db.state.commits,1);
 });
 
-test('admin role assignment rejects updates at or before the session-start cursor',async()=>{\n  const db=fakeAssignDatabase({lastUpdateId:200});\n  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:200,database:db}),/پیش از شروع نشست فعلی/);\n  assert.equal(db.state.target,null);\n  assert.ok(db.state.session);\n  assert.equal(db.state.rollbacks,1);\n});\n\ntest('admin role assignment consumes its wizard session exactly once',async()=>{
+test('admin role assignment rejects updates at or before the session-start cursor',async()=>{
+  const db=fakeAssignDatabase({lastUpdateId:200});
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:200,database:db}),/پیش از شروع نشست فعلی/);
+  assert.equal(db.state.target,null);
+  assert.ok(db.state.session);
+  assert.equal(db.state.rollbacks,1);
+});
+
+test('admin role assignment consumes its wizard session exactly once',async()=>{
   const db=fakeAssignDatabase();
   await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',database:db});
   await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',updateId:102,database:db}),/نشست افزودن مدیر منقضی شده/);
