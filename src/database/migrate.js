@@ -66,7 +66,7 @@ async function hasAppendOnlyAuditTrigger(connection,trigger,event){
   );
   if(!row)return false;
   const statement=String(row.ACTION_STATEMENT||'').replace(/\s+/g,' ').toUpperCase();
-  if(row.EVENT_OBJECT_TABLE!=='admin_audit_log'||row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||!statement.includes('SQLSTATE \'45000\'')||!statement.includes('ADMIN_AUDIT_LOG IS APPEND-ONLY')){
+  if(row.EVENT_OBJECT_TABLE!=='admin_audit_log'||row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||statement!=="SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ADMIN_AUDIT_LOG IS APPEND-ONLY'"){
     throw new Error('Incompatible existing audit trigger '+trigger+'. Inspect before migration recovery.');
   }
   return true;
