@@ -62,7 +62,7 @@ test('production migration preflight checks current privacy and replay schema ca
 
 test('baseline preflight gates migration-added tables and columns before querying them',()=>{
   assert.match(preflight,/TABLE_NAME='telegram_rate_limits'/);
-  assert.doesNotMatch(preflight,/UNION ALL SELECT 'telegram_rate_limits', COUNT\(\) FROM telegram_rate_limits/);
+  assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\.last_sequence|MAX\(cc\.sequence_number\)/);
   assert.match(preflight,/PREPARE preflight_stmt FROM @preflight_sql/);
   assert.match(preflight,/PENDING_MIGRATION_003/);
   assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_candidates'[\s\S]*?COLUMN_NAME='campaign_id'/);
@@ -141,6 +141,6 @@ test('post-migration integrity checks detect campaign code counter drift and dup
 });
 
 test('post-migration integrity script is read-only and separated from baseline preflight',()=>{
-  assert.doesNotMatch(postMigrationIntegrity,/^\\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\\b/im);
+  assert.doesNotMatch(postMigrationIntegrity,/^\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\b/im);
   assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\\.last_sequence|MAX\\(cc\\.sequence_number\\)/);
 });
