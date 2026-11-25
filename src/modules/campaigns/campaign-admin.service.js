@@ -137,13 +137,14 @@ function validateCampaignWizardPayload(payload){
     startsAt,endsAt,drawAt,terms,capacity,codes};
 }
 
-export async function createCampaignFromWizard({telegramUserId,actorId,database=pool}={}){
+export async function createCampaignFromWizard({telegramUserId,actorId,expectedLastUpdateId,updateId,database=pool}={}){
   if(!/^\d+$/.test(String(telegramUserId??''))||!/^\d+$/.test(String(actorId??'')))throw new TypeError('Campaign creator must be a numeric Telegram user ID.');
   const connection=await database.getConnection();
   try{
     await connection.beginTransaction();
-    const [[wizard]]=await connection.execute('SELECT step,payload,updated_at FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
+    const [[wizard]]=await connection.execute('SELECT step,payload,last_update_id,updated_at FROM admin_wizards WHERE telegram_user_id=? FOR UPDATE',[String(telegramUserId)]);
     if(!wizard||wizard.step!=='confirm'||isExpiredAdminWizardSession(wizard.updated_at))throw new Error('فرایند ساخت کمپین منقضی شده است.');
+    if(expectedLastUpdateId!==undefined){const expected=Number(expectedLastUpdateId),callback=Number(updateId);if(!Number.isSafeInteger(expected)||!Number.isSafeInteger(callback)||Number(wizard.last_update_id)!==expected||callback<=expected)throw new Error('تأیید کمپین متعلق به مرحله فعلی نیست یا قبلاً پردازش شده است.');}
     const payload=typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload;
     const value=validateCampaignWizardPayload(payload);
     const [created]=await connection.execute(

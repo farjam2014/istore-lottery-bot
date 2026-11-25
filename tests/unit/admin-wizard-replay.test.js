@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isOlderAdminWizardReplay,isExpiredAdminWizardSession,isStaleAdminReplyUpdate} from '../../src/modules/admin/admin-wizard-replay.js';
+import {isOlderAdminWizardReplay,isExpiredAdminWizardSession,isStaleAdminReplyUpdate,advanceAdminWizard} from '../../src/modules/admin/admin-wizard-replay.js';
 
 test('admin wizard rejects a replayed update already applied to the current step',()=>{
   const wizard={step:'title',lastUpdateId:101};
@@ -88,4 +88,25 @@ test('migration 004 clears every pre-cursor admin text session before replay pro
   assert.match(migration,/DELETE FROM admin_wizards WHERE last_update_id IS NULL/);
   assert.match(migration,/DELETE FROM payment_card_admin_sessions WHERE last_update_id IS NULL/);
   assert.match(migration,/DELETE FROM admin_role_sessions WHERE last_update_id IS NULL/);
+});
+
+
+test('admin wizard advancement is an atomic expected-step and expected-cursor compare-and-swap',async()=>{
+  const calls=[];
+  const execute=async(sql,params)=>{calls.push({sql,params});return [{affectedRows:1}];};
+  assert.equal(await advanceAdminWizard({execute,telegramUserId:'123456',expectedStep:'title',expectedLastUpdateId:100,step:'description',payload:{title:'Example'},updateId:101}),true);
+  assert.match(calls[0].sql,/WHERE telegram_user_id=\\? AND step=\\? AND last_update_id=\\? AND last_update_id<\\?/);
+  assert.deepEqual(calls[0].params,['description',JSON.stringify({title:'Example'}),101,'123456','title',100,101]);
+});
+
+test('admin wizard advancement rejects a concurrent or stale step transition',async()=>{
+  await assert.rejects(advanceAdminWizard({execute:async()=>[{affectedRows:0}],telegramUserId:'123456',expectedStep:'title',expectedLastUpdateId:100,step:'description',payload:{},updateId:102}),/مرحله مدیریت تغییر کرده/);
+  await assert.rejects(advanceAdminWizard({execute:async()=>[{affectedRows:1}],telegramUserId:'123456',expectedStep:'title',expectedLastUpdateId:100,step:'description',payload:{},updateId:100}),/newer than the persisted cursor/);
+});
+
+test('admin campaign and draw confirmation callbacks are bound to the wizard update cursor',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.ok(handler.includes("'admin:campaign:confirm:'+ctx.update.update_id"));
+  assert.ok(handler.includes("'admin:campaign:draw:publication-confirm:'+draw.id+':'+ctx.update.update_id"));
+  assert.ok(handler.includes('Number(lockedWizard.last_update_id)!==expectedCursor'));
 });

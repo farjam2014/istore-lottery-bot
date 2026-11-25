@@ -147,6 +147,27 @@ test('MySQL integration: campaign edit wizard is consumed once under concurrent 
   }
 });
 
+test('MySQL integration: admin wizard expected-step cursor CAS allows exactly one concurrent transition',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {advanceAdminWizard}=await import('../../src/modules/admin/admin-wizard-replay.js');
+  const actorId=String(7345000000000n+(BigInt(Date.now())%100000000000n));
+  const startCursor=Number(950000000+Math.floor(Math.random()*10000000));
+  try{
+    await pool.execute('INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,?,?,?)',[actorId,'title',JSON.stringify({}),startCursor]);
+    const results=await Promise.allSettled([
+      advanceAdminWizard({execute:pool.execute.bind(pool),telegramUserId:actorId,expectedStep:'title',expectedLastUpdateId:startCursor,step:'description',payload:{title:'Concurrent A'},updateId:startCursor+1}),
+      advanceAdminWizard({execute:pool.execute.bind(pool),telegramUserId:actorId,expectedStep:'title',expectedLastUpdateId:startCursor,step:'description',payload:{title:'Concurrent B'},updateId:startCursor+2})
+    ]);
+    assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(results.filter(x=>x.status==='rejected').length,1);
+    const [[wizard]]=await pool.execute('SELECT step,payload,last_update_id FROM admin_wizards WHERE telegram_user_id=?',[actorId]);
+    assert.equal(wizard.step,'description');
+    assert.ok([startCursor+1,startCursor+2].includes(Number(wizard.last_update_id)));
+    const payload=typeof wizard.payload==='string'?JSON.parse(wizard.payload):wizard.payload;
+    assert.ok(['Concurrent A','Concurrent B'].includes(payload.title));
+  }finally{await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[actorId]);}
+});
+
 test('MySQL integration: draw publication wizard update and audit are atomic under replay',{skip:!enabled},async()=>{
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
