@@ -85,7 +85,21 @@ Only after separate approval:
 
 1. Announce maintenance and prevent new registration/payment writes.
 2. Stop the active service and confirm it is stopped. Do not start the staged release yet.
-3. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release; source only `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env` (not into the service account), then execute `ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate`. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`.
+3. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release. The shell must export both the runtime database identity (read from the active release `.env`) and the separately protected migration credentials to the migration process, without printing either file or enabling shell tracing. Use this exact pattern:
+
+   ```bash
+   set +x
+   set -a
+   . "$ACTIVE/.env"
+   . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
+   set +a
+   test "$MYSQL_DATABASE" = "$MIGRATION_TARGET_DATABASE"
+   ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
+   unset BOT_TOKEN MYSQL_PASSWORD MYSQL_MIGRATION_PASSWORD
+   unset MYSQL_MIGRATION_USER MIGRATION_TARGET_DATABASE
+   ```
+
+   Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
 4. Capture migration output and verify `schema_migrations` checksums and expected schema.
 5. If migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
 
