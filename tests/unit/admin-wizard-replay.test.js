@@ -25,7 +25,6 @@ test('admin wizard session expires at the configured TTL boundary',()=>{
 });
 
 test('admin wizard session expiry fails closed for invalid timestamps',()=>{
-  const {isExpiredAdminWizardSession}=requireAdminWizardExpiry();
   assert.equal(isExpiredAdminWizardSession('not-a-date',Date.now()),true);
 });
 
