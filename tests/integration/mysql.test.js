@@ -114,6 +114,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261115_009_correlation_and_delivery_history.sql',
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
+      '20261124_003_registration_session_replay.sql',
+      '20261124_004_admin_wizard_replay.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
