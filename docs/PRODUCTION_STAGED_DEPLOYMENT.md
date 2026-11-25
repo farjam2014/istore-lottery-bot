@@ -98,6 +98,8 @@ Only after separate approval:
    . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
    set +a
    test "$MYSQL_DATABASE" = "$MIGRATION_TARGET_DATABASE"
+   GRANTS="$(mysql --protocol=socket -NBe "SHOW GRANTS FOR '$MYSQL_MIGRATION_USER'@'127.0.0.1'")"
+   case "$GRANTS" in *"TRIGGER ON"*|*"ALL PRIVILEGES ON"*) ;; *) echo 'Migration account lacks TRIGGER privilege; stop and obtain separate DBA approval before granting it.' >&2; exit 1 ;; esac
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
    unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
    ```
