@@ -10,13 +10,15 @@ export function isOlderRegistrationReplay(ctx,session){
   return Boolean(ctx?.state?.durableReplay&&Number.isSafeInteger(updateId)&&Number.isSafeInteger(lastUpdateId)&&updateId<lastUpdateId);
 }
 
-export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date()){
+export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date(),updateId){
   const step=existing?.step||'awaiting_name';
   const sameVersion=existing?.payload?.privacyConsentVersion===version;
   const priorAcceptedAt=existing?.payload?.privacyConsentAt;
   const acceptedDate=sameVersion&&priorAcceptedAt?new Date(priorAcceptedAt):new Date(acceptedAt);
   if(!Number.isFinite(acceptedDate.getTime()))throw new TypeError('Privacy consent timestamp must be valid.');
-  return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version,privacyConsentAt:acceptedDate.toISOString()},lastUpdateId:existing?.lastUpdateId??null};
+  const cursor=Number(updateId);
+  if(!Number.isSafeInteger(cursor))throw new TypeError('Privacy consent update ID must be a safe integer.');
+  return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version,privacyConsentAt:acceptedDate.toISOString()},lastUpdateId:cursor};
 }
 
 export function registerRegistrationHandlers(bot){
@@ -43,7 +45,7 @@ export function registerRegistrationHandlers(bot){
       await ctx.answerCbQuery('تأیید شما ثبت شد.');
       return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
     }
-    const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version);
+    const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version,new Date(),ctx.update.update_id);
     const step=accepted.step;
     await saveSession(ctx.from.id,step,accepted.payload,accepted.lastUpdateId);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
