@@ -92,8 +92,10 @@ test('release readiness inventory lists every SQL migration in the repository',(
   }
 });
 
-test('production preflight exposes append-only admin audit trigger state',()=>{
-  assert.match(preflight,/information_schema\\.TRIGGERS/);
-  assert.match(preflight,/trg_admin_audit_log_no_update/);
-  assert.match(preflight,/trg_admin_audit_log_no_delete/);
+test('release runbook verifies append-only admin audit triggers after migration',()=>{
+  const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
+  assert.match(runbook,/information_schema\\.TRIGGERS/);
+  assert.match(runbook,/trg_admin_audit_log_no_update/);
+  assert.match(runbook,/trg_admin_audit_log_no_delete/);
+  assert.match(runbook,/AUDIT_TRIGGER_COUNT/);
 });
