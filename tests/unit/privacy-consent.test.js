@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {privacyNoticeKeyboard} from '../../src/bot/keyboards/user.keyboard.js';
 import {envSchema} from '../../src/config/env-schema.js';
 import {isRegistrationUpdateAllowed} from '../../src/bot/middleware/registration-gate.js';
+import {isPrivacyGateCallbackAllowed} from '../../src/bot/middleware/profile-gate.js';
 import {buildPrivacyAcceptedSession,isOlderRegistrationReplay} from '../../src/bot/handlers/registration.handler.js';
 
 const base={
@@ -90,4 +91,26 @@ test('handler rejects consent callbacks issued for a superseded privacy notice',
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
   assert.ok(handler.includes('bot.action(/^pa:(-1|[0-9]{1,16}):([A-Za-z0-9._-]{1,40})$/'));
   assert.match(handler,/callbackVersion!==version/);
+});
+
+test('existing profiles can pass only the version-bound privacy re-consent callback through the profile gate',()=>{
+  assert.equal(isPrivacyGateCallbackAllowed('pa:12345:notice_2026.11'),true);
+  assert.equal(isPrivacyGateCallbackAllowed('pa:-1:v1'),true);
+  assert.equal(isPrivacyGateCallbackAllowed('registration:cancel:12345'),true);
+  assert.equal(isPrivacyGateCallbackAllowed('privacy:accept:12345'),false);
+  assert.equal(isPrivacyGateCallbackAllowed('pa:not-a-cursor:v1'),false);
+  assert.equal(isPrivacyGateCallbackAllowed('pa:12345:'),false);
+});
+
+test('every registration and profile-gate privacy prompt supplies the configured notice version',()=>{
+  const files=[
+    '../../src/bot/handlers/registration.handler.js',
+    '../../src/bot/middleware/profile-gate.js'
+  ];
+  for(const file of files){
+    const source=readFileSync(new URL(file,import.meta.url),'utf8');
+    const calls=[...source.matchAll(/privacyNoticeKeyboard\(([^)]*)\)/g)];
+    assert.ok(calls.length>0,file+' must contain a privacy prompt');
+    for(const call of calls)assert.match(call[1],/config\.PRIVACY_NOTICE_VERSION/,file+' has a privacy keyboard call without a notice version');
+  }
 });
