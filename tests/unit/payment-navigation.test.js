@@ -106,6 +106,9 @@ test('payment cancellation is bound to the order shown on its button',()=>{
   registerPaymentHandlers(bot);
   const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('payment:cancel'));
   assert.ok(cancel);
-  assert.ok(cancel.test('payment:cancel:123'));
+  assert.ok(cancel.test('payment:cancel:123:456'));
+  assert.ok(!cancel.test('payment:cancel:123'));
   assert.ok(!cancel.test('payment:cancel:456x'));
+  const source=readFileSync(new URL('../../src/bot/handlers/payment.handler.js',import.meta.url),'utf8');
+  assert.match(source,/JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\\$\\.orderId'\)\)=\\? AND last_update_id=\\?/);
 });
