@@ -1,11 +1,11 @@
-import {pool} from '../../database/pool.js';
+import {adminLockPool} from '../../database/pool.js';
 import {logger} from '../../shared/logger.js';
 import {getAdminRole,isConfiguredSuperAdmin} from '../../modules/admin/admin-role.service.js';
 
 const LOCK_TIMEOUT_SECONDS=15;
 
 export function createAdminUpdateLock({
-  database=pool,
+  database=adminLockPool,
   lookupAdmin=getAdminRole,
   isSuperAdmin=isConfiguredSuperAdmin,
   timeoutSeconds=LOCK_TIMEOUT_SECONDS
