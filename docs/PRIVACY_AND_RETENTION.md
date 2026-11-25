@@ -41,6 +41,8 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | processed_updates | Records older than 3 days are deleted. |
 | telegram_rate_limits | Buckets older than 1 day are deleted. |
 | In-progress registration sessions | Session rows have an `updated_at` timestamp but no approved expiry/cleanup policy; abandoned partial registrations can retain personal data. |
+| Admin participant-search terms (`admin_search_sessions.query_text`) | Search sessions are rejected after 24 hours of inactivity, but expired rows are not physically deleted by a scheduled cleanup job. Query text can contain names, phone numbers, Telegram IDs, or Instagram handles. An approved short TTL and automated deletion are still required. |
+| Participant support/profile-change sessions | Active text sessions are gated by a 24-hour inactivity window and pre-cursor sessions are cleared during the replay migration. Expired rows are not covered by a scheduled physical cleanup job. |
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
@@ -64,7 +66,7 @@ The business owner and qualified local counsel must approve:
 - The public privacy notice, legal basis/consent language, and a privacy contact channel.
 - Retention periods for participant profiles, campaign participation and draw evidence.
 - Applicable statutory retention periods for financial records and payment receipts.
-- Retention periods for support messages, Telegram file references, outbox payloads, audit logs, and exports.
+- Retention periods for admin participant-search terms, participant support/profile-change sessions, support messages, Telegram file references, outbox payloads, audit logs, and exports, including automated cleanup of expired session/query rows.
 - The process for access, correction, deletion, and objection requests, including exceptions where financial, fraud-prevention, or draw-integrity evidence must be retained.
 - Whether data is transferred to, or processed by, hosting, Telegram, backup, monitoring, and other service providers, and the disclosures required.
 - Who may approve a deletion/anonymization request and how the action is audited.
