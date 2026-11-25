@@ -58,6 +58,7 @@ test('production migration preflight detects campaign code counter drift and dup
   for(const fragment of [
     "counter.last_sequence",
     "MAX(cc.sequence_number)",
+    "missing_sequence_count",
     "counter.campaign_id IS NULL AND COUNT(cc.id)>0",
     "GROUP BY campaign_id,sequence_number",
     "HAVING COUNT(*)>1"
