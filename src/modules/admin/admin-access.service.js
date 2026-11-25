@@ -56,6 +56,6 @@ export async function assignAdminRoleFromSession({actorId,targetId,database=pool
     const [deleted]=await c.execute('DELETE FROM admin_role_sessions WHERE telegram_user_id=? AND role=?',[String(actorId),role]);
     if(!deleted.affectedRows)throw new Error('نشست افزودن مدیر قبلاً مصرف شده است؛ دوباره فرایند را آغاز کنید.');
     await c.commit();
-    return {role,changed:Boolean(action),created:!target};
+    return {role,changed:Boolean(action),created:!target,isActive:target?Number(target.is_active):1};
   }catch(error){await c.rollback();throw error;}finally{c.release();}
 }
