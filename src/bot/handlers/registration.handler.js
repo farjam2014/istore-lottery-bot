@@ -37,6 +37,10 @@ export function registerRegistrationHandlers(bot){
     const profile=await findProfile(ctx.from.id);
     if(profile){await ctx.answerCbQuery('حساب شما قبلاً ثبت شده است.');return ctx.reply('حساب شما قبلاً ثبت شده است.',userMenuKeyboard());}
     const s=await getSession(ctx.from.id);
+    if(!config.PRIVACY_NOTICE_URL||!config.PRIVACY_NOTICE_VERSION){
+      await ctx.answerCbQuery('ثبت‌نام موقتاً در دسترس نیست؛ اطلاعیه حریم خصوصی پیکربندی نشده است.',{show_alert:true});
+      return ctx.reply('ثبت‌نام تا زمان انتشار و پیکربندی اطلاعیه حریم خصوصی در دسترس نیست.');
+    }
     if(!s||!Number.isSafeInteger(s.lastUpdateId)||s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION){
       await ctx.answerCbQuery();
       return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId,config.PRIVACY_NOTICE_VERSION));
