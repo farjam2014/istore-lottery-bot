@@ -85,7 +85,9 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.ok(searchStep.COLUMN_TYPE.includes("'participant_results'"));
     const [[searchQueryColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='query_text'");
     assert.equal(Number(searchQueryColumn.total),1,'Participant search query must persist for result pagination.');
-    const [[adminRoleReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_role_sessions' AND COLUMN_NAME='last_update_id'");\n    assert.equal(Number(adminRoleReplayColumn.total),1,'Admin role assignment sessions must persist their start update cursor.');\n    const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
+    const [[adminRoleReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_role_sessions' AND COLUMN_NAME='last_update_id'");
+    assert.equal(Number(adminRoleReplayColumn.total),1,'Admin role assignment sessions must persist their start update cursor.');
+    const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
     const [[privacyConsentColumns]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME IN ('privacy_consent_version','privacy_consent_at')");
     assert.equal(Number(privacyConsentColumns.total),2,'Participant privacy consent fields must exist.');
     assert.equal(Number(requestedCodeCountColumn.total),1,'Paid order quantity snapshot column must exist.');
