@@ -70,7 +70,7 @@ function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmi
       if(sql.startsWith('UPDATE admin_users SET role=')){state.target.role=params[0];return [{affectedRows:1},[]];}
       if(sql.startsWith('INSERT INTO admin_users')){state.target={telegram_user_id:params[0],role:params[1],is_active:params[2],added_by:params[3]};state.inserts.push(params);return [{insertId:1},[]];}
       if(sql.startsWith('INSERT INTO admin_role_events')){state.events.push(params);return [{insertId:1},[]];}
-      if(sql.startsWith('DELETE FROM admin_role_sessions')){if(state.session&&state.session.role===params[1]){state.session=null;return [{affectedRows:1},[]];}return [{affectedRows:0},[]];}
+      if(sql.startsWith('DELETE FROM admin_role_sessions')){if(state.session&&(params.length===1||state.session.role===params[1])){state.session=null;return [{affectedRows:1},[]];}return [{affectedRows:0},[]];}
       throw new Error('Unexpected SQL: '+sql);
     }
   };
