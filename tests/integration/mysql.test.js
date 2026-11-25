@@ -1186,6 +1186,33 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
       ),
       error=>error.code==='ER_NO_REFERENCED_ROW_2'
     );
+    const {cleanupExpiredRetentionRows}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
+    const retentionUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
+    const retentionUpdateId=Number(Date.now())*100;
+    const retentionTables=['telegram_user_sessions','admin_wizards','payment_card_admin_sessions','payment_admin_sessions','admin_search_sessions','admin_role_sessions','support_sessions','profile_change_sessions','telegram_rate_limits'];
+    try{
+      await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'awaiting_name',JSON_OBJECT('full_name','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'title',JSON_OBJECT('title','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO payment_card_admin_sessions(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'bank_name',JSON_OBJECT(),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,created_at) VALUES(?,'search_order',UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId]);
+      await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,query_text,last_update_id,created_at) VALUES(?,'participant','expired-private-search',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO admin_role_sessions(telegram_user_id,role,last_update_id,created_at) VALUES(?,'support_agent',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category,last_update_id,updated_at) VALUES(?,'new_message','technical',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id,created_at) VALUES(?,'full_name',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO processed_updates(update_id,processed_at) VALUES(?,UTC_TIMESTAMP()-INTERVAL 4 DAY)",[retentionUpdateId]);
+      await pool.execute("INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,'retention_test',UTC_TIMESTAMP()-INTERVAL 2 DAY,1)",[retentionUserId]);
+      const result=await cleanupExpiredRetentionRows();
+      assert.ok(result.deleted>=10,'retention worker must delete all ten seeded expired rows');
+      for(const table of retentionTables){
+        const [[remaining]]=await pool.execute('SELECT COUNT(*) AS total FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
+        assert.equal(Number(remaining.total),0,'Expired session rows must be removed from '+table);
+      }
+      const [[remainingProcessed]]=await pool.execute('SELECT COUNT(*) AS total FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
+      assert.equal(Number(remainingProcessed.total),0,'Expired processed update metadata must be removed');
+    }finally{
+      for(const table of retentionTables)await pool.execute('DELETE FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
+      await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
+    }
   }finally{
     if(drawId){
       await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);
