@@ -74,3 +74,11 @@ test('installer keeps DDL privileges on a separate root-protected migration acco
   assert.ok(script.includes('admin_ids_csv="${ADMIN_ID//[[:space:]]/}"'));
   assert.ok(script.includes('[[ "$admin_ids_csv" =~ ^[0-9]{5,20}(,[0-9]{5,20})*$ ]]'));
 });
+
+
+test('installer refuses migration credentials in the service-readable runtime env',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/read_env MYSQL_MIGRATION_USER/);
+  assert.match(script,/read_env MYSQL_MIGRATION_PASSWORD/);
+  assert.match(script,/Migration credentials must not be stored in the service-readable runtime \.env/);
+});

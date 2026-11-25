@@ -8,7 +8,9 @@ import {cleanupExpiredRetentionRows} from './modules/privacy/retention-cleanup.w
 import {processCampaignSchedule} from './modules/campaigns/campaign-scheduler.js';
 import {loadDrawKeyring} from './modules/draw/draw-keyring.js';
 import {config} from './config/env.js';
+import {assertRuntimeCredentialsSeparated} from './database/migration-credentials.js';
 async function main(){
+ assertRuntimeCredentialsSeparated(config);
  const drawKeyringConfigured=Boolean(config.DRAW_SEED_ENCRYPTION_KEYS||config.DRAW_SEED_ENCRYPTION_KEY);
  if(config.NODE_ENV==='production'||drawKeyringConfigured)loadDrawKeyring(config);
  await pingDatabase();

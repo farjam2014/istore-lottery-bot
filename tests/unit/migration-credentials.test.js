@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMigrationCredentials} from '../../src/database/migration-credentials.js';
+import {resolveMigrationCredentials,assertRuntimeCredentialsSeparated} from '../../src/database/migration-credentials.js';
 
 const runtime={NODE_ENV:'production',MYSQL_USER:'ustore_app_abcdef123456',MYSQL_PASSWORD:'runtime-password'};
 
@@ -23,4 +23,11 @@ test('non-production tests may reuse the isolated runtime test account when no m
 test('explicit non-production migration credentials must be complete and distinct',()=>{
   assert.throws(()=>resolveMigrationCredentials({...runtime,NODE_ENV:'test',MYSQL_MIGRATION_USER:'migration'}),/must be supplied together/);
   assert.throws(()=>resolveMigrationCredentials({...runtime,NODE_ENV:'test',MYSQL_MIGRATION_USER:runtime.MYSQL_USER,MYSQL_MIGRATION_PASSWORD:'migration'}),/must be different/);
+});
+
+
+test('production bot runtime refuses migration credentials even if they leak into .env',()=>{
+  assert.throws(()=>assertRuntimeCredentialsSeparated({...runtime,MYSQL_MIGRATION_USER:'ustore_migrate_abcdef123456',MYSQL_MIGRATION_PASSWORD:'migration-password'}),/must not be present in the production bot runtime/);
+  assert.doesNotThrow(()=>assertRuntimeCredentialsSeparated(runtime));
+  assert.doesNotThrow(()=>assertRuntimeCredentialsSeparated({...runtime,NODE_ENV:'test',MYSQL_MIGRATION_USER:'test_migrate',MYSQL_MIGRATION_PASSWORD:'test-password'}));
 });
