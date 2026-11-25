@@ -10,7 +10,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   assert.match(db,/_ci$|_test$/,'Integration tests only run against a database ending in _ci or _test');
   const {pool}=await import('../../src/database/pool.js');
   const {migrate}=await import('../../src/database/migrate.js');
-  const {createProfile,findByTelegramId,updatePrivacyConsent}=await import('../../src/modules/participants/participant.repository.js');
+  const {createProfile,findByTelegramId,updatePrivacyConsent,saveSession,getSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
   const {copyCampaign,createCampaignFromWizard}=await import('../../src/modules/campaigns/campaign-admin.service.js');
   let participantId;let secondParticipantId;const campaignIds=[];const extraCampaignIds=[];let telegramId;let secondTelegramId;let legacyParticipantId;let legacyCampaignId;let legacyEntryId;let legacyCodeId;let copyIdempotencyKey;let campaignWizardId;
@@ -42,6 +42,13 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute("DELETE FROM schema_migrations WHERE version=?",["20261117_001_campaign_code_sequence.sql"]);
     }
     await migrate();
+
+    // Re-accepting the privacy notice must preserve the registration replay cursor.
+    const replaySessionId=String(690000000000n+(BigInt(Date.now())%100000000000n)+2n);
+    await saveSession(replaySessionId,'awaiting_instagram',{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-25T10:00:00.000Z'},123456);
+    const savedReplaySession=await getSession(replaySessionId);
+    assert.equal(savedReplaySession.lastUpdateId,123456,'Consent session save must retain the replay cursor.');
+    await clearSession(replaySessionId);
 
     // Verify the current migration set and the complete legacy admin wizard contract.
     const expectedWizardSteps=[
