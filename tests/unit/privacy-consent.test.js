@@ -88,6 +88,6 @@ test('privacy consent callback binds the exact notice version and remains within
 });
 test('handler rejects consent callbacks issued for a superseded privacy notice',()=>{
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
-  assert.match(handler,/pa:\(-1\|\[0-9\]\{1,16\}\):\(\[A-Za-z0-9\._-\]\{1,40\}\)/);
+  assert.ok(handler.includes('bot.action(/^pa:(-1|[0-9]{1,16}):([A-Za-z0-9._-]{1,40})$/'));
   assert.match(handler,/callbackVersion!==version/);
 });
