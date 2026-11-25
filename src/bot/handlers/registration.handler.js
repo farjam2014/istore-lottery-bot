@@ -1,5 +1,5 @@
 import {Markup} from 'telegraf';
-import {completeRegistration,getSession,saveSession,advanceSession,clearSession,findProfile,updatePrivacyConsent,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
+import {completeRegistration,getSession,saveSession,advanceSession,clearSession,clearSessionIfNewer,findProfile,updatePrivacyConsent,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
 import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
@@ -8,6 +8,13 @@ export function isOlderRegistrationReplay(ctx,session){
   const updateId=Number(ctx?.update?.update_id);
   const lastUpdateId=session?.lastUpdateId;
   return !Number.isSafeInteger(updateId)||!Number.isSafeInteger(lastUpdateId)||updateId<lastUpdateId;
+}
+
+export function registrationSessionCursorMatches(session,expectedCursor){
+  const expected=Number(expectedCursor);
+  if(!Number.isSafeInteger(expected))return false;
+  const current=Number.isSafeInteger(session?.lastUpdateId)?session.lastUpdateId:-1;
+  return current===expected;
 }
 
 export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date(),updateId){
@@ -28,15 +35,18 @@ export function registerRegistrationHandlers(bot){
     const s=await getSession(ctx.from.id);
     if(!s||s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION){
       await ctx.answerCbQuery();
-      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+      return ctx.reply('پیش از جمع‌آوری اطلاعات شخصی، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
     }
     await ctx.answerCbQuery();
     if(s.step==='awaiting_phone'){
       return ctx.reply('برای تأیید مالکیت شماره، از دکمه «اشتراک‌گذاری شماره موبایل» استفاده کنید. شماره‌ای که دستی تایپ شود پذیرفته نیست.',phoneShareKeyboard());
     }
-    return ctx.reply(promptFor(s.step),cancelKeyboard());
+    return ctx.reply(promptFor(s.step),cancelKeyboard(s.lastUpdateId));
   });
-  bot.action('privacy:accept',async ctx=>{
+  bot.action(/^privacy:accept:(-1|[0-9]{1,16})$/,async ctx=>{
+    const expectedCursor=Number(ctx.match[1]);
+    const existingSession=await getSession(ctx.from.id);
+    if(!registrationSessionCursorMatches(existingSession,expectedCursor))return ctx.answerCbQuery('این دکمه مربوط به مرحله قبلی ثبت‌نام است. لطفاً ثبت‌نام را دوباره باز کنید.',{show_alert:true});
     const version=config.PRIVACY_NOTICE_VERSION;
     if(!version||!config.PRIVACY_NOTICE_URL)return ctx.answerCbQuery('اطلاعیه حریم خصوصی هنوز پیکربندی نشده است.',{show_alert:true});
     const profile=await findProfile(ctx.from.id);
@@ -45,29 +55,33 @@ export function registerRegistrationHandlers(bot){
       await ctx.answerCbQuery('تأیید شما ثبت شد.');
       return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
     }
-    const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version,new Date(),ctx.update.update_id);
+    const accepted=buildPrivacyAcceptedSession(existingSession,version,new Date(),ctx.update.update_id);
     const step=accepted.step;
     await saveSession(ctx.from.id,step,accepted.payload,accepted.lastUpdateId);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
     if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
-    return ctx.reply(promptFor(step),cancelKeyboard());
+    return ctx.reply(promptFor(step),cancelKeyboard(accepted.lastUpdateId));
   });
-  bot.action('registration:cancel',async ctx=>{
-    await clearSession(ctx.from.id);
+  bot.action(/^registration:cancel:(-1|[0-9]{1,16})$/,async ctx=>{
+    const expectedCursor=Number(ctx.match[1]);
+    const current=await getSession(ctx.from.id);
+    if(!registrationSessionCursorMatches(current,expectedCursor))return ctx.answerCbQuery('این دکمه مربوط به مرحله قبلی ثبت‌نام است.',{show_alert:true});
+    if(current){const removed=await clearSession(ctx.from.id,expectedCursor);if(!removed)return ctx.answerCbQuery('مرحله ثبت‌نام تغییر کرده است.',{show_alert:true});}
     await ctx.answerCbQuery('ثبت‌نام متوقف شد.');
     await ctx.reply('هر زمان خواستید می‌توانید ثبت‌نام را شروع کنید.',registrationKeyboard());
   });
   bot.command('cancel',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
-    await clearSession(ctx.from.id);
+    const removed=await clearSessionIfNewer(ctx.from.id,ctx.update.update_id);
+    if(!removed)return ctx.reply('درخواست لغو قدیمی است یا ثبت‌نام فعالی وجود ندارد.');
     await ctx.reply('فرآیند ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
   });
   bot.on('contact',async(ctx,next)=>{
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
-    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
     if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id))return ctx.reply('شماره موبایل ثبت شد. حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
     const contact=ctx.message.contact;
@@ -87,18 +101,19 @@ export function registerRegistrationHandlers(bot){
     if(config.adminIds.has(String(ctx.from.id)))return next();
     const s=await getSession(ctx.from.id);
     const value=ctx.message.text.trim();
-    if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
     if(!s)return next();
-    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL));
+    if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId));
     if(isOlderRegistrationReplay(ctx,s))return ctx.reply('این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی ثبت‌نام را ادامه دهید.',Markup.removeKeyboard());
     if(s.lastUpdateId===Number(ctx.update.update_id)){
       if(s.step==='awaiting_phone')return ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید.',phoneShareKeyboard());
       if(s.step==='awaiting_instagram')return ctx.reply('حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
-      return ctx.reply(promptFor(s.step),cancelKeyboard());
+      return ctx.reply(promptFor(s.step),cancelKeyboard(s.lastUpdateId));
     }
     const data=s.payload||{};
     if(s.step==='awaiting_phone'&&value==='❌ انصراف از ثبت‌نام'){
-      await clearSession(ctx.from.id);
+      const removed=await clearSessionIfNewer(ctx.from.id,ctx.update.update_id);
+      if(!removed)return ctx.reply('این درخواست قدیمی است؛ مرحله فعلی ثبت‌نام تغییر کرده است.');
       return ctx.reply('ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
     }
     try{
