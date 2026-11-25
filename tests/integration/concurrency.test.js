@@ -307,3 +307,47 @@ test('MySQL integration: privacy re-acceptance and registration advancement cann
     }
   }finally{await clearSession(telegramId);}
 });
+
+
+test('MySQL integration: participant profile/support session starts serialize and stale cancel cannot clear a newer session',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {startProfileChangeSession,startUserSupportSession,cancelProfileChangeSession,cancelUserSupportSession}=await import('../../src/bot/handlers/user.handler.js');
+  await migrate();
+  const telegramId=String(7380000000000n+(BigInt(Date.now())%100000000000n));
+  const phone='+98912'+String(Date.now()).slice(-8);
+  let participantId=null;
+  try{
+    const [participant]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramId,'Participant Session Concurrency',phone,'session_'+telegramId.slice(-8)]);
+    participantId=participant.insertId;
+
+    const concurrent=await Promise.all([
+      startProfileChangeSession({telegramUserId:telegramId,step:'full_name',updateId:980000001}),
+      startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'technical',updateId:980000002})
+    ]);
+    assert.equal(concurrent.filter(Boolean).length,1,'Only one concurrent flow start may own the participant text session.');
+    const [[counts]]=await pool.execute(
+      "SELECT (SELECT COUNT(*) FROM profile_change_sessions WHERE telegram_user_id=?) profile_count,(SELECT COUNT(*) FROM support_sessions WHERE telegram_user_id=? AND step IN ('new_message','user_reply')) support_count",
+      [telegramId,telegramId]
+    );
+    assert.equal(Number(counts.profile_count)+Number(counts.support_count),1,'Profile and participant-support sessions must never coexist.');
+
+    assert.equal(await startProfileChangeSession({telegramUserId:telegramId,step:'full_name',updateId:980000003}),true);
+    assert.equal(await startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'technical',updateId:980000004}),true);
+    assert.equal(await cancelProfileChangeSession({telegramUserId:telegramId,expectedUpdateId:980000003}),false,'A stale profile cancel must not delete the newer support session.');
+    const [[supportStillActive]]=await pool.execute("SELECT COUNT(*) total FROM support_sessions WHERE telegram_user_id=? AND step='new_message' AND last_update_id=980000004",[telegramId]);
+    assert.equal(Number(supportStillActive.total),1);
+    assert.equal(await cancelUserSupportSession({telegramUserId:telegramId,expectedUpdateId:980000004}),true);
+
+    assert.equal(await startProfileChangeSession({telegramUserId:telegramId,step:'instagram_handle',updateId:980000005}),true);
+    assert.equal(await cancelProfileChangeSession({telegramUserId:telegramId,expectedUpdateId:980000005}),true);
+    assert.equal(await startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'campaign',updateId:980000006}),true);
+    assert.equal(await startUserSupportSession({telegramUserId:telegramId,step:'new_message',category:'financial',updateId:980000007}),true);
+    assert.equal(await cancelUserSupportSession({telegramUserId:telegramId,expectedUpdateId:980000006}),false,'An older support cancel must not delete a refreshed support session.');
+    assert.equal(await cancelUserSupportSession({telegramUserId:telegramId,expectedUpdateId:980000007}),true);
+  }finally{
+    await pool.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[telegramId]);
+    await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[telegramId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
+  }
+});
