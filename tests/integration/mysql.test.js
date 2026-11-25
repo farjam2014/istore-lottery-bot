@@ -163,6 +163,18 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await migrate();
     const [[keyringRecovery]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_005_draw_seed_keyring.sql'");
     assert.match(keyringRecovery.checksum,/^[a-f0-9]{64}$/);
+    const replaySessionUserId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
+    try{
+      await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category,last_update_id) VALUES(?,'new_message','technical',?)",[replaySessionUserId,900001]);
+      await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id) VALUES(?,'full_name',?)",[replaySessionUserId,900002]);
+      const [[storedSupportCursor]]=await pool.execute('SELECT last_update_id FROM support_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      const [[storedProfileCursor]]=await pool.execute('SELECT last_update_id FROM profile_change_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      assert.equal(Number(storedSupportCursor.last_update_id),900001,'Support sessions must persist the session-start update ID.');
+      assert.equal(Number(storedProfileCursor.last_update_id),900002,'Profile-change sessions must persist the session-start update ID.');
+    }finally{
+      await pool.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+    }
     const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
     const legacyConn=await pool.getConnection();let postMigrationCodes;try{await legacyConn.beginTransaction();postMigrationCodes=await issueCampaignCodes(legacyConn,legacyEntryId,legacyCampaignId,1);await legacyConn.commit();}catch(error){await legacyConn.rollback();throw error;}finally{legacyConn.release();}
     const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
