@@ -144,3 +144,14 @@ test('post-migration integrity script is read-only and separated from baseline p
   assert.doesNotMatch(postMigrationIntegrity,/^\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\b/im);
   assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\\.last_sequence|MAX\\(cc\\.sequence_number\\)/);
 });
+
+
+test('release runbook separates baseline and post-migration integrity checks',()=>{
+  const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
+  const readiness=readFileSync(new URL('../../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
+  assert.ok(runbook.includes('scripts/production-migration-preflight.sql'));
+  assert.ok(runbook.includes('scripts/post-migration-integrity-check.sql'));
+  assert.ok(runbook.includes('dedicated SELECT-only MySQL account'));
+  assert.ok(readiness.includes('scripts/post-migration-integrity-check.sql'));
+  assert.ok(readiness.includes('counter drift'));
+});
