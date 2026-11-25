@@ -68,11 +68,11 @@ test('invalid privacy acceptance timestamps are rejected',()=>{
 test('privacy re-acceptance records the current callback update as the replay cursor',()=>{
   const handler=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
   const repository=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
-  assert.match(handler,/buildPrivacyAcceptedSession\(existingSession,version,new Date\(\),ctx\.update\.update_id\)/);
+  assert.match(handler,/acceptPrivacyConsentSession\(\{telegramUserId:ctx\.from\.id,expectedLastUpdateId:expectedCursor,updateId:ctx\.update\.update_id,version,acceptedAt:new Date\(\)\}\)/);
   assert.match(handler,/registrationSessionCursorMatches\(existingSession,expectedCursor\)/);
-  assert.match(handler,/saveSession\(ctx\.from\.id,step,accepted\.payload,accepted\.lastUpdateId\)/);
-  assert.match(repository,/saveSession\(id,step,payload,lastUpdateId\)/);
-  assert.match(repository,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
+  assert.match(repository,/SELECT step,payload,last_update_id FROM telegram_user_sessions WHERE telegram_user_id=\? FOR UPDATE/);
+  assert.match(repository,/WHERE telegram_user_id=\? AND last_update_id <=> \?/);
+  assert.match(repository,/last_update_id=\? AND last_update_id<\?/);
 });
 
 test('privacy acceptance requires a valid Telegram update ID',()=>{

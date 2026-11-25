@@ -21,7 +21,7 @@ test('registration allows a later update and leaves equal cursor handling to the
 
 test('registration session advancement is an atomic monotonic cursor compare-and-set',()=>{
   const source=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
-  assert.match(source,/last_update_id IS NOT NULL AND last_update_id<\?/);
+  assert.match(source,/last_update_id=\? AND last_update_id<\?/);
   assert.match(source,/last_update_id=GREATEST\(COALESCE\(last_update_id,-1\),VALUES\(last_update_id\)\)/);
 });
 
@@ -29,7 +29,7 @@ test('registration session advancement is an atomic monotonic cursor compare-and
 test('registration session save and advance refresh updated_at for a newer cursor',()=>{
   const source=readFileSync(new URL('../../src/modules/participants/participant.repository.js',import.meta.url),'utf8');
   assert.match(source,/updated_at=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),CURRENT_TIMESTAMP,updated_at\)/);
-  assert.match(source,/SET step=\?,payload=\?,last_update_id=\?,updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id/);
+  assert.match(source,/SET step=\?,payload=\?,last_update_id=\?,updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=\? AND step=\? AND last_update_id=\?/);
 });
 
 

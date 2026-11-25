@@ -228,17 +228,17 @@ test('MySQL integration: registration session records the update that advanced i
     await saveSession(telegramId,'awaiting_name',{privacyConsentVersion:'ci-v1'},startUpdateId);
     const updateId=startUpdateId+1;
     await pool.execute('UPDATE telegram_user_sessions SET updated_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 25 HOUR) WHERE telegram_user_id=?',[telegramId]);
-    await advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1',fullName:'Replay Tester'},updateId);
+    await advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1',fullName:'Replay Tester'},startUpdateId,updateId);
     const [[freshTimestamp]]=await pool.execute('SELECT updated_at FROM telegram_user_sessions WHERE telegram_user_id=?',[telegramId]);
     assert.ok(new Date(freshTimestamp.updated_at).getTime()>Date.now()-60_000,'advancing a registration session must refresh its 24-hour inactivity TTL');
     const session=await getSession(telegramId);
     assert.equal(session.step,'awaiting_phone');
     assert.equal(session.lastUpdateId,updateId);
-    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId-1),/مرحله ثبت‌نام تغییر کرده/);
-    await assert.rejects(advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده/);
+    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},startUpdateId,updateId-1),/Registration update cursor/);
+    await assert.rejects(advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1'},updateId,updateId),/Registration update cursor/);
     const concurrent=await Promise.allSettled([
-      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Earlier'},updateId+1),
-      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Later'},updateId+2)
+      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Earlier'},updateId,updateId+1),
+      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Later'},updateId,updateId+2)
     ]);
     assert.equal(concurrent.filter(result=>result.status==='fulfilled').length,1,'Only one concurrent update may consume a registration step.');
     const afterConcurrent=await getSession(telegramId);
@@ -274,4 +274,34 @@ test('MySQL integration: final registration completion atomically consumes the e
     await pool.execute('DELETE FROM telegram_user_sessions WHERE telegram_user_id=?',[telegramId]);
     await pool.execute('DELETE FROM participants WHERE telegram_user_id=?',[telegramId]);
   }
+});
+
+
+test('MySQL integration: privacy re-acceptance and registration advancement cannot overwrite each other',{skip:!enabled},async()=>{
+  const {pool}=await import('../../src/database/pool.js');
+  const {saveSession,getSession,advanceSession,acceptPrivacyConsentSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
+  const telegramId=String(7370000000000000n+(BigInt(Date.now())%1000000000n));
+  const startUpdateId=Number(970000000+Math.floor(Math.random()*10000000));
+  const original={fullName:'Consent Race Tester',privacyConsentVersion:'ci-v1',privacyConsentAt:'2026-11-25T10:00:00.000Z'};
+  try{
+    await saveSession(telegramId,'awaiting_phone',original,startUpdateId);
+    const results=await Promise.allSettled([
+      acceptPrivacyConsentSession({telegramUserId:telegramId,expectedLastUpdateId:startUpdateId,updateId:startUpdateId+2,version:'ci-v2',acceptedAt:new Date()}),
+      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{...original,phone:'+989121234567'},startUpdateId,startUpdateId+1)
+    ]);
+    assert.equal(results.filter(x=>x.status==='fulfilled').length,1,'Only one concurrent update may consume the exact registration cursor.');
+    assert.equal(results.filter(x=>x.status==='rejected').length,1,'The losing stale update must not overwrite the winner.');
+    const current=await getSession(telegramId);
+    assert.ok(current);
+    if(current.lastUpdateId===startUpdateId+1){
+      assert.equal(current.step,'awaiting_instagram');
+      assert.equal(current.payload.phone,'+989121234567');
+      assert.equal(current.payload.privacyConsentVersion,'ci-v1');
+    }else{
+      assert.equal(current.lastUpdateId,startUpdateId+2);
+      assert.equal(current.step,'awaiting_phone');
+      assert.equal(current.payload.phone,undefined);
+      assert.equal(current.payload.privacyConsentVersion,'ci-v2');
+    }
+  }finally{await clearSession(telegramId);}
 });

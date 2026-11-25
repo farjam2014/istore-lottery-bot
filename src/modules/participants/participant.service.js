@@ -4,6 +4,7 @@ export const findProfile=repo.findByTelegramId;
 export const updatePrivacyConsent=repo.updatePrivacyConsent;
 export const getSession=repo.getSession;
 export const saveSession=repo.saveSession;
+export const acceptPrivacyConsentSession=repo.acceptPrivacyConsentSession;
 export const advanceSession=repo.advanceSession;
 export const clearSession=repo.clearSession;
 export const clearSessionIfNewer=repo.clearSessionIfNewer;

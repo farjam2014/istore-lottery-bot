@@ -21,3 +21,16 @@ test('structured logs redact Telegram IDs, phone numbers, Instagram handles, and
     assert.equal(output.includes(secret),false,'sensitive value leaked: '+secret);
   }
 });
+
+
+test('structured error logs redact raw database and nested error messages and stacks',()=>{
+  let output='';
+  const destination={write(chunk){output+=String(chunk);}};
+  const log=pino({level:'error',redact:{paths:logRedactPaths,censor:'[REDACTED]'}},destination);
+  const duplicate=new Error("Duplicate entry '09125550000' for key 'participants.phone'");
+  duplicate.code='ER_DUP_ENTRY';
+  const remote=new Error('Telegram request failed for @private_handle and 998877665544');
+  log.error({err:duplicate,nested:{err:remote}},'sensitive error test');
+  assert.match(output,/ER_DUP_ENTRY/);
+  for(const secret of ['09125550000','private_handle','998877665544','Duplicate entry','Telegram request failed'])assert.equal(output.includes(secret),false,'sensitive error content leaked: '+secret);
+});

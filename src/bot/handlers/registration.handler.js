@@ -1,5 +1,5 @@
 import {Markup} from 'telegraf';
-import {completeRegistration,getSession,saveSession,advanceSession,clearSession,clearSessionIfNewer,findProfile,updatePrivacyConsent,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
+import {completeRegistration,getSession,acceptPrivacyConsentSession,advanceSession,clearSession,clearSessionIfNewer,findProfile,updatePrivacyConsent,normalizeFullName,normalizePhone} from '../../modules/participants/participant.service.js';
 import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
@@ -59,9 +59,8 @@ export function registerRegistrationHandlers(bot){
       await ctx.answerCbQuery('تأیید شما ثبت شد.');
       return ctx.reply('تأیید اطلاعیه حریم خصوصی ثبت شد. می‌توانید از ربات استفاده کنید.',userMenuKeyboard());
     }
-    const accepted=buildPrivacyAcceptedSession(existingSession,version,new Date(),ctx.update.update_id);
+    const accepted=await acceptPrivacyConsentSession({telegramUserId:ctx.from.id,expectedLastUpdateId:expectedCursor,updateId:ctx.update.update_id,version,acceptedAt:new Date()});
     const step=accepted.step;
-    await saveSession(ctx.from.id,step,accepted.payload,accepted.lastUpdateId);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
     if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
@@ -98,7 +97,7 @@ export function registerRegistrationHandlers(bot){
     try{
       const phone=normalizePhone(contact.phone_number);
       const data={...(s.payload||{}),phone};
-      await advanceSession(ctx.from.id,s.step,'awaiting_instagram',data,ctx.update.update_id);
+      await advanceSession(ctx.from.id,s.step,'awaiting_instagram',data,s.lastUpdateId,ctx.update.update_id);
       await ctx.reply('شماره موبایل دریافت و مالکیت آن با حساب تلگرام شما تطبیق داده شد. حالا آیدی اینستاگرام را بدون @ ارسال کنید.',Markup.removeKeyboard());
     }catch(error){
       return ctx.reply(error.message||'شماره موبایل معتبر نیست. دوباره اشتراک‌گذاری کنید.',phoneShareKeyboard());
@@ -126,7 +125,7 @@ export function registerRegistrationHandlers(bot){
     try{
       if(s.step==='awaiting_name'){
         normalizeFullName(value);data.fullName=value;
-        await advanceSession(ctx.from.id,s.step,'awaiting_phone',data,ctx.update.update_id);
+        await advanceSession(ctx.from.id,s.step,'awaiting_phone',data,s.lastUpdateId,ctx.update.update_id);
         return ctx.reply('برای تأیید مالکیت، شماره موبایل خودتان را با دکمه زیر به اشتراک بگذارید. واردکردن دستی شماره پذیرفته نیست.',phoneShareKeyboard());
       }
       if(s.step==='awaiting_phone'){
