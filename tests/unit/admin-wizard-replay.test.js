@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isOlderAdminWizardReplay} from '../../src/modules/admin/admin-wizard-replay.js';
+import {isOlderAdminWizardReplay,isExpiredAdminWizardSession} from '../../src/modules/admin/admin-wizard-replay.js';
 
 test('admin wizard rejects a replayed update already applied to the current step',()=>{
   const wizard={step:'title',lastUpdateId:101};
@@ -17,3 +17,15 @@ test('admin wizard allows a newer update and all first-attempt updates',()=>{
 test('admin wizard does not reject when there is no persisted cursor',()=>{
   assert.equal(isOlderAdminWizardReplay({state:{durableReplay:true},update:{update_id:100}},{step:'title',lastUpdateId:null}),false);
 });
+
+test('admin wizard session expires at the configured TTL boundary',()=>{
+  const now=Date.parse('2026-11-25T12:00:00Z');
+  assert.equal(isExpiredAdminWizardSession('2026-11-24T12:00:00Z',now),true);
+  assert.equal(isExpiredAdminWizardSession('2026-11-24T12:00:01Z',now),false);
+});
+
+test('admin wizard session expiry fails closed for invalid timestamps',()=>{
+  const {isExpiredAdminWizardSession}=requireAdminWizardExpiry();
+  assert.equal(isExpiredAdminWizardSession('not-a-date',Date.now()),true);
+});
+
