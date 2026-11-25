@@ -14,3 +14,10 @@ test('reopening a participant support request or reply refreshes its TTL',()=>{
   assert.match(source,/category=VALUES\(category\),updated_at=CURRENT_TIMESTAMP/);
   assert.match(source,/category=NULL,updated_at=CURRENT_TIMESTAMP/);
 });
+
+test('profile change sessions expire after 24 hours and are revalidated under lock',()=>{
+  assert.match(source,/profile_change_sessions WHERE telegram_user_id=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/profile_change_sessions WHERE telegram_user_id=\? AND created_at<DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
+  assert.match(source,/created_at=CURRENT_TIMESTAMP/);
+  assert.match(source,/profile_change_sessions WHERE telegram_user_id=\? AND step=\? AND created_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\) FOR UPDATE/);
+});
