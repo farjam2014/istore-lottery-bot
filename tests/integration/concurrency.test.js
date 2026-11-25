@@ -213,6 +213,15 @@ test('MySQL integration: registration session records the update that advanced i
     const session=await getSession(telegramId);
     assert.equal(session.step,'awaiting_phone');
     assert.equal(session.lastUpdateId,updateId);
-    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده/);
+    await assert.rejects(advanceSession(telegramId,'awaiting_name','awaiting_phone',{privacyConsentVersion:'ci-v1'},updateId-1),/مرحله ثبت‌نام تغییر کرده/);
+    await assert.rejects(advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1'},updateId),/مرحله ثبت‌نام تغییر کرده/);
+    const concurrent=await Promise.allSettled([
+      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Earlier'},updateId+1),
+      advanceSession(telegramId,'awaiting_phone','awaiting_instagram',{privacyConsentVersion:'ci-v1',fullName:'Later'},updateId+2)
+    ]);
+    assert.equal(concurrent.filter(result=>result.status==='fulfilled').length,1,'Only one concurrent update may consume a registration step.');
+    const afterConcurrent=await getSession(telegramId);
+    assert.equal(afterConcurrent.step,'awaiting_instagram');
+    assert.ok(afterConcurrent.lastUpdateId===updateId+1||afterConcurrent.lastUpdateId===updateId+2,'The stored cursor must be one of the accepted concurrent updates and must never regress.');
   }finally{await clearSession(telegramId);}
 });
