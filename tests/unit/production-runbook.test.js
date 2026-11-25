@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 
 const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
 const section=runbook.split('## 5. Approved maintenance window')[1]?.split('## 6. Point systemd')[0]??'';
-const match=section.match(/Use this exact pattern:\n\n   \`\`\`bash\n([\\s\\S]*?)\n   \`\`\`/);
+const match=section.match(/Use this exact pattern:\n\n   \`\`\`bash\n([\s\S]*?)\n   \`\`\`/);
 
 test('production migration runbook shell block is valid Bash',()=>{
   assert.ok(match,'The approved migration command block must exist in the runbook.');
