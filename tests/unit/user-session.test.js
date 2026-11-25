@@ -29,3 +29,4 @@ test('support text sessions enforce a 24-hour TTL and recheck it under row lock'
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\)/);
   assert.match(source,/support_sessions WHERE telegram_user_id=\? AND updated_at>=DATE_SUB\(UTC_TIMESTAMP\(\),INTERVAL 24 HOUR\) FOR UPDATE/);
 });
+\ntest('invalid support reply does not destroy an active profile-change session',()=>{\n  const start=source.indexOf(\"bot.action(/^support:user:reply:\");\n  const end=source.indexOf(\"\\n\",start);\n  const handler=source.slice(start,end);\n  assert.ok(handler.indexOf(\"SELECT t.id FROM support_tickets\")<handler.indexOf(\"DELETE FROM profile_change_sessions\"));\n});\n
