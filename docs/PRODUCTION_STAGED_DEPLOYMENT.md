@@ -92,22 +92,39 @@ Only after separate approval:
    set +x
    trap 'unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE' EXIT
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
-    SERVICE_USER="$(systemctl show ustore-telegram-bot.service -p User --value)"
-    test -n "$ACTIVE" && test -n "$SERVICE_USER"
-    test -f "$ACTIVE/.env" && test ! -L "$ACTIVE/.env"
-    test "$(stat -c '%U' "$ACTIVE/.env")" = "$SERVICE_USER"
-    test "$(stat -c '%a' "$ACTIVE/.env")" = 600
+   SERVICE_USER="$(systemctl show ustore-telegram-bot.service -p User --value)"
+   test -n "$ACTIVE" && test -n "$SERVICE_USER"
+   test -f "$ACTIVE/.env" && test ! -L "$ACTIVE/.env"
+   test "$(stat -c '%U' "$ACTIVE/.env")" = "$SERVICE_USER"
+   test "$(stat -c '%a' "$ACTIVE/.env")" = 600
    MYSQL_DATABASE="$(node --input-type=module -e "import dotenv from 'dotenv'; import {readFileSync} from 'node:fs'; const parsed=dotenv.parse(readFileSync(process.argv[1])); process.stdout.write(parsed.MYSQL_DATABASE ?? '');" "$ACTIVE/.env")"
-    [[ "$MYSQL_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
+   [[ "$MYSQL_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
    export MYSQL_DATABASE
+   MIGRATION_ENV_DIR="/etc/ustore-telegram-bot"
+   MIGRATION_ENV="$MIGRATION_ENV_DIR/ustore-telegram-bot-migration.env"
+   test -d "$MIGRATION_ENV_DIR" && test ! -L "$MIGRATION_ENV_DIR"
+   test "$(stat -c '%U' "$MIGRATION_ENV_DIR")" = root
+   test "$(stat -c '%a' "$MIGRATION_ENV_DIR")" = 700
+   test -f "$MIGRATION_ENV" && test ! -L "$MIGRATION_ENV"
+   test "$(stat -c '%U' "$MIGRATION_ENV")" = root
+   test "$(stat -c '%a' "$MIGRATION_ENV")" = 600
    set -a
-   . /etc/ustore-telegram-bot/ustore-telegram-bot-migration.env
+   . "$MIGRATION_ENV"
    set +a
-    [[ "$MYSQL_MIGRATION_USER" =~ ^[A-Za-z0-9_]{1,32}$ ]]
-    [[ "$MIGRATION_TARGET_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
+   [[ "$MYSQL_MIGRATION_USER" =~ ^[A-Za-z0-9_]{1,32}$ ]]
+   [[ "$MIGRATION_TARGET_DATABASE" =~ ^[A-Za-z0-9_]{1,64}$ ]]
    test "$MYSQL_DATABASE" = "$MIGRATION_TARGET_DATABASE"
-   GRANTS="$(mysql --protocol=socket -NBe "SHOW GRANTS FOR '$MYSQL_MIGRATION_USER'@'127.0.0.1'")"
-   case "$GRANTS" in *"TRIGGER ON"*|*"ALL PRIVILEGES ON"*) ;; *) echo 'Migration account lacks TRIGGER privilege; stop and obtain separate DBA approval before granting it.' >&2; exit 1 ;; esac
+   GRANTEE="'$MYSQL_MIGRATION_USER'@'127.0.0.1'"
+   MIGRATION_SCHEMA_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE='$GRANTEE' AND TABLE_SCHEMA='$MYSQL_DATABASE' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE','CREATE','ALTER','INDEX','REFERENCES','TRIGGER')")"
+   MIGRATION_SCHEMA_PRIVILEGE_ROWS="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE='$GRANTEE' AND TABLE_SCHEMA='$MYSQL_DATABASE'")"
+   MIGRATION_GLOBAL_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE='$GRANTEE' AND PRIVILEGE_TYPE<>'USAGE'")"
+   MIGRATION_OTHER_SCHEMA_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE='$GRANTEE' AND TABLE_SCHEMA<>'$MYSQL_DATABASE'")"
+   MIGRATION_TABLE_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE='$GRANTEE'")"
+   test "$MIGRATION_SCHEMA_PRIVILEGES" = 9
+   test "$MIGRATION_SCHEMA_PRIVILEGE_ROWS" = 9
+   test "$MIGRATION_GLOBAL_PRIVILEGES" = 0
+   test "$MIGRATION_OTHER_SCHEMA_PRIVILEGES" = 0
+   test "$MIGRATION_TABLE_PRIVILEGES" = 0
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
    AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete')")"
    test "$AUDIT_TRIGGER_COUNT" = 2
