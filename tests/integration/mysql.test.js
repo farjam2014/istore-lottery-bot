@@ -5,6 +5,8 @@ import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 
+// admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
+
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 
 test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
@@ -422,7 +424,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM participants WHERE id=?',[id]);
     }
     const allCampaignIds=[...campaignIds,...extraCampaignIds];
-    if(allCampaignIds.length){await pool.execute(`DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);await pool.execute(`DELETE FROM campaigns WHERE id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);}
+    if(allCampaignIds.length){await pool.execute(`DELETE FROM campaigns WHERE id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);}
     if(copyIdempotencyKey)await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[copyIdempotencyKey]);
     if(campaignWizardId)await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[campaignWizardId]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
@@ -865,7 +867,7 @@ test('MySQL integration: campaign scheduler transitions use database UTC time co
     assert.equal(rows.find(x=>Number(x.id)===Number(ids[0])).status,'open');
     assert.equal(rows.find(x=>Number(x.id)===Number(ids[1])).status,'closed');
   }finally{
-    if(ids.length){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (?,?)",ids);await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
+    if(ids.length){await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
   }
 });
 
@@ -1021,7 +1023,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     const [[campaignState]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);assert.equal(campaignState.status,'drawn');
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/فقط قرعه‌کشی آماده/);
   }finally{
-    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign_draw' AND entity_id=?",[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
     if(codeIds.length)await pool.execute('DELETE FROM campaign_codes WHERE id IN ('+codeIds.map(()=>'?').join(',')+')',codeIds);
     if(entryIds.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entryIds.map(()=>'?').join(',')+')',entryIds);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
@@ -1224,7 +1226,7 @@ test('MySQL integration: manually close campaigns without an end date for draw r
     await assert.rejects(closeCampaign({campaignId,actorId:'9001'}),/بستن دستی فقط/);
   }finally{
     if(campaignId){
-      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.closed_manually'",[campaignId]);
+      
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
@@ -1275,7 +1277,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
-      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.archived'",[campaignId]);
+      
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
