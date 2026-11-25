@@ -15,6 +15,7 @@ The application may process:
 - Payment order references, amounts, bank-card snapshots, Telegram receipt file identifiers, receipt notes, and review decisions.
 - Support ticket subjects, messages, assignments, status, and timestamps.
 - Admin identifiers, role changes, security/audit events, and export activity.
+- Admin participant-search terms in `admin_search_sessions.query_text`; these may contain a name, phone number, Telegram ID, or Instagram handle and must be treated as personal data.
 - Operational metadata such as update IDs, correlation IDs, retry state, and delivery errors.
 - In-progress registration session payloads, which can temporarily contain a name, verified phone number, and self-declared Instagram handle before a participant profile is created.
 
