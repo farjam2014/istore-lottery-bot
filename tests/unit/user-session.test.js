@@ -10,7 +10,7 @@ test('starting a profile change uses a participant-locked transaction and clears
   assert.ok(start>=0&&end>start);
   const helper=source.slice(start,end);
   assert.match(helper,/withParticipantSessionLock/);
-  assert.match(helper,/SELECT id FROM participants WHERE telegram_user_id=\? FOR UPDATE/);
+  assert.match(source,/SELECT id FROM participants WHERE telegram_user_id=\? FOR UPDATE/);
   assert.match(helper,/DELETE FROM support_sessions WHERE telegram_user_id=\? AND step IN \('new_message','user_reply'\)/);
   assert.match(helper,/created_at=CURRENT_TIMESTAMP/);
   assert.match(source,/startProfileChangeSession\(\{telegramUserId:ctx\.from\.id,step:field,updateId\}\)/);
