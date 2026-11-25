@@ -10,9 +10,13 @@ export function isOlderRegistrationReplay(ctx,session){
   return Boolean(ctx?.state?.durableReplay&&Number.isSafeInteger(updateId)&&Number.isSafeInteger(lastUpdateId)&&updateId<lastUpdateId);
 }
 
-export function buildPrivacyAcceptedSession(existing,version){
+export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date()){
   const step=existing?.step||'awaiting_name';
-  return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version},lastUpdateId:existing?.lastUpdateId??null};
+  const sameVersion=existing?.payload?.privacyConsentVersion===version;
+  const priorAcceptedAt=existing?.payload?.privacyConsentAt;
+  const acceptedDate=sameVersion&&priorAcceptedAt?new Date(priorAcceptedAt):new Date(acceptedAt);
+  if(!Number.isFinite(acceptedDate.getTime()))throw new TypeError('Privacy consent timestamp must be valid.');
+  return {step,payload:{...(existing?.payload||{}),privacyConsentVersion:version,privacyConsentAt:acceptedDate.toISOString()},lastUpdateId:existing?.lastUpdateId??null};
 }
 
 export function registerRegistrationHandlers(bot){
@@ -41,7 +45,7 @@ export function registerRegistrationHandlers(bot){
     }
     const accepted=buildPrivacyAcceptedSession(await getSession(ctx.from.id),version);
     const step=accepted.step;
-    await saveSession(ctx.from.id,step,accepted.payload,accepted.lastUpdateId);
+    await saveSession(ctx.from.id,step,accepted.payload);
     await ctx.answerCbQuery('تأیید شما ثبت شد.');
     if(step==='awaiting_phone')return ctx.reply(promptFor(step),phoneShareKeyboard());
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
