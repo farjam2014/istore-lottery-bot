@@ -71,10 +71,11 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 25. `20261125_001_support_reply_replay.sql` — clears pending admin support-reply text sessions and adds a Telegram update cursor to support sessions, preventing delayed messages from being consumed by a later reply flow.
 26. `20261125_002_admin_search_replay.sql` — adds Telegram update cursors to participant/campaign-code search and payment-order search sessions, rejecting delayed or duplicate search messages.
 27. `20261125_003_participant_session_replay.sql` — adds the profile-change session cursor and clears pre-cursor participant support/profile sessions so delayed inbox messages cannot be mistaken for input to a newly started flow.
+28. `20261125_004_admin_audit_append_only.sql` — installs database-level BEFORE UPDATE and BEFORE DELETE triggers so the runtime database account cannot alter or erase admin audit evidence.
 
 Important migration properties:
 
-- The application service uses `MYSQL_USER`/`MYSQL_PASSWORD`, restricted to DML on the application database. It must not have `CREATE`, `ALTER`, `INDEX`, or `REFERENCES` privileges.
+- The application service uses `MYSQL_USER`/`MYSQL_PASSWORD`, restricted to DML on the application database. It must not have `CREATE`, `ALTER`, `INDEX`, or `REFERENCES` privileges. The admin audit table is protected by database triggers that reject UPDATE and DELETE, including attempts made by the runtime DML account.
 - Production migrations use `MYSQL_MIGRATION_USER`/`MYSQL_MIGRATION_PASSWORD` from `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by root with directory mode `700` and file mode `600`. These credentials must never be copied into the release `.env` or the systemd service environment.
 - The migration runner refuses to use the runtime account in production. CI/test environments may reuse their disposable test database account.
 
