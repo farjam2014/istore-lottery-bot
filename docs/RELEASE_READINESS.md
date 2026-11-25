@@ -66,7 +66,7 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 20. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata.
 21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
 22. `20261124_002_privacy_consent.sql` — adds participant privacy notice version and acceptance timestamp; existing profiles remain unconsented until they accept the published notice.
-23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact session, preventing duplicate step advancement on replay.
+23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact session, prevents out-of-order cursor regression, and clears pre-cursor registration sessions during the schema transition.
 24. `20261124_004_admin_wizard_replay.sql` — records Telegram update IDs for admin campaign, payment-card, and admin-role wizards, preventing stale message replays from being interpreted as input for a later step; clears all pre-cursor admin campaign, payment-card, and admin-role sessions during the schema transition.
 25. `20261125_001_support_reply_replay.sql` — clears pending admin support-reply text sessions and adds a Telegram update cursor to support sessions, preventing delayed messages from being consumed by a later reply flow.
 26. `20261125_002_admin_search_replay.sql` — adds Telegram update cursors to participant/campaign-code search and payment-order search sessions, rejecting delayed or duplicate search messages.

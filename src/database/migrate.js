@@ -81,8 +81,9 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261124_003_registration_session_replay.sql'){
-    if(index!==0)throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
-    return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
+    if(index===0)return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
+    if(index===1)return false; // Clear pre-cursor registration sessions after adding the replay cursor.
+    throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
   }
   if(file==='20261124_004_admin_wizard_replay.sql'){
     if(index===0)return hasNullableBigintColumn(connection,'admin_wizards','last_update_id');

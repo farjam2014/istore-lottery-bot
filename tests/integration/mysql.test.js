@@ -147,7 +147,12 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261119_001_campaign_edit_wizard_step.sql'
     ]){
       let preCursorSessionUserId=null;
+      let preCursorRegistrationUserId=null;
       let preCursorAdminUserId=null;
+      if(version==='20261124_003_registration_session_replay.sql'){
+        preCursorRegistrationUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
+        await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id) VALUES(?,'awaiting_name',JSON_OBJECT(),NULL)",[preCursorRegistrationUserId]);
+      }
       if(version==='20261124_004_admin_wizard_replay.sql'){
         preCursorAdminUserId=String(696000000000000000n+(BigInt(Date.now())%1000000000n));
         await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,'title',?,NULL)",[preCursorAdminUserId,JSON.stringify({title:'stale'})]);
@@ -163,6 +168,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await migrate();
       const [[recovered]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(recovered?.checksum||'',/^[a-f0-9]{64}$/,'Replay guard failed for '+version);
+      if(preCursorRegistrationUserId){
+        const [[staleRegistrationSession]]=await pool.execute('SELECT COUNT(*) AS total FROM telegram_user_sessions WHERE telegram_user_id=?',[preCursorRegistrationUserId]);
+        assert.equal(Number(staleRegistrationSession.total),0,'Pre-cursor registration sessions must be cleared on migration replay.');
+      }
       if(preCursorAdminUserId){
         for(const table of ['admin_wizards','payment_card_admin_sessions','admin_role_sessions']){
           const [[staleAdminSession]]=await pool.execute('SELECT COUNT(*) AS total FROM `'+table+'` WHERE telegram_user_id=?',[preCursorAdminUserId]);

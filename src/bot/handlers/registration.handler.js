@@ -7,7 +7,7 @@ import {config} from '../../config/env.js';
 export function isOlderRegistrationReplay(ctx,session){
   const updateId=Number(ctx?.update?.update_id);
   const lastUpdateId=session?.lastUpdateId;
-  return Boolean(ctx?.state?.durableReplay&&Number.isSafeInteger(updateId)&&Number.isSafeInteger(lastUpdateId)&&updateId<lastUpdateId);
+  return !Number.isSafeInteger(updateId)||!Number.isSafeInteger(lastUpdateId)||updateId<lastUpdateId;
 }
 
 export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date(),updateId){
