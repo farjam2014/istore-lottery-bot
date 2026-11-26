@@ -49,6 +49,9 @@ test('MySQL integration: production migration preflight runs against the baselin
     await setup.query('CREATE TABLE schema_migrations (version VARCHAR(120) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     await setup.end();setup=null;
     readonly=await mysql.createConnection({host:'127.0.0.1',port,user:reader,password:readerPassword,database});
+    const [[readerIdentity]]=await readonly.query("SELECT SUBSTRING_INDEX(CURRENT_USER(),'@',-1) AS account_host");
+    const readerAccountHost=String(readerIdentity.account_host||'');
+    assert.ok(readerAccountHost,'Could not identify the read-only MySQL account host.');
     const preflight=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
     const statements=preflight.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean);
     const results=[];
@@ -62,8 +65,8 @@ test('MySQL integration: production migration preflight runs against the baselin
     const pendingConsent=rows.filter(row=>row.check_status==='PENDING_MIGRATION_002');
     assert.equal(pendingConsent.length,1,'Baseline preflight must report privacy consent columns as pending without querying absent columns.');
     assert.ok(rows.every(row=>!Object.hasOwn(row,'payload')),'Read-only preflight must never return raw Telegram Update payloads.');
-    const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerHost,database]);
-    const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerHost]);
+    const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerAccountHost,database]);
+    const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerAccountHost]);
     const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerHost]);
     const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerHost,database]);
     assert.deepEqual(schemaPrivileges.map(row=>row.PRIVILEGE_TYPE),['SELECT'],'Preflight fixture reader must have only SELECT on the target schema.');
