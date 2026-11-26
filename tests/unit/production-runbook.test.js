@@ -21,6 +21,8 @@ test('production migration runbook enforces root-only credentials and least priv
   assert.match(section,/MIGRATION_GLOBAL_PRIVILEGES/);
   assert.match(section,/MIGRATION_OTHER_SCHEMA_PRIVILEGES/);
   assert.match(section,/MIGRATION_TABLE_PRIVILEGES/);
+  assert.match(section,/MYSQL_BINLOG_ENABLED=.*SELECT \.\@\@GLOBAL\.log_bin/);
+  assert.match(section,/MYSQL_TRUSTED_CREATORS=.*log_bin_trust_function_creators/);
   assert.doesNotMatch(section,/ALL PRIVILEGES ON/);
 });
 
