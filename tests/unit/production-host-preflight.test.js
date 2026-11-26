@@ -61,7 +61,7 @@ test('backup preflight requires an enabled app-database timer and a recorded suc
     'systemctl show "$service" -p ExecMainExitTimestamp --value',
     'service_result" == "success"',
     'service_exit" == "0"',
-    'Cron references alone do not prove successful execution.'
+    'cron alone does not prove a successful run'
   ]) assert.ok(source.includes(value), 'missing backup verification gate: '+value);
   assert.ok(source.includes('tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/'));
 });
