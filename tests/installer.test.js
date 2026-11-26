@@ -92,3 +92,13 @@ test('installer refuses migration credentials in the service-readable runtime en
   assert.match(script,/read_env MYSQL_MIGRATION_PASSWORD/);
   assert.match(script,/Migration credentials must not be stored in the service-readable runtime \.env/);
 });
+
+
+test('systemd service runs with a read-only filesystem namespace and no writable release path',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.ok(script.includes('ProtectSystem=strict'));
+  assert.ok(script.includes('ProtectHome=true'));
+  assert.ok(script.includes('NoNewPrivileges=true'));
+  assert.ok(script.includes('PrivateTmp=true'));
+  assert.ok(!script.includes('ReadWritePaths=$APP_DIR'));
+});
