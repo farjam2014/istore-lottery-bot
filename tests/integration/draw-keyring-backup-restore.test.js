@@ -47,6 +47,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   assert.notEqual(user,backupUser,'Application and backup identities must be distinct.');
   assert.notEqual(user,restoreUser,'Application and restore identities must be distinct.');
   assert.notEqual(backupUser,restoreUser,'Backup and restore identities must be distinct.');
+  assert.notEqual(restoreRuntimeUser,user,'Restored runtime and source application identities must be distinct.');
   assert.notEqual(restoreRuntimeUser,restoreUser,'Restored runtime and temporary restore identities must be distinct.');
   assert.notEqual(restoreRuntimeUser,backupUser,'Restored runtime and backup identities must be distinct.');
   const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
