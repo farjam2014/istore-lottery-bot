@@ -128,7 +128,7 @@ Only after separate approval:
    test "$MIGRATION_OTHER_SCHEMA_PRIVILEGES" = 0
    test "$MIGRATION_TABLE_PRIVILEGES" = 0
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
-   AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete')")"
+   AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') AND EVENT_OBJECT_TABLE='admin_audit_log' AND ACTION_TIMING='BEFORE' AND ((TRIGGER_NAME='trg_admin_audit_log_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='trg_admin_audit_log_no_delete' AND EVENT_MANIPULATION='DELETE')) AND UPPER(REGEXP_REPLACE(TRIM(ACTION_STATEMENT), '[[:space:]]+', ' '))=CONCAT('SIGNAL SQLSTATE ',CHAR(39),'45000',CHAR(39),' SET MESSAGE_TEXT = ',CHAR(39),'ADMIN_AUDIT_LOG IS APPEND-ONLY',CHAR(39))")"
    test "$AUDIT_TRIGGER_COUNT" = 2
    ```
 

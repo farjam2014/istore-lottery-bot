@@ -35,3 +35,13 @@ test('production host preflight detects residual self-hosted runner services and
   assert.match(hostAudit,/runner_registration_metadata=none_detected/);
   assert.match(hostAudit,/Self-hosted GitHub Runner registration metadata remains/);
 });
+
+test('production runbook verifies exact append-only audit trigger definitions',()=>{
+  const triggerLine=section.split('AUDIT_TRIGGER_COUNT=')[1]?.split(String.fromCharCode(10))[0]??'';
+  assert.match(triggerLine,/EVENT_OBJECT_TABLE='admin_audit_log'/);
+  assert.match(triggerLine,/ACTION_TIMING='BEFORE'/);
+  assert.match(triggerLine,/trg_admin_audit_log_no_update' AND EVENT_MANIPULATION='UPDATE'/);
+  assert.match(triggerLine,/trg_admin_audit_log_no_delete' AND EVENT_MANIPULATION='DELETE'/);
+  assert.match(triggerLine,/REGEXP_REPLACE\(TRIM\(ACTION_STATEMENT\)/);
+  assert.match(triggerLine,/ADMIN_AUDIT_LOG IS APPEND-ONLY/);
+});
