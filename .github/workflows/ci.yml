@@ -141,6 +141,9 @@ jobs:
           GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_priv_migrate'@'%';
           GRANT SELECT, SHOW VIEW, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_backup'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE ON draw_restore_fixture_ci.* TO 'ustore_ci_restore_runtime'@'%';
+          -- Restored audit triggers retain the migration account as DEFINER.
+          -- Give that definer only TRIGGER on the isolated restore schema so runtime DML can execute them.
+          GRANT TRIGGER ON draw_restore_fixture_ci.* TO 'ustore_ci_migrate'@'%';
           GRANT ALL PRIVILEGES ON draw_restore_fixture_ci.* TO 'ustore_ci_restore'@'%';
           GRANT SET_USER_ID ON *.* TO 'ustore_ci_restore'@'%';
           SQL
