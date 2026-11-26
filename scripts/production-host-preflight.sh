@@ -48,6 +48,7 @@ PRIVATE_TMP="$(systemctl show "$SERVICE" -p PrivateTmp --value 2>/dev/null || tr
 PROTECT_SYSTEM="$(systemctl show "$SERVICE" -p ProtectSystem --value 2>/dev/null || true)"
 PROTECT_HOME="$(systemctl show "$SERVICE" -p ProtectHome --value 2>/dev/null || true)"
 READ_WRITE_PATHS="$(systemctl show "$SERVICE" -p ReadWritePaths --value 2>/dev/null || true)"
+EXEC_START="$(systemctl show "$SERVICE" -p ExecStart --value 2>/dev/null || true)"
 ACTIVE="$(systemctl show "$SERVICE" -p WorkingDirectory --value 2>/dev/null || true)"
 PID="$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || true)"
 [[ "$SERVICE_USER" == "ustorebot" ]] || fail "Service must run as the dedicated ustorebot account, not root or another identity."
@@ -57,7 +58,8 @@ PID="$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || true)"
 [[ "$PROTECT_SYSTEM" == "full" ]] || fail "systemd ProtectSystem must be full."
 [[ "$PROTECT_HOME" == "yes" ]] || fail "systemd ProtectHome must be enabled."
 if [[ -n "$ACTIVE" ]]; then
-  case " $READ_WRITE_PATHS " in *" $ACTIVE "*) info "systemd_read_write_path=active_release_only";; *) fail "systemd ReadWritePaths must explicitly allow the active release path and no broader app path.";; esac
+  [[ "$READ_WRITE_PATHS" == "$ACTIVE" ]] && info "systemd_read_write_path=active_release_only" || fail "systemd ReadWritePaths must be restricted to exactly the active release path."
+  [[ "$EXEC_START" == *"$ACTIVE/src/index.js"* ]] || fail "systemd ExecStart must target the active release entry point."
 fi
 if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
   printf 'active_release_path=%s\n' "$ACTIVE"
