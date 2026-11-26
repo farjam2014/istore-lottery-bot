@@ -11,8 +11,8 @@ test('participant support sessions expire after 24 hours before consuming text',
 });
 
 test('reopening a participant support request or reply refreshes its TTL',()=>{
-  assert.match(source,/category=VALUES\(category\),last_update_id=VALUES\(last_update_id\),updated_at=UTC_TIMESTAMP\\(\\)/);
-  assert.match(source,/category=NULL,last_update_id=VALUES\(last_update_id\),updated_at=UTC_TIMESTAMP\\(\\)/);
+  assert.match(source,/category=VALUES\(category\),last_update_id=VALUES\(last_update_id\),updated_at=UTC_TIMESTAMP\(\)/);
+  assert.match(source,/category=NULL,last_update_id=VALUES\(last_update_id\),updated_at=UTC_TIMESTAMP\(\)/);
 });
 
 test('profile change sessions expire after 24 hours and are revalidated under lock',()=>{
