@@ -1,9 +1,12 @@
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
+import {pool} from '../../src/database/pool.js';
+
+after(async()=>{if(enabled)await pool.end();});
 
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
@@ -20,11 +23,11 @@ test('MySQL integration: production migration preflight runs against the baselin
   const reader='preflight_'+suffix;
   const readerPassword=randomBytes(24).toString('hex');
   const quoteId=value=>'`'+String(value).replaceAll('`','``')+'`';
-  let admin,setup,readonly,readerCreated=false,databaseCreated=false;
+  let admin,setup,readonly,readerCreated=false,databaseCreated=false,readerHost='';
   try{
     admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
     const [[client]]=await admin.query("SELECT SUBSTRING_INDEX(USER(),'@',-1) AS client_host");
-    const readerHost=String(client.client_host||'');
+    readerHost=String(client.client_host||'');
     if(!/^[A-Za-z0-9_.:%-]+$/.test(readerHost))throw new Error('Could not determine a safe MySQL client host for the read-only fixture account.');
     await admin.query('CREATE DATABASE '+quoteId(database)+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     databaseCreated=true;
