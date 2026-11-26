@@ -13,15 +13,25 @@ const RETENTION_DELETE_STATEMENTS=[
   ['telegram_rate_limits',"DELETE FROM telegram_rate_limits WHERE window_started_at<UTC_TIMESTAMP()-INTERVAL 1 DAY LIMIT 500"]
 ];
 
+const RETENTION_REDACT_STATEMENTS=[
+  ['telegram_update_inbox',"UPDATE telegram_update_inbox SET last_error='legacy_error_redacted' WHERE last_error IS NOT NULL AND last_error NOT IN ('handler_failed','invalid_payload','payload_update_id_mismatch','legacy_error_redacted') LIMIT 500"],
+  ['telegram_notification_outbox',"UPDATE telegram_notification_outbox SET last_error='legacy_error_redacted' WHERE last_error IS NOT NULL AND last_error NOT IN ('invalid_payload','telegram_http_429','telegram_http_4xx','telegram_http_5xx','network_or_unknown','manually_requeued','legacy_error_redacted') LIMIT 500"]
+];
+
 export function createRetentionCleanupWorker({database=pool}={}){
   return async function cleanupExpiredRetentionRows(){
-    const byTable={};let deleted=0;
+    const byTable={},redactedByTable={};let deleted=0,redacted=0;
     for(const [table,sql] of RETENTION_DELETE_STATEMENTS){
       const [result]=await database.execute(sql);
       const count=Math.max(0,Number(result?.affectedRows)||0);
       byTable[table]=count;deleted+=count;
     }
-    return {deleted,byTable};
+    for(const [table,sql] of RETENTION_REDACT_STATEMENTS){
+      const [result]=await database.execute(sql);
+      const count=Math.max(0,Number(result?.affectedRows)||0);
+      redactedByTable[table]=count;redacted+=count;
+    }
+    return {deleted,byTable,redacted,redactedByTable};
   };
 }
 
