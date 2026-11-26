@@ -403,7 +403,7 @@ fi
     if [[ -z "$SSH_PORTS" ]]; then
       fail "Could not determine the effective SSH listening port; refusing to approve firewall rules."
     else
-      UFW_RULES="$(ufw status 2>/dev/null || true)"
+      UFW_RULES="$UFW_STATUS" # Preserve ALLOW IN direction from verbose output.
       while IFS= read -r port; do
         [[ -n "$port" ]] || continue
         if ! awk -v p="$port" '$1==p"/tcp" && $2=="ALLOW" && $3=="IN" {found=1} END{exit !found}' <<< "$UFW_RULES"; then
