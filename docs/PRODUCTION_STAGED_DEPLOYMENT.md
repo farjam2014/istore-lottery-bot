@@ -73,7 +73,7 @@ Stop release preparation if it reports any of the following:
 - any replay-session cleanup result marked `PENDING_OR_MISSING_TABLE`;
 - any non-zero cleanup or retained-but-cursorless session count unless the affected flows, customer impact, and support handling have been explicitly reviewed and approved by the business owner.
 
-The preflight reports exact row counts for six session tables whose rows are intentionally cleared (registration, admin wizard, payment-card, admin-role, support, and profile-change), plus `admin_search_sessions` and `payment_admin_sessions`, whose legacy rows are retained but receive NULL cursors and are rejected by replay guards. It also reports a support-session step breakdown for the `admin_reply` subset. Preserve this output with the release evidence. These counts are an impact inventory, not automatic authorization to delete the rows.
+The preflight reports exact row counts for six session tables whose rows are intentionally cleared (registration, admin wizard, payment-card, admin-role, support, and profile-change), plus `admin_search_sessions` and `payment_admin_sessions`, whose legacy rows are retained but receive NULL cursors and are rejected by replay guards. It also reports a support-session step breakdown for the `admin_reply` subset. Preserve this output with the release evidence. These counts are an impact inventory, not automatic authorization to delete the rows. It additionally emits aggregate-only counts for raw Telegram inbox records and admin idempotency records, plus participant privacy-consent version/timestamp states; it never selects raw inbox payloads or participant identifiers.
 
 Reconcile the exact target database and key inventory before any write.
 
