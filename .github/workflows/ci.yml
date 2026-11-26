@@ -57,6 +57,11 @@ jobs:
       MYSQL_TEST_ADMIN_PASSWORD: root
       MYSQL_TEST_READONLY_USER: ustore_ci_readonly
       MYSQL_TEST_READONLY_PASSWORD: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+      MYSQL_PRIVILEGE_TEST_DATABASE: ustore_privilege_ci
+      MYSQL_PRIVILEGE_RUNTIME_USER: ustore_ci_runtime
+      MYSQL_PRIVILEGE_RUNTIME_PASSWORD: 1111111111111111111111111111111111111111111111111111111111111111
+      MYSQL_PRIVILEGE_MIGRATION_USER: ustore_ci_migrate
+      MYSQL_PRIVILEGE_MIGRATION_PASSWORD: 2222222222222222222222222222222222222222222222222222222222222222
       MYSQL_TEST_DATABASE: istore_lottery_ci
       MYSQL_RESTORE_DATABASE: draw_restore_fixture_ci
       MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
@@ -81,10 +86,15 @@ jobs:
           CREATE DATABASE IF NOT EXISTS draw_restore_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_preflight_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_drawguard_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_privilege_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
           CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+          CREATE USER 'ustore_ci_runtime'@'127.0.0.1' IDENTIFIED BY '1111111111111111111111111111111111111111111111111111111111111111';
+          CREATE USER 'ustore_ci_migrate'@'127.0.0.1' IDENTIFIED BY '2222222222222222222222222222222222222222222222222222222222222222';
           GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
           GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'127.0.0.1';
+          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_migrate'@'127.0.0.1';
           SQL
       - run: npm ci
       - run: npm audit --audit-level=high
