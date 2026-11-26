@@ -9,5 +9,5 @@ export const logRedactPaths=Object.freeze([
   'admin_telegram_id','*.admin_telegram_id','chat_id','*.chat_id',
   'chatId','*.chatId','from.id','*.from.id','chat.id','*.chat.id',
   'instagram_handle','*.instagram_handle','instagramHandle','*.instagramHandle',
-  'full_name','*.full_name','err.message','*.err.message','err.stack','*.err.stack','err.cause.message','*.err.cause.message','err.cause.stack','*.err.cause.stack','BOT_TOKEN','MYSQL_PASSWORD'
+  'full_name','*.full_name','err.message','*.err.message','err.stack','*.err.stack','err.cause.message','*.err.cause.message','err.cause.stack','*.err.cause.stack','err.sql','*.err.sql','err.sqlMessage','*.err.sqlMessage','err.parameters','*.err.parameters','err.params','*.err.params','sql','*.sql','sqlMessage','*.sqlMessage','parameters','*.parameters','params','*.params','BOT_TOKEN','MYSQL_PASSWORD'
 ]);
