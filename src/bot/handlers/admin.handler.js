@@ -428,7 +428,8 @@ export function registerAdminHandlers(bot){
     const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,last_update_id) VALUES(?,'campaign_code',?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(campaign_id),campaign_id),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),campaignId,updateId]);
     await ctx.answerCbQuery();
-    const contactLookup=isConfiguredSuperAdmin(ctx.from.id);\n    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
+    const contactLookup=isConfiguredSuperAdmin(ctx.from.id);
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
   });
   bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
