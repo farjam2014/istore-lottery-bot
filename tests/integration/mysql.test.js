@@ -7,7 +7,7 @@ import mysql from 'mysql2/promise';
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
-const isForeignKeyReferenceError=error=>[1451,1452].includes(Number(error?.errno))&&error?.sqlState==='23000';
+const isForeignKeyReferenceError=error=>/foreign key constraint fails/i.test(String(error?.message||''));
 
 after(async()=>{
   if(!enabled)return;
