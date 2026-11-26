@@ -84,8 +84,9 @@ test('backup artifact must be fresh relative to the latest successful encrypted 
   assert.ok(source.includes('date -d "$service_last_run" +%s'));
   assert.ok(source.includes('LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0'));
   assert.ok(source.includes("stat -c '%Y' \"$artifact\""));
-  assert.ok(source.includes('LATEST_ENCRYPTED_DB_BACKUP_EPOCH" -lt $((LATEST_VERIFIED_BACKUP_RUN_EPOCH-300))'));
-  assert.ok(source.includes('modified within five minutes of the latest verified successful backup timer run'));
+  assert.ok(source.includes('BACKUP_ARTIFACT_RUN_DELTA=$((LATEST_ENCRYPTED_DB_BACKUP_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))'));
+  assert.ok(source.includes('BACKUP_ARTIFACT_RUN_DELTA" -lt -300 || "$BACKUP_ARTIFACT_RUN_DELTA" -gt 300'));
+  assert.ok(source.includes('timestamp does not match the latest verified successful backup timer run within five minutes'));
 });
 test('backup timer service must directly expose a database dump command before it counts as verified',()=>{
   assert.ok(source.includes('systemctl show "$service" -p ExecStart --value'));
@@ -163,4 +164,12 @@ test('production host preflight verifies binary-log trust before least-privilege
   assert.ok(source.includes("BINLOG_TRUSTED_CREATORS=\"$(mysql_q 'SELECT @@GLOBAL.log_bin_trust_function_creators'"));
   assert.ok(source.includes('MySQL binary logging is enabled but log_bin_trust_function_creators is OFF'));
   assert.ok(source.includes('append-only audit trigger migrations would require broader privileges.'));
+});
+
+
+test('backup preflight rejects a successful but stale database backup run',()=>{
+  assert.ok(source.includes('MAX_BACKUP_AGE_SECONDS=$((26*60*60))'));
+  assert.ok(source.includes('BACKUP_RUN_AGE_SECONDS=$((CURRENT_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))'));
+  assert.ok(source.includes('BACKUP_RUN_AGE_SECONDS" -gt "$MAX_BACKUP_AGE_SECONDS"'));
+  assert.ok(source.includes('Latest successful encrypted database backup is older than the 26-hour recovery-point limit.'));
 });
