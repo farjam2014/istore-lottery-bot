@@ -12,12 +12,18 @@ test('structured logs redact Telegram IDs, phone numbers, Instagram handles, and
     telegram_user_id:'222222',
     adminTelegramId:'555555',
     phone:'09125550000',
+    card_holder:'Private Cardholder',
+    payment_instructions:'private bank transfer instructions',
+    receipt_note:'private receipt note',
+    review_note:'private review note',
+    telegram_file_id:'file-secret-id',
+    telegram_file_unique_id:'file-unique-secret',
     instagram_handle:'private_handle',
     from:{id:'333333'},
     nested:{chatId:'444444',adminTelegramId:'666666',full_name:'Private Person'}
   },'redaction test');
   assert.match(output,/\[REDACTED\]/);
-  for(const secret of ['111111','222222','555555','666666','09125550000','09125550001','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name']){
+  for(const secret of ['111111','222222','555555','666666','09125550000','09125550001','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name','Private Cardholder','private bank transfer instructions','private receipt note','private review note','file-secret-id','file-unique-secret']){
     assert.equal(output.includes(secret),false,'sensitive value leaked: '+secret);
   }
 });
