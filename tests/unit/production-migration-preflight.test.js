@@ -124,7 +124,7 @@ test('production host preflight is read-only and included in the release runbook
 
 test('release runbook requires approval of exact replay-session cleanup impact',()=>{
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
-  assert.match(runbook,/exact row counts for registration sessions, admin wizard sessions/);
+  assert.match(runbook,/reports exact row counts for six session tables whose rows are intentionally cleared/);
   assert.match(runbook,/explicitly reviewed and approved by the business owner/);
   assert.match(runbook,/Re-run the complete read-only preflight after the service is stopped/);
   assert.match(runbook,/No active release path is assumed/);
