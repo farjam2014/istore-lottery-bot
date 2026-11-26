@@ -33,7 +33,6 @@ test('MySQL integration: production migration preflight runs against the baselin
   const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
   const reader=process.env.MYSQL_TEST_READONLY_USER;
   const readerPassword=process.env.MYSQL_TEST_READONLY_PASSWORD||'';
-  const readerHost='127.0.0.1';
   const database=process.env.MYSQL_PREFLIGHT_DATABASE||'';
   assert.ok(adminUser&&reader&&readerPassword,'Dedicated fixture-admin and read-only accounts are required.');
   assert.match(database,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
@@ -67,7 +66,7 @@ test('MySQL integration: production migration preflight runs against the baselin
     assert.ok(rows.every(row=>!Object.hasOwn(row,'payload')),'Read-only preflight must never return raw Telegram Update payloads.');
     const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerAccountHost,database]);
     const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerAccountHost]);
-    const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerHost]);
+    const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerAccountHost]);
     const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerHost,database]);
     assert.deepEqual(schemaPrivileges.map(row=>row.PRIVILEGE_TYPE),['SELECT'],'Preflight fixture reader must have only SELECT on the target schema.');
     assert.deepEqual(globalPrivileges,[],'Preflight fixture reader must have no global privileges.');
