@@ -122,9 +122,10 @@ test('rate limits are isolated by user and update category',async()=>{
 test('handler failure preserves payload and enters bounded retry state',async()=>{
   const database=fakeDatabase();
   const guard=createUpdateGuard({database,log:logger,correlate:identity});
-  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error('handler failure');}),/handler failure/);
+  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error('handler failure phone +989121234567 receipt SECRET-INBOX');}),/handler failure/);
   const row=database.inbox.get(300);
   assert.equal(row.status,'failed');
+  assert.equal(row.error,'handler_failed','raw handler exception text must never be persisted in the inbox');
   assert.ok(row.payload);
   assert.equal(row.lease,null);
   assert.ok(row.availableDelay>0);
