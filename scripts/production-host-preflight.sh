@@ -275,6 +275,7 @@ fi
 section "BACKUP SCHEDULING"
 BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$(NF-1) ~ /\.timer$/ && tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $(NF-1) "|" $NF}')"
 VERIFIED_BACKUP_TIMER_COUNT=0
+LATEST_VERIFIED_BACKUP_RUN_EPOCH=0
 if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
   while IFS='|' read -r timer service; do
     [[ -n "$timer" && -n "$service" ]] || continue
@@ -291,6 +292,10 @@ if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
     printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s dump_command=%s encryption_command=%s\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}" "$dump_command" "$encryption_command"
     if [[ "$timer_state" == "active" && "$timer_enabled" == "enabled" && "$service_result" == "success" && "$service_exit" == "0" && -n "$service_last_run" && "$dump_command" == "database_dump_detected" && "$encryption_command" == "backup_encryption_detected" ]]; then
       VERIFIED_BACKUP_TIMER_COUNT=$((VERIFIED_BACKUP_TIMER_COUNT+1))
+      run_epoch="$(date -d "$service_last_run" +%s 2>/dev/null || echo 0)"
+      if [[ "$run_epoch" =~ ^[0-9]+$ && "$run_epoch" -gt "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" ]]; then
+        LATEST_VERIFIED_BACKUP_RUN_EPOCH="$run_epoch"
+      fi
     fi
   done <<< "$BACKUP_TIMER_ROWS"
 else
@@ -324,14 +329,24 @@ else
 fi
 BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)
 ENCRYPTED_DB_BACKUPS=0
+LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0
+LATEST_ENCRYPTED_DB_BACKUP_PATH=
 for directory in "${BACKUP_SCAN_DIRS[@]}"; do
   [[ -d "$directory" ]] || continue
-  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*.sql.gz.gpg' -o -iname '*.sql.gz.age' -o -iname '*.sql.gz.enc' -o -iname '*.sql.zst.gpg' -o -iname '*.sql.zst.age' -o -iname '*.sql.zst.enc' -o -iname '*backup*.tar.gpg' -o -iname '*backup*.tar.age' -o -iname '*backup*.tar.enc' -o -iname '*backup*.tar.gz.gpg' -o -iname '*backup*.tar.gz.age' -o -iname '*backup*.tar.gz.enc' -o -iname '*backup*.tar.zst.gpg' -o -iname '*backup*.tar.zst.age' -o -iname '*backup*.tar.zst.enc' -o -iname '*backup*.zip.gpg' -o -iname '*backup*.zip.age' -o -iname '*backup*.zip.enc' -o -iname '*.dump.gpg' -o -iname '*.dump.age' -o -iname '*.dump.enc' \) -printf '.' | wc -c)"
-  ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+count))
+  while IFS= read -r -d '' artifact; do
+    ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+1))
+    artifact_epoch="$(stat -c '%Y' "$artifact" 2>/dev/null || echo 0)"
+    if [[ "$artifact_epoch" =~ ^[0-9]+$ && "$artifact_epoch" -gt "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" ]]; then
+      LATEST_ENCRYPTED_DB_BACKUP_EPOCH="$artifact_epoch"
+      LATEST_ENCRYPTED_DB_BACKUP_PATH="$artifact"
+    fi
+  done < <(find "$directory" -maxdepth 5 -type f \\( -iname '*.sql.gz.gpg' -o -iname '*.sql.gz.age' -o -iname '*.sql.gz.enc' -o -iname '*.sql.zst.gpg' -o -iname '*.sql.zst.age' -o -iname '*.sql.zst.enc' -o -iname '*backup*.tar.gpg' -o -iname '*backup*.tar.age' -o -iname '*backup*.tar.enc' -o -iname '*backup*.tar.gz.gpg' -o -iname '*backup*.tar.gz.age' -o -iname '*backup*.tar.gz.enc' -o -iname '*backup*.tar.zst.gpg' -o -iname '*backup*.tar.zst.age' -o -iname '*backup*.tar.zst.enc' -o -iname '*backup*.zip.gpg' -o -iname '*backup*.zip.age' -o -iname '*backup*.zip.enc' -o -iname '*.dump.gpg' -o -iname '*.dump.age' -o -iname '*.dump.enc' \\) -print0)
 done
-printf 'encrypted_database_backup_artifacts=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS"
+printf 'encrypted_database_backup_artifacts=%s latest_artifact_epoch=%s latest_artifact_path=%s (inspected local paths; off-host evidence must be checked separately)\\n' "$ENCRYPTED_DB_BACKUPS" "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" "${LATEST_ENCRYPTED_DB_BACKUP_PATH:-not_found}"
 if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
-
+if [[ "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" -eq 0 || "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" -lt $((LATEST_VERIFIED_BACKUP_RUN_EPOCH-300)) ]]; then
+  fail "No encrypted database backup artifact was modified within five minutes of the latest verified successful backup timer run."
+fi
 
 PLAINTEXT_DB_BACKUPS=0
 for directory in "${BACKUP_SCAN_DIRS[@]}"; do
