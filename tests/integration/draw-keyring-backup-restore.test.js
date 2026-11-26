@@ -124,6 +124,8 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     );
     assert.equal(sourceTriggerRows.length,2,'Source schema must contain both append-only audit triggers.');
     const sourceTriggerDefiners=sourceTriggerRows.map(row=>({name:row.TRIGGER_NAME,definer:row.DEFINER}));
+    const expectedMigrationDefiner=String(process.env.MYSQL_MIGRATION_USER||'')+'@%';
+    assert.ok(expectedMigrationDefiner!=='@%'&&sourceTriggerDefiners.every(row=>row.definer===expectedMigrationDefiner),'Audit triggers must be owned by the dedicated migration identity, not the runtime or restore identity.');
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',backupUser,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
