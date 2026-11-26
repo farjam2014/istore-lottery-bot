@@ -173,3 +173,12 @@ test('backup preflight rejects a successful but stale database backup run',()=>{
   assert.ok(source.includes('BACKUP_RUN_AGE_SECONDS" -gt "$MAX_BACKUP_AGE_SECONDS"'));
   assert.ok(source.includes('Latest successful encrypted database backup is older than the 26-hour recovery-point limit.'));
 });
+
+
+test('production host preflight rejects schema-level GRANT OPTION for runtime and migration identities',()=>{
+  assert.ok(source.includes("AND IS_GRANTABLE='YES'"));
+  assert.ok(source.includes('runtime_grant_option_rows=%s expected=0'));
+  assert.ok(source.includes('migration_grant_option_rows=%s expected=0'));
+  assert.ok(source.includes('"$R13" != 0'));
+  assert.ok(source.includes('"$M12" != 0'));
+});
