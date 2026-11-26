@@ -209,3 +209,9 @@ test('production host preflight parses inbound UFW rules from verbose status inc
   assert.ok(source.includes(String.raw`$2=="ALLOW" && $3=="IN"`));
   assert.ok(!source.includes('UFW_RULES="$(ufw status 2>/dev/null || true)"'));
 });
+
+
+test('production host preflight keeps the UFW active check on one valid shell line and has one result section',()=>{
+  assert.ok(source.includes(String.raw`if ! grep -q '^Status: active$' <<< "$UFW_STATUS"; then`));
+  assert.equal((source.match(/section "RESULT"/g)||[]).length,1);
+});
