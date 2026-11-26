@@ -48,7 +48,7 @@ async function main(){
  },15_000);
  const runRetentionCleanup=async()=>{
   if(retentionCleanupRunning)return;retentionCleanupRunning=true;
-  try{const result=await cleanupExpiredRetentionRows();if(result.deleted)logger.info(result,'Expired personal-data sessions and operational metadata purged');}
+  try{const result=await cleanupExpiredRetentionRows();if(result.deleted||result.redacted)logger.info(result,'Retention cleanup completed');}
   catch(error){logger.error({err:error},'Retention cleanup worker failed');}
   finally{retentionCleanupRunning=false;}
  };
