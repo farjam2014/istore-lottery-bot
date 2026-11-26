@@ -16,6 +16,8 @@ It is a **manual, approval-gated deployment plan**. It has not been executed. Us
 - Do not apply migrations before a verified database backup and independent draw-key backup.
 - If a migration fails, stop and inspect; do not blindly rerun or manually drop objects.
 - Keep the old release directory intact until acceptance is complete.
+- `install.sh` is a bootstrap/recovery installer, not the normal staged-release procedure. It targets the fixed `/opt/ustore-telegram-bot` directory, stops the service, and can apply database migrations. Do not use it for routine releases.
+- If a separately approved bootstrap/recovery operation uses `install.sh`, set `USTORE_RELEASE_COMMIT` to the exact reviewed 40-character commit SHA. The installer rejects a floating branch and verifies both the fetched and checked-out SHA. It still requires the explicit database-migration authorization flags and exact target database.
 - A code rollback after migrations is not automatically safe. Verify schema compatibility first.
 
 ## 1. Record the current target (read-only)
