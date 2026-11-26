@@ -138,7 +138,7 @@ if [[ -n "$RUNNER_UNIT_FILES" ]]; then
 else
   info "runner_unit_files=none_detected"
 fi
-RUNNER_CONFIGS="$(find /home /opt /root -maxdepth 5 -type f -name .runner -print 2>/dev/null || true)"
+RUNNER_CONFIGS="$(find /home /opt /root -maxdepth 5 -type f \( -name .runner -o -name .credentials -o -name .credentials_rsaparams \) -print 2>/dev/null || true)"
 if [[ -n "$RUNNER_CONFIGS" ]]; then
   printf 'runner_registration_metadata_paths:\n%s\n' "$RUNNER_CONFIGS"
   fail "Self-hosted GitHub Runner registration metadata remains on this host."
