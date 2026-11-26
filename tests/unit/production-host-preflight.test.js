@@ -42,7 +42,10 @@ test('production host preflight requires a dedicated service identity and effect
     '[[ "$PRIVATE_TMP" == "yes" ]] || fail',
     '[[ "$PROTECT_SYSTEM" == "full" ]] || fail',
     '[[ "$PROTECT_HOME" == "yes" ]] || fail',
-    'systemd ReadWritePaths must explicitly allow the active release path',
+    'systemd ReadWritePaths must be restricted to exactly the active release path.',
+    'systemd ExecStart must target the active release entry point.',
+    'Live process working directory differs from the active release path.',
+    'Live process is not running as ustorebot.',
     'ustorebot:ustorebot:600'
   ]) assert.ok(source.includes(value), 'missing host hardening assertion: '+value);
 });
