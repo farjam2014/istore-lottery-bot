@@ -89,12 +89,12 @@ jobs:
           CREATE DATABASE IF NOT EXISTS ustore_privilege_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
           CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
-          CREATE USER 'ustore_ci_runtime'@'127.0.0.1' IDENTIFIED BY '1111111111111111111111111111111111111111111111111111111111111111';
-          CREATE USER 'ustore_ci_migrate'@'127.0.0.1' IDENTIFIED BY '2222222222222222222222222222222222222222222222222222222222222222';
+          CREATE USER 'ustore_ci_runtime'@'%' IDENTIFIED BY '1111111111111111111111111111111111111111111111111111111111111111';
+          CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '2222222222222222222222222222222222222222222222222222222222222222';
           GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
           GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
-          GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'127.0.0.1';
-          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_migrate'@'127.0.0.1';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_migrate'@'%';
           SQL
       - run: npm ci
       - run: npm audit --audit-level=high
