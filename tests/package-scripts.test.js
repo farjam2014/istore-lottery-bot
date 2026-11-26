@@ -9,7 +9,7 @@ test('integration test script uses the safety runner',()=>{
   const script=String(packageJson.scripts?.['test:integration']||'');
   assert.match(script,/run-integration-tests\.sh/);
   const runner=readFileSync(new URL('../scripts/run-integration-tests.sh',import.meta.url),'utf8');
-  for(const token of ['MYSQL_TEST_DATABASE','MYSQL_RESTORE_DATABASE','MYSQL_PREFLIGHT_DATABASE','MYSQL_DRAW_GUARD_DATABASE','MYSQL_DATABASE','dotenv/config','read_dotenv_value','ALLOW_DATABASE_MIGRATIONS=1','ALLOW_TEST_DATABASE_MIGRATIONS=1','RUN_MYSQL_TESTS=1','loopback MySQL','Refusing to run tests against a production database.'])assert.ok(runner.includes(token),'Missing runner safety token: '+token);
+  for(const token of ['MYSQL_TEST_DATABASE','MYSQL_RESTORE_DATABASE','MYSQL_PREFLIGHT_DATABASE','MYSQL_DRAW_GUARD_DATABASE','MYSQL_DATABASE','dotenv.parse','read_dotenv_value','ALLOW_DATABASE_MIGRATIONS=1','ALLOW_TEST_DATABASE_MIGRATIONS=1','RUN_MYSQL_TESTS=1','loopback MySQL','Refusing to run tests against a production database.'])assert.ok(runner.includes(token),'Missing runner safety token: '+token);
   assert.doesNotMatch(runner,/ALLOW_PRODUCTION_MIGRATIONS=1/);
 });
 
