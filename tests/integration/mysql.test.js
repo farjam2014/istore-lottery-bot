@@ -42,6 +42,12 @@ test('MySQL integration: production migration preflight runs against the baselin
     for(const statement of statements)results.push(await readonly.query(statement));
     const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
     assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
+    const rows=results.flatMap(([resultRows])=>Array.isArray(resultRows)?resultRows:[]);
+    const pendingTables=rows.filter(row=>row.check_status==='PENDING_OR_MISSING_TABLE');
+    assert.deepEqual(pendingTables.map(row=>row.table_name).sort(),['admin_action_idempotency','telegram_update_inbox'],'Baseline preflight must safely report both migration-created tables as pending.');
+    const pendingConsent=rows.filter(row=>row.check_status==='PENDING_MIGRATION_002');
+    assert.equal(pendingConsent.length,1,'Baseline preflight must report privacy consent columns as pending without querying absent columns.');
+    assert.ok(rows.every(row=>!Object.hasOwn(row,'payload')),'Read-only preflight must never return raw Telegram Update payloads.');
     const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerHost,database]);
     const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerHost]);
     const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerHost]);
