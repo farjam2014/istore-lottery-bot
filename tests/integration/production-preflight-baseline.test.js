@@ -1,29 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {randomBytes} from 'node:crypto';
 import mysql from 'mysql2/promise';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1'&&Boolean(process.env.MYSQL_TEST_ADMIN_USER);
 const splitSql=source=>source.split(/;\s*(?:\n|$)/).map(statement=>statement.trim()).filter(Boolean);
+const quoteIdentifier=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
+async function clearFixtureSchema(connection,database){
+  const [objects]=await connection.execute('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
+  await connection.query('SET FOREIGN_KEY_CHECKS=0');
+  try{
+    for(const object of objects)await connection.query('DROP '+(object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE')+' IF EXISTS '+quoteIdentifier(object.TABLE_NAME));
+  }finally{await connection.query('SET FOREIGN_KEY_CHECKS=1');}
+}
 
 test('read-only production preflight executes against the legacy base schema with all release migrations pending',{skip:!enabled},async()=>{
   const host=process.env.MYSQL_HOST||'127.0.0.1';
   const port=Number(process.env.MYSQL_PORT||3306);
   const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
   const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
-  const suffix=randomBytes(4).toString('hex')+'_'+process.pid;
-  const databaseName='istore_preflight_'+suffix;
-  const readOnlyUser='pfro_'+randomBytes(6).toString('hex');
-  const readOnlyPassword=randomBytes(18).toString('hex');
+  const readOnlyUser=process.env.MYSQL_TEST_READONLY_USER;
+  const readOnlyPassword=process.env.MYSQL_TEST_READONLY_PASSWORD||'';
+  const databaseName=process.env.MYSQL_PREFLIGHT_DATABASE||'';
+  assert.ok(adminUser&&readOnlyUser&&readOnlyPassword,'Dedicated fixture-admin and read-only accounts are required.');
+  assert.match(databaseName,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
+  assert.notEqual(databaseName,process.env.MYSQL_DATABASE,'Preflight schema must differ from the application test schema.');
   const admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
-  let baseConnection=null,readOnlyConnection=null,userCreated=false,databaseCreated=false,readOnlyHost='';
+  let baseConnection=null,readOnlyConnection=null;
   try{
-    const [[client]]=await admin.query("SELECT SUBSTRING_INDEX(USER(),'@',-1) AS client_host");
-    readOnlyHost=String(client.client_host||'');
-    if(!/^[A-Za-z0-9_.:%-]+$/.test(readOnlyHost))throw new Error('Could not determine a safe MySQL client host for the read-only fixture account.');
-    await admin.query('CREATE DATABASE `'+databaseName+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-    databaseCreated=true;
+    const [[existing]]=await admin.execute('SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[databaseName]);
+    assert.equal(Number(existing.total),0,'Preflight fixture schema must be empty before the test.');
     baseConnection=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database:databaseName});
     const baseSchema=readFileSync(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
     for(const statement of splitSql(baseSchema))await baseConnection.query(statement);
@@ -32,9 +38,6 @@ test('read-only production preflight executes against the legacy base schema wit
       checksum CHAR(64) NOT NULL,
       applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-    await admin.query(`CREATE USER '${readOnlyUser}'@'${readOnlyHost}' IDENTIFIED BY '${readOnlyPassword}'`);
-    userCreated=true;
-    await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO '${readOnlyUser}'@'${readOnlyHost}'`);
     readOnlyConnection=await mysql.createConnection({host,port,user:readOnlyUser,password:readOnlyPassword,database:databaseName});
     await assert.rejects(
       readOnlyConnection.query("INSERT INTO campaigns(slug,title,status,participation_type) VALUES('preflight-write-denied','Preflight write denied','draft','free')"),
@@ -53,12 +56,10 @@ test('read-only production preflight executes against the legacy base schema wit
   }finally{
     if(readOnlyConnection)await readOnlyConnection.end();
     if(baseConnection)await baseConnection.end();
-    if(userCreated)await admin.query(`DROP USER IF EXISTS '${readOnlyUser}'@'${readOnlyHost}'`);
-    if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS `'+databaseName+'`');
+    await clearFixtureSchema(admin,databaseName).catch(()=>{});
     await admin.end();
   }
 });
-
 
 test('post-migration integrity SQL executes after all versioned migrations are applied',{skip:!enabled},async()=>{
   const {pool}=await import('../../src/database/pool.js');
