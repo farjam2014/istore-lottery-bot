@@ -119,6 +119,8 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     throw error;
   }finally{
     const cleanupErrors=[];
+    if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
+    if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
     if(restored){
       try{
         await restored.query('SET FOREIGN_KEY_CHECKS=0');
