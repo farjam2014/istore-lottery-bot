@@ -137,10 +137,10 @@ test('backup artifact scan includes historical root-level SQL dumps and unencryp
 
 
 test('production host preflight detects manually launched GitHub runner processes and searches common runner install roots',()=>{
-  assert.ok(source.includes('curl pgrep; do'));
+  assert.ok(source.includes('for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl pgrep tr sed; do'));
   assert.ok(source.includes("pgrep -f '[R]unner.Listener'"));
   assert.ok(source.includes("pgrep -f '[R]unner.Worker'"));
   assert.ok(source.includes('runner_process_ids='));
   assert.ok(source.includes('runner_processes=none_detected'));
-  assert.ok(source.includes('find /home /opt /root /srv /var/lib /usr/local -maxdepth 6'));
+  assert.ok(source.includes('find /home /opt /root /srv /var/lib /usr/local -maxdepth 6 -type f'));
 });
