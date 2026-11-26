@@ -4,7 +4,7 @@ set -Eeuo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
-die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 valid_user() { [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,22}$ ]]; }
 valid_password() { [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
 quote_id() { printf '`%s`' "$1"; }
@@ -106,7 +106,7 @@ GRANT SELECT ON mysql.default_roles TO '$ADMIN_USER'@'127.0.0.1';
 GRANT SELECT ON mysql.proxies_priv TO '$ADMIN_USER'@'127.0.0.1';
 SQL
 
-printf 'Dedicated integration schemas provisioned; all four schemas were verified empty.\\n'
-printf 'Test schema: %s\\nRestore schema: %s\\nPreflight schema: %s\\nDraw-guard schema: %s\\n' "$DB_NAME" "$RESTORE_DB" "$PREFLIGHT_DB" "$DRAW_GUARD_DB"
-printf 'Dedicated identities: test=%s migration=%s backup=%s restore=%s restore-runtime=%s fixture-admin=%s read-only=%s\\n' "$TEST_USER" "$MIGRATION_USER" "$BACKUP_USER" "$RESTORE_USER" "$RESTORE_RUNTIME_USER" "$ADMIN_USER" "$READONLY_USER"
-printf 'Restore-only identity receives temporary SET_USER_ID on the local test MySQL instance; no production database or identity is modified.\\n'
+printf 'Dedicated integration schemas provisioned; all four schemas were verified empty.\n'
+printf 'Test schema: %s\nRestore schema: %s\nPreflight schema: %s\nDraw-guard schema: %s\n' "$DB_NAME" "$RESTORE_DB" "$PREFLIGHT_DB" "$DRAW_GUARD_DB"
+printf 'Dedicated identities: test=%s migration=%s backup=%s restore=%s restore-runtime=%s fixture-admin=%s read-only=%s\n' "$TEST_USER" "$MIGRATION_USER" "$BACKUP_USER" "$RESTORE_USER" "$RESTORE_RUNTIME_USER" "$ADMIN_USER" "$READONLY_USER"
+printf 'Restore-only identity receives temporary SET_USER_ID on the local test MySQL instance; no production database or identity is modified.\n'
