@@ -203,3 +203,36 @@ test('an existing inbox update is marked as durable replay on its first recovery
   assert.equal(durableReplay,true);
   assert.equal(database.inbox.get(950).status,'completed');
 });
+
+
+test('lease heartbeat and release failures log fixed labels without exception contents',async()=>{
+  const secretHeartbeat='heartbeat database error phone +989121234567 SECRET-HEARTBEAT';
+  const secretRelease='lease release database error receipt SECRET-RELEASE';
+  const emitted=[];
+  const log={warn(data,message){emitted.push({data,message});},error(data,message){emitted.push({data,message});}};
+
+  const heartbeatDatabase=fakeDatabase();
+  const heartbeatExecute=heartbeatDatabase.execute.bind(heartbeatDatabase);
+  heartbeatDatabase.execute=async(sql,params=[])=>{
+    if(sql.startsWith('UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP()'))throw new Error(secretHeartbeat);
+    return heartbeatExecute(sql,params);
+  };
+  const heartbeatGuard=createUpdateGuard({database:heartbeatDatabase,log,correlate:identity,heartbeatIntervalMs:1});
+  await heartbeatGuard(context({id:951,userId:'95100'}),async()=>new Promise(resolve=>setTimeout(resolve,15)));
+
+  const releaseDatabase=fakeDatabase();
+  const releaseExecute=releaseDatabase.execute.bind(releaseDatabase);
+  releaseDatabase.execute=async(sql,params=[])=>{
+    if(sql.startsWith("UPDATE telegram_update_inbox SET status='failed'"))throw new Error(secretRelease);
+    return releaseExecute(sql,params);
+  };
+  const releaseGuard=createUpdateGuard({database:releaseDatabase,log,correlate:identity});
+  await assert.rejects(releaseGuard(context({id:952,userId:'95200'}),async()=>{throw new Error('business handler failure');}),/business handler failure/);
+
+  const serialized=JSON.stringify(emitted);
+  assert.equal(serialized.includes(secretHeartbeat),false);
+  assert.equal(serialized.includes(secretRelease),false);
+  assert.ok(emitted.some(entry=>entry.data.reason==='lease_heartbeat_failed'));
+  assert.ok(emitted.some(entry=>entry.data.reason==='handler_failed'));
+  assert.ok(emitted.some(entry=>entry.data.reason==='lease_release_failed'));
+});
