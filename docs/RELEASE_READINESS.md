@@ -207,7 +207,7 @@ The following items require independent host, account, business, or legal verifi
 - [ ] Enable branch protection on `main` and `release/ustore-unified`: required PR review, exact CI checks, up-to-date branches, resolved conversations, and no force-push/deletion.
 - [ ] Verify no Production self-hosted runner remains registered or online; remove the host-side runner service and any privileged service-management path it could invoke.
 - [ ] Verify the Production runtime MySQL account has only DML privileges on the application schema and no global or other-schema grants; provision and protect a separate migration-only account.
-- [ ] Verify automated database backups are scheduled, encrypted at rest, access-controlled, retained under an approved schedule, and monitored. Do not treat `.sql.gz` compression as encryption.
+- [ ] Verify automated database backups are scheduled, encrypted at rest, access-controlled, retained under an approved schedule, and monitored. Do not treat `.sql.gz` compression as encryption; the host preflight must report `plaintext_database_backup_artifacts=0` and at least one encrypted backup artifact.
 - [ ] Verify draw-seed key backups are encrypted, mapped by key ID, independently recoverable, and have no unnecessary plaintext copies.
 - [ ] Restore an actual Production backup and the corresponding keyring to an isolated host; decrypt a prepared draw and compare the recovered seed hash to its stored commitment.
 - [ ] Publish the reviewed HTTPS privacy notice and set its version; approve retention periods for participants, payment receipts/orders, support messages, Telegram inbox payloads, audit logs, outbox records, exports, and backups.
