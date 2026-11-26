@@ -122,8 +122,19 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       '--column-statistics=0',database
     ],{env:backupEnv,encoding:'buffer',maxBuffer:128*1024*1024,timeout:180000});
     assert.ok(backup.length>0,'mysqldump returned an empty backup.');
+    // A least-privilege restore identity must not need SUPER/SET_USER_ID merely
+    // to recreate triggers whose original DEFINER belongs to another account.
+    // Strip only DEFINER clauses; retain the trigger DDL so it is recreated
+    // under the restore identity and remains part of the restored schema.
+    const backupSql=backup.toString('utf8').replace(
+      /DEFINER\\s*=\\s*(?:`[^`]*`|'[^']*'|[^\\s@]+)\\s*@\\s*(?:`[^`]*`|'[^']*'|[^\\s*;]+)/gi,
+      ''
+    );
+    assert.doesNotMatch(backupSql,/DEFINER\\s*=/i,'Restore dump must not require privileged DEFINER impersonation.');
+    assert.match(backupSql,/trg_admin_audit_log_no_update/i,'Backup must retain the append-only audit update trigger.');
+    assert.match(backupSql,/trg_admin_audit_log_no_delete/i,'Backup must retain the append-only audit delete trigger.');
     execFileSync('mysql',['--host',host,'--port',port,'--user',restoreUser,restoreDatabase],{
-      env:restoreEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
+      env:restoreEnv,input:Buffer.from(backupSql,'utf8'),stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
     });
 
     restored=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:restoreDatabase});
