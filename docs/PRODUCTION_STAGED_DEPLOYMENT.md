@@ -178,3 +178,8 @@ Complete the remaining fresh-server acceptance and backup/key recovery rehearsal
 - After the new version accepts writes: never restore the pre-deployment database blindly. Preserve all new writes and prefer a forward fix. Code rollback requires a compatibility review of the migrated schema and code-issued sequence counters.
 
 This runbook does not authorize deployment, migration, service restart, or production writes.
+
+
+## Host firewall gate
+
+The production host preflight requires UFW active, default-deny inbound and default-allow outbound policy, explicit rules for the effective SSH port, and no other inbound allow rules for this Telegram long-polling service. Provider-level firewall rules must be checked independently. Do not enable UFW remotely until the SSH port has been explicitly allowed and access is confirmed.
