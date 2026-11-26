@@ -75,3 +75,12 @@ test('backup timer service must directly expose a database dump command before i
   assert.ok(source.includes('"$dump_command" == "database_dump_detected"'));
   assert.ok(source.includes('directly verifiable database dump command'));
 });
+
+test('backup timer must expose both database dump and encryption commands in its effective ExecStart',()=>{
+  assert.ok(source.includes('encryption_command=not_proven'));
+  assert.ok(source.includes('(gpg|age|openssl[[:space:]]+enc)'));
+  assert.ok(source.includes('encryption_command=backup_encryption_detected'));
+  assert.ok(source.includes('"$encryption_command" == "backup_encryption_detected"'));
+  assert.ok(source.includes('encryption_command=%s'));
+  assert.ok(source.includes('visible encryption command'));
+});
