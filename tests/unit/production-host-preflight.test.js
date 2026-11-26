@@ -188,3 +188,17 @@ test('production host preflight prints backup age and artifact delta as separate
   assert.ok(source.includes(String.raw`latest_verified_backup_age_seconds=%s maximum=%s\n`));
   assert.ok(source.includes(String.raw`encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\n`));
 });
+
+
+test('production host preflight requires active default-deny UFW and explicit SSH-only inbound access',()=>{
+  for(const value of [
+    'UFW is not installed; a host firewall is required',
+    "grep -q '^Status: active$'",
+    "^Default: deny \\(incoming\\), allow \\(outgoing\\)",
+    'sshd -T 2>/dev/null',
+    'UFW does not explicitly allow the effective SSH port',
+    'EXTRA_INBOUND_ALLOWS=',
+    'The Telegram long-polling host must not expose additional inbound services.'
+  ]) assert.ok(source.includes(value), 'missing firewall gate: '+value);
+  assert.ok(source.includes("$1==p\"/tcp\" && $2==\"ALLOW\" && $3==\"IN\""));
+});
