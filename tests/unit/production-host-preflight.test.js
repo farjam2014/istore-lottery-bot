@@ -108,3 +108,17 @@ test('database preflight authenticates runtime and migration credentials without
   assert.doesNotMatch(source,/MYSQL_PASSWORD=[^\\s]+/);
   assert.doesNotMatch(source,/MYSQL_MIGRATION_PASSWORD=[^\\s]+/);
 });
+
+
+test('database privilege preflight rejects object-level column, routine and event grants for both identities',()=>{
+  for(const table of ['COLUMN_PRIVILEGES','ROUTINE_PRIVILEGES','EVENT_PRIVILEGES']){
+    assert.ok(source.includes('information_schema.'+table));
+  }
+  for(const field of ['R11','R12','R13','M10','M11','M12']) assert.ok(source.includes(field+'="$(mysql_q'));
+  assert.ok(source.includes('runtime_column_grants=%s expected=0'));
+  assert.ok(source.includes('runtime_routine_grants=%s expected=0'));
+  assert.ok(source.includes('runtime_event_grants=%s expected=0'));
+  assert.ok(source.includes('migration_column_grants=%s expected=0'));
+  assert.ok(source.includes('migration_routine_grants=%s expected=0'));
+  assert.ok(source.includes('migration_event_grants=%s expected=0'));
+});
