@@ -104,10 +104,12 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       await assert.rejects(backupProbe.execute('UPDATE campaigns SET title=title WHERE id=?',[campaignId]),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
       await assert.rejects(backupProbe.execute('DELETE FROM campaigns WHERE id=?',[campaignId]),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
     }finally{await backupProbe.end();}
-    const restoreSourceProbe=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database});
+    assert.match(database,/^[A-Za-z0-9_]{1,64}$/,'Source database identifier must be safe to quote.');
+    const restoreSourceProbe=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:'information_schema'});
     try{
-      await assert.rejects(restoreSourceProbe.execute('CREATE TABLE restore_scope_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
-      await assert.rejects(restoreSourceProbe.execute('SELECT id FROM campaigns LIMIT 1'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+      const sourceSchema='`'+database+'`';
+      await assert.rejects(restoreSourceProbe.execute('CREATE TABLE '+sourceSchema+'.restore_scope_probe(id INT PRIMARY KEY)'),error=>['ER_DBACCESS_DENIED_ERROR','ER_TABLEACCESS_DENIED_ERROR'].includes(error.code));
+      await assert.rejects(restoreSourceProbe.execute('SELECT id FROM '+sourceSchema+'.campaigns LIMIT 1'),error=>['ER_DBACCESS_DENIED_ERROR','ER_TABLEACCESS_DENIED_ERROR'].includes(error.code));
     }finally{await restoreSourceProbe.end();}
     const [[emptyTables]]=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:'information_schema'}).then(async conn=>{
       try{return await conn.execute('SELECT COUNT(*) AS total FROM TABLES WHERE TABLE_SCHEMA=?',[restoreDatabase]);}
