@@ -224,7 +224,7 @@ if [[ -f /etc/sudoers.d/istore-admin ]]; then
 fi
 
 section "BACKUP SCHEDULING"
-BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$5 ~ /\\.timer$/ && tolower($5) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $5 "|" $6}')"
+BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$5 ~ /\.timer$/ && tolower($5) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $5 "|" $6}')"
 VERIFIED_BACKUP_TIMER_COUNT=0
 if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
   while IFS='|' read -r timer service; do
@@ -234,7 +234,7 @@ if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
     service_result="$(systemctl show "$service" -p Result --value 2>/dev/null || true)"
     service_exit="$(systemctl show "$service" -p ExecMainStatus --value 2>/dev/null || true)"
     service_last_run="$(systemctl show "$service" -p ExecMainExitTimestamp --value 2>/dev/null || true)"
-    printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s\\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}"
+    printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}"
     if [[ "$timer_state" == "active" && "$timer_enabled" == "enabled" && "$service_result" == "success" && "$service_exit" == "0" && -n "$service_last_run" ]]; then
       VERIFIED_BACKUP_TIMER_COUNT=$((VERIFIED_BACKUP_TIMER_COUNT+1))
     fi
