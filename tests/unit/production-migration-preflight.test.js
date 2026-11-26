@@ -63,6 +63,8 @@ test('production migration preflight checks current privacy and replay schema ca
 test('production preflight reports privacy, Telegram inbox, and idempotency aggregates without exposing payloads',()=>{
   for(const fragment of [
     "SELECT ''telegram_update_inbox'' AS table_name, COUNT(*) AS exact_rows",
+    "SELECT ''telegram_update_inbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows",
+    "last_error NOT IN (''invalid_payload'',''payload_update_id_mismatch'',''handler_failed'')",
     "SELECT ''admin_action_idempotency'' AS table_name, COUNT(*) AS exact_rows",
     "SUM(privacy_consent_at IS NULL) AS missing_acceptance_timestamp_count",
     "PENDING_MIGRATION_002",
