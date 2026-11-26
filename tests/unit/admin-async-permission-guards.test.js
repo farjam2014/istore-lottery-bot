@@ -25,3 +25,14 @@ test('campaign-code export denies callers missing either permission',()=>{
 test('admin handler contains no negated un-awaited permission promise',()=>{
   assert.doesNotMatch(source,/!\s*hasPermission\s*\(/);
 });
+
+test('campaign managers can search campaign codes but cannot search by contact identifiers',()=>{
+  assert.ok(source.includes("const contactLookup=isConfiguredSuperAdmin(ctx.from.id);"));
+  assert.ok(source.includes("WHERE cc.campaign_id=? AND cc.code LIKE ? ESCAPE '!'"));
+  assert.doesNotMatch(source,/WHERE cc\.campaign_id=\? AND \(cc\.code LIKE \? ESCAPE '!' OR CAST\(p\.telegram_user_id AS CHAR\)=\? OR p\.phone LIKE \? ESCAPE '!'/);
+});
+
+test('campaign-code search exposes contact details only in the configured super-admin branch',()=>{
+  assert.ok(source.includes("const message=contactLookup\n        ?rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\\n')"));
+  assert.ok(source.includes(":rows.map(x=>x.code+' | '+x.full_name+' | '+x.code_status+' | '+x.entry_status).join('\\n');"));
+});
