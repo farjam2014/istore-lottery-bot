@@ -49,3 +49,19 @@ test('production host preflight requires a dedicated service identity and effect
     'ustorebot:ustorebot:600'
   ]) assert.ok(source.includes(value), 'missing host hardening assertion: '+value);
 });
+
+
+test('backup preflight requires an enabled app-database timer and a recorded successful service run',()=>{
+  for(const value of [
+    'VERIFIED_BACKUP_TIMER_COUNT=0',
+    'systemctl is-active "$timer"',
+    'systemctl is-enabled "$timer"',
+    'systemctl show "$service" -p Result --value',
+    'systemctl show "$service" -p ExecMainStatus --value',
+    'systemctl show "$service" -p ExecMainExitTimestamp --value',
+    'service_result" == "success"',
+    'service_exit" == "0"',
+    'Cron references alone do not prove successful execution.'
+  ]) assert.ok(source.includes(value), 'missing backup verification gate: '+value);
+  assert.ok(source.includes('tolower($5) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/'));
+});
