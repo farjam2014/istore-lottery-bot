@@ -49,9 +49,11 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | Participants, campaign entries, codes | No complete end-to-end retention/deletion policy is implemented. |
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
-| Admin audit logs and export events | No approved retention schedule is encoded. |
-| Admin action idempotency records (`admin_action_idempotency`) | No cleanup path or approved retention period is currently implemented; records include admin Telegram IDs and must be covered by an explicit replay-protection/retention decision. |
-| Outbox payloads | No complete retention schedule for sent/failed/uncertain payloads is approved. |
+| Admin audit log (`admin_audit_log`) | Records admin Telegram IDs, correlation IDs, action/entity references, timestamps, and action-specific JSON details. Migration `20261125_004_admin_audit_append_only.sql` installs database triggers that reject UPDATE and DELETE. There is no retention/archival worker or approved retention period. The append-only triggers mean a future retention process needs an explicitly reviewed archive-and-purge design; do not bypass the triggers ad hoc. |
+| Payment event history (`payment_events`) | Records order references, actor Telegram IDs (including system actor `0`), event types, correlation IDs, timestamps, and event-specific details. No cleanup or archival path and no approved retention period are implemented. |
+| Admin role history (`admin_role_events`) | Records target and actor Telegram IDs, role-change action, before/after role, and event time. No cleanup or archival path and no approved retention period are implemented. |
+| Admin action idempotency records (`admin_action_idempotency`) | No cleanup path or approved retention period is currently implemented; records include admin Telegram IDs, action type, entity reference, and creation time. Retention must balance replay protection against indefinite storage of admin identifiers. |
+| Outbox payloads (`telegram_notification_outbox`) | No complete retention schedule for sent/failed/uncertain payloads is approved or encoded. Payloads can contain participant notification text and payment/draw details. |
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
 
