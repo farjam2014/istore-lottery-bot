@@ -80,10 +80,10 @@ jobs:
           CREATE DATABASE IF NOT EXISTS draw_restore_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_preflight_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_drawguard_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE USER 'ustore_ci_testapp'@'127.0.0.1' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          CREATE USER 'ustore_ci_readonly'@'127.0.0.1' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
-          GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'127.0.0.1';
-          GRANT SELECT ON ustore_preflight_ci.* TO 'ustore_ci_readonly'@'127.0.0.1';
+          CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+          GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
+          GRANT SELECT ON ustore_preflight_ci.* TO 'ustore_ci_readonly'@'%';
           SQL
       - run: npm ci
       - run: npm audit --audit-level=high
