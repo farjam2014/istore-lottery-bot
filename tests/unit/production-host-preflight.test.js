@@ -182,3 +182,9 @@ test('production host preflight rejects schema-level GRANT OPTION for runtime an
   assert.ok(source.includes('"$R13" != 0'));
   assert.ok(source.includes('"$M12" != 0'));
 });
+
+
+test('production host preflight prints backup age and artifact delta as separate output lines',()=>{
+  assert.ok(source.includes('latest_verified_backup_age_seconds=%s maximum=%s\n'));
+  assert.ok(source.includes('encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\n'));
+});
