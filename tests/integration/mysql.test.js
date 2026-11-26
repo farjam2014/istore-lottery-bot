@@ -1033,14 +1033,23 @@ test('MySQL integration: concurrent duplicate Telegram updates are claimed by on
 
 
 
-test('MySQL integration: object-level privilege views required by production preflight exist on the deployed MySQL engine',{skip:!enabled},async()=>{
+test('MySQL integration: MySQL 8 privilege metadata sources required by production preflight exist',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
-  const {pool}=await import('../../src/database/pool.js');
-  const [[views]]=await pool.execute("SELECT COUNT(*) AS column_privilege_rows FROM information_schema.COLUMN_PRIVILEGES");
-  assert.ok(views);
-  assert.ok(Object.hasOwn(views,'column_privilege_rows'));
-  assert.ok(Number(views.column_privilege_rows)>=0);
-  assert.ok(Number(views.routine_privilege_rows)>=0);
+  const connection=await mysql.createConnection({
+    host:process.env.MYSQL_HOST||'127.0.0.1',
+    port:Number(process.env.MYSQL_PORT)||3306,
+    user:process.env.MYSQL_TEST_ADMIN_USER,
+    password:process.env.MYSQL_TEST_ADMIN_PASSWORD,
+    database:db
+  });
+  try{
+    const [[views]]=await connection.execute("SELECT (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES) AS column_privilege_rows, (SELECT COUNT(*) FROM mysql.procs_priv) AS routine_privilege_rows");
+    assert.ok(views);
+    assert.ok(Object.hasOwn(views,'column_privilege_rows'));
+    assert.ok(Number(views.column_privilege_rows)>=0);
+    assert.ok(Object.hasOwn(views,'routine_privilege_rows'));
+    assert.ok(Number(views.routine_privilege_rows)>=0);
+  }finally{await connection.end();}
 });
 
 
