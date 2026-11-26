@@ -26,10 +26,11 @@ test('read-only production preflight executes against the legacy base schema wit
   assert.match(databaseName,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
   assert.notEqual(databaseName,process.env.MYSQL_DATABASE,'Preflight schema must differ from the application test schema.');
   const admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
-  let baseConnection=null,readOnlyConnection=null;
+  let baseConnection=null,readOnlyConnection=null,fixtureStarted=false;
   try{
     const [[existing]]=await admin.execute('SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[databaseName]);
     assert.equal(Number(existing.total),0,'Preflight fixture schema must be empty before the test.');
+    fixtureStarted=true;
     baseConnection=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database:databaseName});
     const baseSchema=readFileSync(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
     for(const statement of splitSql(baseSchema))await baseConnection.query(statement);
@@ -56,7 +57,7 @@ test('read-only production preflight executes against the legacy base schema wit
   }finally{
     if(readOnlyConnection)await readOnlyConnection.end();
     if(baseConnection)await baseConnection.end();
-    await clearFixtureSchema(admin,databaseName).catch(()=>{});
+    if(fixtureStarted)await clearFixtureSchema(admin,databaseName);
     await admin.end();
   }
 });
