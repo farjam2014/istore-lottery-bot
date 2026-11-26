@@ -147,9 +147,9 @@ Back up the existing unit file and create a systemd drop-in that sets the staged
 
 - `WorkingDirectory`
 - `ExecStart` (clear the previous ExecStart first)
-- `ReadWritePaths` (clear the previous path list, then set the new release path)
+- `ProtectSystem=strict` and an empty `ReadWritePaths` list (clear any inherited writable-path exceptions; the bot must not write to its release or host filesystem)
 
-Then run `systemctl daemon-reload`, start the service, and confirm:
+The bot has no persistent local-file write requirement; keep the release filesystem read-only inside the service namespace. `PrivateTmp=true` remains available for ephemeral temporary files. Do not grant the service write access to the release directory. Then run `systemctl daemon-reload`, start the service, and confirm:
 
 - `ActiveState=active`, `SubState=running`, nonzero `MainPID`;
 - journal contains `Telegram bot launched with long polling`;
