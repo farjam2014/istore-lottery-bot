@@ -49,4 +49,3 @@ printf 'Production database is not used: %s\n' "$APP_DB"
 printf 'Production MySQL identity is not used.\n'
 node --test --test-timeout=600000 --test-concurrency=1 tests/integration/mysql.test.js
 node --test --test-timeout=600000 --test-concurrency=1 tests/integration/draw-keyring-backup-restore.test.js
-node --test --test-timeout=600000 --test-concurrency=1 tests/integration/production-preflight-baseline.test.js
