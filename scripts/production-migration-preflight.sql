@@ -134,7 +134,7 @@ FROM (
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
 
--- Exact impact inventory for session rows intentionally cleared by the replay migrations.
+-- Exact impact inventory for legacy session rows affected by replay migrations.
 -- Missing tables are reported as pending prerequisite migrations, never silently treated as zero.
 
 -- registration sessions cleared by 20261124_003.
@@ -216,6 +216,36 @@ SET @preflight_sql := IF(
   @preflight_session_table_exists,
   'SELECT ''profile_change_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM profile_change_sessions',
   'SELECT ''profile_change_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- admin_search_sessions are retained by 20261125_002 but existing rows receive a NULL cursor;
+-- candidate replay guards reject these legacy in-progress searches, so users must start a new search.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''admin_search_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM admin_search_sessions',
+  'SELECT ''admin_search_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- payment_admin_sessions are retained by 20261125_002 but existing rows receive a NULL cursor;
+-- candidate replay guards reject these legacy in-progress order searches, so users must start a new search.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_admin_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''payment_admin_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM payment_admin_sessions',
+  'SELECT ''payment_admin_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
 );
 PREPARE preflight_session_stmt FROM @preflight_sql;
 EXECUTE preflight_session_stmt;
