@@ -42,7 +42,7 @@ Obtain `MYSQL_DATABASE` from the protected environment without printing the rest
 
 Back up the exact draw-key configuration/key IDs independently in an access-controlled encrypted vault. Preserve the current `.env` as a root-only recovery artifact, encrypted before off-host storage. A database dump without the historical draw keys is not a complete draw recovery backup.
 
-Restore the backup into a separate disposable database and verify table counts and the prepared-draw/key decryption check before proceeding.
+Restore the backup into a separate disposable database and verify table counts and the prepared-draw/key decryption check before proceeding. Run `npm run verify:prepared-draw-keys` from the staged release with the restored database selected by the protected runtime environment and the independently restored keyring loaded; every prepared draw must report `verified`. The command prints draw IDs and key IDs only, never decrypted seeds or key material. A result of `no_prepared_draws` is informational and must be reconciled with the restore inventory.
 
 ## 3. Stage the exact release
 
