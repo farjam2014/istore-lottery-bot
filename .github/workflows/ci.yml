@@ -51,10 +51,16 @@ jobs:
       MYSQL_HOST: 127.0.0.1
       MYSQL_PORT: 3306
       MYSQL_DATABASE: istore_lottery_ci
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
+      MYSQL_USER: ustore_ci_testapp
+      MYSQL_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       MYSQL_TEST_ADMIN_USER: root
       MYSQL_TEST_ADMIN_PASSWORD: root
+      MYSQL_TEST_READONLY_USER: ustore_ci_readonly
+      MYSQL_TEST_READONLY_PASSWORD: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+      MYSQL_TEST_DATABASE: istore_lottery_ci
+      MYSQL_RESTORE_DATABASE: draw_restore_ci
+      MYSQL_PREFLIGHT_DATABASE: ustore_preflight_ci
+      MYSQL_DRAW_GUARD_DATABASE: ustore_drawguard_ci
       MYSQL_POOL_SIZE: 5
       BOT_ADMIN_IDS: 123456789
       RUN_MYSQL_TESTS: '1'
@@ -68,6 +74,18 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+      - name: Provision isolated MySQL test identities and schemas
+        run: |
+          mysql --host 127.0.0.1 --user root --password=root <<'SQL'
+          CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS draw_restore_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_preflight_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_drawguard_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+          GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
+          GRANT SELECT ON ustore_preflight_ci.* TO 'ustore_ci_readonly'@'%';
+          SQL
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
