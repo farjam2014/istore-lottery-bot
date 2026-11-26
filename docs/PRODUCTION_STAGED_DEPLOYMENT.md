@@ -81,7 +81,7 @@ Reconcile the exact target database and key inventory before any write.
 
 ## 5. Approved maintenance window
 
-Before applying the replay-cursor migrations, announce a short maintenance window. Pre-cursor in-progress registration, pending receipt-upload, participant support/profile, and admin text-wizard sessions are intentionally cleared because they cannot be safely associated with a Telegram Update ID. Existing participant profiles, submitted payment receipts, payment orders, and issued raffle codes are not deleted by these session-cleanup statements. Users with an interrupted receipt-upload flow may need to resend the receipt after service recovery.
+Before applying the replay-cursor migrations, announce a short maintenance window. Pre-cursor in-progress registration, pending receipt-upload, participant support/profile, and admin text-wizard sessions are intentionally cleared because they cannot be safely associated with a Telegram Update ID. Existing admin participant-search and payment-order-search sessions are not deleted, but their new replay cursors are NULL and the candidate handlers reject those legacy sessions; admins must start those searches again after service recovery. Existing participant profiles, submitted payment receipts, payment orders, and issued raffle codes are not deleted by these session-cleanup statements. Users with an interrupted receipt-upload flow may need to resend the receipt after service recovery.
 
 Only after separate approval:
 
