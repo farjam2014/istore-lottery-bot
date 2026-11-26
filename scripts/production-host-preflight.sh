@@ -224,7 +224,7 @@ if [[ -f /etc/sudoers.d/istore-admin ]]; then
 fi
 
 section "BACKUP SCHEDULING"
-BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$5 ~ /\.timer$/ && tolower($5) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $5 "|" $6}')"
+BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$(NF-1) ~ /\.timer$/ && tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $(NF-1) "|" $NF}')"
 VERIFIED_BACKUP_TIMER_COUNT=0
 if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
   while IFS='|' read -r timer service; do
