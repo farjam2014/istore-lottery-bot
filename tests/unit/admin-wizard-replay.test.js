@@ -145,7 +145,7 @@ test('payment-card and admin-search cancel buttons are bound to their active cur
     "'admin:payment-card:cancel:'+ctx.update.update_id",
     "'admin:payment-card:cancel:'+cardSession.last_update_id",
     "payment_card_admin_sessions WHERE telegram_user_id=? AND last_update_id=?",
-    "'admin:campaign:codes:cancel:'+campaignId+':'+updateId",
+    "'admin:codes:cancel:'+campaignId+':'+updateId",
     "step='campaign_code' AND campaign_id=? AND last_update_id=?",
     "'admin:participants:search:cancel:'+updateId",
     "step IN ('participant','participant_results') AND last_update_id=?"
