@@ -243,7 +243,7 @@ else
   info "application_database_backup_timer=not_detected"
 fi
 CRON_BACKUP_COUNT="$({ crontab -l -u root 2>/dev/null || true; grep -hE '^[[:space:]]*[^#]' /etc/cron.d/* /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* 2>/dev/null || true; } | grep -Eic 'mysqldump|mysqlpump|mariadb-dump' || true)"
-printf 'database_backup_cron_references=%s (contents are not printed; cron alone does not prove a successful run)\\n' "$CRON_BACKUP_COUNT"
+printf 'database_backup_cron_references=%s (contents are not printed; cron alone does not prove a successful run)\n' "$CRON_BACKUP_COUNT"
 if [[ "$VERIFIED_BACKUP_TIMER_COUNT" -eq 0 ]]; then fail "No active, enabled application database backup timer with a recorded successful service run was verified; cron references alone do not prove successful execution."; fi
 for directory in /root/ustore-backups /opt/ustore-backups; do
   if [[ -d "$directory" ]]; then
