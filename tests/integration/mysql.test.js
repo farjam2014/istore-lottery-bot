@@ -181,6 +181,25 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     }
     await migrate();
 
+    // Execute the full preflight against the migrated schema on one connection:
+    // its prepared statements use session variables and must work after all 28 migrations.
+    const preflightSql=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+    const preflightConnection=await pool.getConnection();
+    let preflightResults;
+    try{
+      preflightResults=[];
+      for(const statement of preflightSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)){
+        preflightResults.push(await preflightConnection.query(statement));
+      }
+    }finally{
+      preflightConnection.release();
+    }
+    const preflightRows=preflightResults.flatMap(([resultRows])=>Array.isArray(resultRows)?resultRows:[]);
+    assert.ok(preflightRows.some(row=>row.table_name==='telegram_update_inbox'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0));
+    assert.ok(preflightRows.some(row=>row.table_name==='admin_action_idempotency'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0));
+    assert.ok(preflightRows.some(row=>row.consent_version==='<NULL>'&&Number(row.participant_count)===1&&Number(row.missing_acceptance_timestamp_count)===1));
+    assert.ok(preflightRows.every(row=>!Object.hasOwn(row,'payload')),'Migrated preflight must never return raw Telegram Update payloads.');
+
     // Re-accepting the privacy notice must preserve the registration replay cursor.
     const replaySessionId=String(690000000000n+(BigInt(Date.now())%100000000000n)+2n);
     await saveSession(replaySessionId,'awaiting_instagram',{privacyConsentVersion:'v1',privacyConsentAt:'2026-11-25T10:00:00.000Z'},123456);
