@@ -134,7 +134,7 @@ test('production host preflight is read-only and included in the release runbook
   assert.match(hostAudit,/name \.credentials/);
   assert.match(hostAudit,/name \.credentials_rsaparams/);
   assert.match(hostAudit,/plaintext_database_backup_artifacts/);
-  assert.match(hostAudit,/Unencrypted database backup artifacts were detected/);
+  assert.match(hostAudit,/Unencrypted database or full-backup archives were detected/);
   assert.match(hostAudit,/database_backup_cron_references/);
   assert.match(hostAudit,/plaintext draw-key backup file exists/);
   assert.doesNotMatch(hostAudit,/systemctl (?:start|stop|restart|daemon-reload)\b/i);
