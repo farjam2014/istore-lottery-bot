@@ -1006,6 +1006,32 @@ test('MySQL integration: Telegram inbox persists only a fixed error label when a
 });
 
 
+
+test('MySQL integration: concurrent duplicate Telegram updates are claimed by only one handler',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateGuard}=await import('../../src/bot/middleware/update-guard.js');
+  const updateId=Number(Date.now())*1000+792;
+  let handled=0;
+  try{
+    await migrate();
+    const options={database:pool,log:{error(){},warn(){}},correlate:(_correlationId,run)=>run()};
+    const firstGuard=createUpdateGuard({...options,uuid:()=> 'duplicate-lease-first'});
+    const secondGuard=createUpdateGuard({...options,uuid:()=> 'duplicate-lease-second'});
+    const context=()=>({update:{update_id:updateId,message:{text:'duplicate integration fixture'}},state:{}});
+    await Promise.all([
+      firstGuard(context(),async()=>{handled++;await new Promise(resolve=>setTimeout(resolve,30));}),
+      secondGuard(context(),async()=>{handled++;})
+    ]);
+    const [[row]]=await pool.execute('SELECT status,attempts,completed_at FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    assert.equal(handled,1,'only the worker that wins the atomic inbox claim may run the handler');
+    assert.equal(row.status,'completed');
+    assert.equal(Number(row.attempts),1);
+    assert.ok(row.completed_at);
+  }finally{await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);}
+});
+
+
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
