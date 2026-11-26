@@ -673,7 +673,7 @@ test('MySQL integration: receipt failure rolls back both receipt and upload-sess
   let participantId,campaignId,entryId,orderId;
   try{
     await migrate();
-    const [participant]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Atomic Receipt Test','+989121333333','atomic_receipt_test']);
+    const [participant]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Atomic Receipt Test','+98912'+uid.slice(-7),'atomic_receipt_'+uid.slice(-8)]);
     participantId=participant.insertId;
     const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',100000,1)",['receipt-atomic-'+uid,'Receipt Atomicity']);
     campaignId=campaign.insertId;
