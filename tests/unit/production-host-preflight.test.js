@@ -75,6 +75,14 @@ test('backup preflight requires an enabled app-database timer and a recorded suc
 });
 
 
+test('backup artifact must be fresh relative to the latest successful encrypted backup timer run',()=>{
+  assert.ok(source.includes('LATEST_VERIFIED_BACKUP_RUN_EPOCH=0'));
+  assert.ok(source.includes('date -d "$service_last_run" +%s'));
+  assert.ok(source.includes('LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0'));
+  assert.ok(source.includes("stat -c '%Y' \"$artifact\""));
+  assert.ok(source.includes('LATEST_ENCRYPTED_DB_BACKUP_EPOCH" -lt $((LATEST_VERIFIED_BACKUP_RUN_EPOCH-300))'));
+  assert.ok(source.includes('modified within five minutes of the latest verified successful backup timer run'));
+});
 test('backup timer service must directly expose a database dump command before it counts as verified',()=>{
   assert.ok(source.includes('systemctl show "$service" -p ExecStart --value'));
   assert.ok(source.includes('(mysqldump|mysqlpump|mariadb-dump)'));
