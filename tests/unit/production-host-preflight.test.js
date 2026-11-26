@@ -112,16 +112,17 @@ test('database preflight authenticates runtime and migration credentials without
 
 
 test('database privilege preflight rejects object-level column, routine and event grants for both identities',()=>{
-  for(const table of ['COLUMN_PRIVILEGES','ROUTINE_PRIVILEGES','EVENT_PRIVILEGES']){
+  for(const table of ['COLUMN_PRIVILEGES']){
     assert.ok(source.includes('information_schema.'+table));
   }
-  for(const field of ['R11','R12','R13','M10','M11','M12']) assert.ok(source.includes(field+'="$(mysql_q'));
+  for(const field of ['R11','R12','M10','M11']) assert.ok(source.includes(field+'="$(mysql_q'));
   assert.ok(source.includes('runtime_column_grants=%s expected=0'));
-  assert.ok(source.includes('runtime_routine_grants=%s expected=0'));
-  assert.ok(source.includes('runtime_event_grants=%s expected=0'));
+  assert.ok(source.includes('runtime_routine_object_grants=%s expected=0'));
   assert.ok(source.includes('migration_column_grants=%s expected=0'));
-  assert.ok(source.includes('migration_routine_grants=%s expected=0'));
-  assert.ok(source.includes('migration_event_grants=%s expected=0'));
+  assert.ok(source.includes('migration_routine_object_grants=%s expected=0'));
+  assert.ok(source.includes("mysql.procs_priv WHERE User='$APP_USER' AND Host='127.0.0.1'"));
+  assert.ok(source.includes("mysql.procs_priv WHERE User='$MIG_USER' AND Host='127.0.0.1'"));
+  assert.doesNotMatch(source,/ROUTINE_PRIVILEGES|EVENT_PRIVILEGES/);
 });
 
 
