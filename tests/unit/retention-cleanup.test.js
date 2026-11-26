@@ -8,10 +8,14 @@ test('retention worker purges expired participant, admin, support, and operation
   const result=await worker();
   assert.equal(result.deleted,20);
   assert.equal(Object.keys(result.byTable).length,10);
+  assert.equal(result.redacted,4);
+  assert.deepEqual(result.redactedByTable,{telegram_update_inbox:2,telegram_notification_outbox:2});
   for(const table of ['telegram_user_sessions','admin_wizards','payment_card_admin_sessions','payment_admin_sessions','admin_search_sessions','admin_role_sessions','support_sessions','profile_change_sessions','processed_updates','telegram_rate_limits']){
     assert.ok(statements.some(sql=>sql.includes('DELETE FROM '+table)),'missing cleanup for '+table);
   }
-  assert.ok(statements.every(sql=>sql.endsWith('LIMIT 500')),'each cleanup statement must be bounded');
+  assert.ok(statements.every(sql=>sql.endsWith('LIMIT 500')),'each cleanup/redaction statement must be bounded');
+  assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_update_inbox SET last_error=')&&sql.includes('legacy_error_redacted')));
+  assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_notification_outbox SET last_error=')&&sql.includes('legacy_error_redacted')));
   assert.ok(statements.some(sql=>sql.includes('admin_search_sessions')&&sql.includes('INTERVAL 24 HOUR')));
   assert.ok(statements.some(sql=>sql.includes('telegram_user_sessions')&&sql.includes('INTERVAL 24 HOUR')));
   assert.ok(statements.some(sql=>sql.includes('processed_updates')&&sql.includes('INTERVAL 3 DAY')));
