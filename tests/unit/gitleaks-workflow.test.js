@@ -15,7 +15,7 @@ test('CI runs an explicit all-refs full-history Gitleaks scan in addition to the
 
 
 test('Gitleaks ignores only four exact historical CI fixture fingerprints',()=>{
-  const ignore=readFileSync(new URL('../../.gitleaksignore',import.meta.url),'utf8').trim().split(/\\r?\\n/);
+  const ignore=readFileSync(new URL('../../.gitleaksignore',import.meta.url),'utf8').trim().split(/\r?\n/);
   assert.deepEqual(ignore,[
     '0c162dea1b54c90f0a23655f63bdfbeef076eb51:.github/workflows/ci.yml:generic-api-key:55',
     '0c162dea1b54c90f0a23655f63bdfbeef076eb51:.github/workflows/ci.yml:generic-api-key:59',
