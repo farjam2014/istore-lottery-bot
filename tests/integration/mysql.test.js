@@ -1036,10 +1036,12 @@ test('MySQL integration: concurrent duplicate Telegram updates are claimed by on
 test('MySQL integration: object-level privilege views required by production preflight exist on the deployed MySQL engine',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
-  const [[views]]=await pool.execute("SELECT COUNT(*) AS column_privilege_rows FROM information_schema.COLUMN_PRIVILEGES");
+  const [[views]]=await pool.execute("SELECT (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES) AS column_privilege_rows, (SELECT COUNT(*) FROM information_schema.ROUTINE_PRIVILEGES) AS routine_privilege_rows");
   assert.ok(views);
   assert.ok(Object.hasOwn(views,'column_privilege_rows'));
   assert.ok(Number(views.column_privilege_rows)>=0);
+  assert.ok(Object.hasOwn(views,'routine_privilege_rows'));
+  assert.ok(Number(views.routine_privilege_rows)>=0);
 });
 
 
