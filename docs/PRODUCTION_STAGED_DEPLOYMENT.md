@@ -58,7 +58,7 @@ Set `TARGET_SHA` to the exact merged release commit and `TARGET_RELEASE` to a ne
 
 ## 4. Read-only production preflight
 
-From the staged release, run `bash scripts/production-host-preflight.sh` as root and retain its output in the private deployment audit. It reports service identity/path, runtime and migration database-grant summaries, self-hosted runner/sudo-helper state, timer/cron backup evidence, draw-key backup metadata, encrypted database-backup artifacts, and network/firewall metadata. It does not print environment values or secret material and does not change host state. A non-zero exit is a release blocker; remediate the reported host controls and re-run it.
+From the staged candidate release (or a clean checkout of the exact Candidate commit), run `sudo bash scripts/production-host-preflight.sh` and retain its output in the private deployment audit. The script resolves `dotenv` from the active release, so the audit checkout does not need dependency installation. It reports service identity/path, runtime and migration database-grant summaries, self-hosted runner/sudo-helper state, timer/cron backup evidence, draw-key backup metadata, encrypted database-backup artifacts, and network/firewall metadata. It does not print environment values or secret material and does not change host state. A non-zero exit is a release blocker; remediate the reported host controls and re-run it.
 
 Then run `scripts/production-migration-preflight.sql` from the staged release against the exact production database using a read-only account. Retain the output.
 
