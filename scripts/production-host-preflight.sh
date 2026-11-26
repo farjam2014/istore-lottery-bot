@@ -155,10 +155,9 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       R9="$(mysql_q "SELECT COUNT(*) FROM mysql.user WHERE User='$APP_USER' AND Host<>'127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
       R10="$(mysql_q "SELECT COUNT(*) FROM mysql.proxies_priv WHERE User='$APP_USER' AND Host='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
       R11="$(mysql_q "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1'))")"
-      R12="$(mysql_q "SELECT COUNT(*) FROM information_schema.ROUTINE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1'))")"
-      R13="$(mysql_q "SELECT COUNT(*) FROM information_schema.EVENT_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1'))")"
-      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\nruntime_default_roles=%s expected=0\nruntime_granted_roles=%s expected=0\nruntime_alternate_host_accounts=%s expected=0\nruntime_proxy_grants=%s expected=0\nruntime_column_grants=%s expected=0\nruntime_routine_grants=%s expected=0\nruntime_event_grants=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6" "$R7" "$R8" "$R9" "$R10" "$R11" "$R12" "$R13"
-      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 || "$R7" != 0 || "$R8" != 0 || "$R9" != 0 || "$R10" != 0 || "$R11" != 0 || "$R12" != 0 || "$R13" != 0 ]]; then
+      R12="$(mysql_q "SELECT COUNT(*) FROM mysql.procs_priv WHERE User='$APP_USER' AND Host='127.0.0.1'")"
+      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\nruntime_default_roles=%s expected=0\nruntime_granted_roles=%s expected=0\nruntime_alternate_host_accounts=%s expected=0\nruntime_proxy_grants=%s expected=0\nruntime_column_grants=%s expected=0\nruntime_routine_object_grants=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6" "$R7" "$R8" "$R9" "$R10" "$R11" "$R12"
+      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 || "$R7" != 0 || "$R8" != 0 || "$R9" != 0 || "$R10" != 0 || "$R11" != 0 || "$R12" != 0 ]]; then
         fail "Runtime account is not proven DML-only on exactly one host identity and one schema."
       fi
       printf 'runtime_show_grants:\n'
@@ -193,10 +192,9 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       M8="$(mysql_q "SELECT COUNT(*) FROM mysql.user WHERE User='$MIG_USER' AND Host<>'127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
       M9="$(mysql_q "SELECT COUNT(*) FROM mysql.proxies_priv WHERE User='$MIG_USER' AND Host='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
       M10="$(mysql_q "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1'))")"
-      M11="$(mysql_q "SELECT COUNT(*) FROM information_schema.ROUTINE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1'))")"
-      M12="$(mysql_q "SELECT COUNT(*) FROM information_schema.EVENT_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1'))")"
-      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\nmigration_default_roles=%s expected=0\nmigration_granted_roles=%s expected=0\nmigration_alternate_host_accounts=%s expected=0\nmigration_proxy_grants=%s expected=0\nmigration_column_grants=%s expected=0\nmigration_routine_grants=%s expected=0\nmigration_event_grants=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7" "$M8" "$M9" "$M10" "$M11" "$M12"
-      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 || "$M7" != 0 || "$M8" != 0 || "$M9" != 0 || "$M10" != 0 || "$M11" != 0 || "$M12" != 0 ]]; then
+      M11="$(mysql_q "SELECT COUNT(*) FROM mysql.procs_priv WHERE User='$MIG_USER' AND Host='127.0.0.1'")"
+      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\nmigration_default_roles=%s expected=0\nmigration_granted_roles=%s expected=0\nmigration_alternate_host_accounts=%s expected=0\nmigration_proxy_grants=%s expected=0\nmigration_column_grants=%s expected=0\nmigration_routine_object_grants=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7" "$M8" "$M9" "$M10" "$M11"
+      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 || "$M7" != 0 || "$M8" != 0 || "$M9" != 0 || "$M10" != 0 || "$M11" != 0 ]]; then
         fail "Migration account does not match schema-scoped least privilege on exactly one host identity."
       fi
       verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$MIGRATION_ENV" MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE migration || fail "Migration DB credentials do not authenticate as the expected migration identity."
