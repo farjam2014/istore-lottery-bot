@@ -71,7 +71,7 @@ Stop release preparation if it reports any of the following:
 - unexpected migration history or missing required schema;
 - migration checksum disagreement;
 - any replay-session cleanup result marked `PENDING_OR_MISSING_TABLE`;
-- any non-zero session-cleanup count unless the affected flows, customer impact, and support handling have been explicitly reviewed and approved by the business owner.
+- any non-zero cleanup or retained-but-cursorless session count unless the affected flows, customer impact, and support handling have been explicitly reviewed and approved by the business owner.
 
 The preflight reports exact row counts for six session tables whose rows are intentionally cleared (registration, admin wizard, payment-card, admin-role, support, and profile-change), plus `admin_search_sessions` and `payment_admin_sessions`, whose legacy rows are retained but receive NULL cursors and are rejected by replay guards. It also reports a support-session step breakdown for the `admin_reply` subset. Preserve this output with the release evidence. These counts are an impact inventory, not automatic authorization to delete the rows.
 
@@ -87,7 +87,7 @@ Only after separate approval:
 
 1. Announce maintenance and prevent new registration/payment writes.
 2. Stop the active service and confirm it is stopped. Do not start the staged release yet.
-3. **Re-run the complete read-only preflight after the service is stopped**, against the exact target database. Preserve this final output, compare migration history/schema/business row counts with the earlier preflight, and re-check all eight session-impact counts. Stop if anything changed unexpectedly, any table is reported as pending/missing, or a non-zero cleanup count lacks explicit business-owner approval. This stopped-service inventory is the final data-impact baseline for the migration window.
+3. **Re-run the complete read-only preflight after the service is stopped**, against the exact target database. Preserve this final output, compare migration history/schema/business row counts with the earlier preflight, and re-check all eight session-impact counts. Stop if anything changed unexpectedly, any table is reported as pending/missing, or a non-zero cleanup/cursorless-session count lacks explicit business-owner approval. This stopped-service inventory is the final data-impact baseline for the migration window.
 4. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release. The shell must export both the runtime database identity (read from the active release `.env`) and the separately protected migration credentials to the migration process, without printing either file or enabling shell tracing. Use this exact pattern:
 
    ```bash
