@@ -387,15 +387,7 @@ if ! command -v ufw >/dev/null 2>&1; then
 else
   UFW_STATUS="$(ufw status verbose 2>&1 || true)"
   printf '%s\n' "$UFW_STATUS"
-  if ! grep -q '^Status: active
-section "RESULT"
-if [[ "$FAILURES" -eq 0 ]]; then
-  info "HOST_CHECKS=PASS (does not replace staging, restore, privacy/legal, or load-test approval)"
-else
-  printf 'HOST_CHECKS=BLOCKED failures=%s\n' "$FAILURES"
-  exit 1
-fi
- <<< "$UFW_STATUS"; then
+  if ! grep -q '^Status: active$' <<< "$UFW_STATUS"; then
     fail "UFW must be active; do not rely on an unverified provider-level firewall."
   else
     grep -Eq '^Default: deny \(incoming\), allow \(outgoing\)' <<< "$UFW_STATUS" || fail "UFW defaults must deny inbound traffic and allow outbound Telegram/database traffic."
