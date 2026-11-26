@@ -67,7 +67,7 @@ test('admin campaign edit cancellation callback is registered with numeric ID',(
   registerAdminHandlers(bot);
   const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('admin:campaign:edit:cancel'));
   assert.ok(cancel);
-  assert.ok(cancel.test('admin:campaign:edit:cancel:42'));
+  assert.ok(cancel.test('admin:campaign:edit:cancel:42:123456'));
 });
 
 test('participant block callback enforces participant.manage permission',()=>{
