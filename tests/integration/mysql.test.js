@@ -188,7 +188,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     let preflightResults;
     try{
       preflightResults=[];
-      for(const statement of preflightSql.split(/;\\s*(?:\\n|$)/).map(x=>x.trim()).filter(Boolean)){
+      for(const statement of preflightSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)){
         preflightResults.push(await preflightConnection.query(statement));
       }
     }finally{
