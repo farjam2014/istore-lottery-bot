@@ -44,13 +44,13 @@ async function isAdmin(ctx){
     if(data.startsWith('admin:payments')||data.startsWith('admin:payment:order:')||data==='admin:payment:search')return hasPermission(id,'payment.read');
     if(data==='admin:payment-settings'||data==='admin:payment-cards'||data.startsWith('admin:payment-card:'))return hasPermission(id,'payment.settings');
     if(data==='admin:stats'||data.startsWith('admin:reports')||data.startsWith('admin:report:'))return hasPermission(id,'report.read');
-    if(data==='admin:home'||data==='admin:campaigns')return hasPermission(id,'dashboard.read')||hasPermission(id,'campaign.read');
+    if(data==='admin:home')return (await hasPermission(id,'dashboard.read'))||(await hasPermission(id,'campaign.read'));
     return false;
   }
   if(ctx.message?.text?.startsWith('/admin'))return hasPermission(id,'dashboard.read');
   if(ctx.message?.text){
     const [[paySession]]=await pool.execute('SELECT step FROM payment_admin_sessions WHERE telegram_user_id=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(id)]);if(paySession?.step==='search_order')return hasPermission(id,'payment.read');
-    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.directory.read');if(searchSession?.step==='campaign_code')return hasPermission(id,'campaign.write')&&hasPermission(id,'participant.read');
+    const [[searchSession]]=await pool.execute("SELECT step FROM admin_search_sessions WHERE telegram_user_id=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(id)]);if(searchSession?.step==='participant')return hasPermission(id,'participant.directory.read');if(searchSession?.step==='campaign_code')return (await hasPermission(id,'campaign.read'))&&(await hasPermission(id,'participant.read'));
     const [[session]]=await pool.execute('SELECT step FROM support_sessions WHERE telegram_user_id=? AND updated_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(id)]);
     if(session?.step==='admin_reply')return hasPermission(id,'support.reply');
     const [[cardSession]]=await pool.execute('SELECT step FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(id)]);if(cardSession)return hasPermission(id,'payment.settings');
@@ -420,7 +420,7 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action(/^admin:campaign:codes:search:(\d+)$/,async ctx=>{
-    if(!hasPermission(ctx.from.id,'campaign.read')||!hasPermission(ctx.from.id,'participant.read'))return deny(ctx);
+    if(!(await hasPermission(ctx.from.id,'campaign.read'))||!(await hasPermission(ctx.from.id,'participant.read')))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
@@ -439,7 +439,7 @@ export function registerAdminHandlers(bot){
   });
 
   bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
-    if(!hasPermission(ctx.from.id,'campaign.read')||!hasPermission(ctx.from.id,'participant.export'))return deny(ctx);
+    if(!(await hasPermission(ctx.from.id,'campaign.read'))||!(await hasPermission(ctx.from.id,'participant.export')))return deny(ctx);
     const campaignId=Number(ctx.match[1]);
     const [[campaign]]=await pool.execute('SELECT id,title FROM campaigns WHERE id=?',[campaignId]);
     if(!campaign)return ctx.answerCbQuery('کمپین پیدا نشد.',{show_alert:true});
