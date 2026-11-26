@@ -1682,8 +1682,21 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
       await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id,created_at) VALUES(?,'full_name',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
       await pool.execute("INSERT INTO processed_updates(update_id,processed_at) VALUES(?,UTC_TIMESTAMP()-INTERVAL 4 DAY)",[retentionUpdateId]);
       await pool.execute("INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,'retention_test',UTC_TIMESTAMP()-INTERVAL 2 DAY,1)",[retentionUserId]);
+      const inboxPayloadText='retain-inbox-payload-'+retentionUpdateId;
+      const outboxPayloadText='retain-outbox-payload-'+retentionUpdateId;
+      const rawLegacyError='legacy phone +989121234567 SECRET-RETENTION-'+retentionUpdateId;
+      await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,last_error) VALUES(?,JSON_OBJECT('update_id',?,'message',JSON_OBJECT('text',?)),'failed',?)",[retentionUpdateId,retentionUpdateId,inboxPayloadText,rawLegacyError]);
+      const [outboxInsert]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,last_error) VALUES(?,JSON_OBJECT('text',?),'failed',?)",[retentionUserId,outboxPayloadText,rawLegacyError]);
       const result=await cleanupExpiredRetentionRows();
       assert.ok(result.deleted>=10,'retention worker must delete all ten seeded expired rows');
+      assert.ok(result.redacted>=2,'retention worker must redact legacy inbox and Outbox errors');
+      const [[inboxLegacy]]=await pool.execute('SELECT last_error,payload FROM telegram_update_inbox WHERE update_id=?',[retentionUpdateId]);
+      assert.equal(inboxLegacy.last_error,'legacy_error_redacted');
+      assert.equal(inboxLegacy.payload.message.text,inboxPayloadText,'redaction must preserve the original Telegram update payload');
+      const [[outboxLegacy]]=await pool.execute('SELECT last_error,payload FROM telegram_notification_outbox WHERE id=?',[outboxInsert.insertId]);
+      assert.equal(outboxLegacy.last_error,'legacy_error_redacted');
+      assert.equal(outboxLegacy.payload.text,outboxPayloadText,'redaction must preserve the delivery payload for audited retry/diagnosis');
+      assert.equal(JSON.stringify([inboxLegacy.last_error,outboxLegacy.last_error]).includes('989121234567'),false);
       for(const table of retentionTables){
         const [[remaining]]=await pool.execute('SELECT COUNT(*) AS total FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
         assert.equal(Number(remaining.total),0,'Expired session rows must be removed from '+table);
@@ -1693,6 +1706,8 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
     }finally{
       for(const table of retentionTables)await pool.execute('DELETE FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
       await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
+      await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[retentionUpdateId]);
+      await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'+'\'$.text\''+'))=?',[retentionUserId,outboxPayloadText]);
     }
   }finally{
     if(drawId){
