@@ -140,6 +140,7 @@ test('production host preflight is read-only and included in the release runbook
   assert.doesNotMatch(hostAudit,/systemctl (?:start|stop|restart|daemon-reload)\b/i);
   assert.doesNotMatch(hostAudit,/^\s*(?:systemctl\s+(?:start|stop|restart|daemon-reload)|chmod|chown|rm|mv|ufw\s+(?:enable|allow|deny))\b/im);
   assert.ok(runbook.includes('bash scripts/production-host-preflight.sh'));
+  assert.ok(runbook.includes('Settings → Actions → Runners'));
   assert.ok(runbook.includes('A non-zero exit is a release blocker'));
 });
 
