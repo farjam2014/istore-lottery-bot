@@ -25,7 +25,7 @@ test('integration DB preparation provisions separate least-privilege runtime, mi
     'GRANT SET_USER_ID ON *.*',
     'GRANT SELECT, INSERT, UPDATE, DELETE ON'
   ]) assert.ok(prepare.includes(value),'missing integration identity/grant setup: '+value);
-  assert.doesNotMatch(prepare,/GRANT SELECT ON mysql\\.user/);
+  assert.doesNotMatch(prepare,/GRANT SELECT ON mysql\.user/);
   assert.match(prepare,/Integration identities must never reuse a production runtime or migration identity/);
   assert.match(prepare,/All integration MySQL identities must be distinct/);
   assert.match(prepare,/already exists at one or more hosts; refusing to alter or reuse it/);
