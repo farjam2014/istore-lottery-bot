@@ -231,15 +231,18 @@ else
 fi
 if id ghrunner >/dev/null 2>&1; then
   id ghrunner
-  if GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1)"; then
-    printf '%s\n' "$GHrunner_SUDO_POLICY"
+  GHrunner_SUDO_STATUS=0
+  GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1)" || GHrunner_SUDO_STATUS=$?
+  printf '%s\n' "$GHrunner_SUDO_POLICY"
+  if [[ "$GHrunner_SUDO_STATUS" -eq 0 ]]; then
     if grep -Eq '^[[:space:]]*\([^)]*\)[[:space:]]' <<<"$GHrunner_SUDO_POLICY"; then
       fail "ghrunner has sudo command grants; the self-hosted runner account must have no sudo access."
     else
       info "ghrunner_sudo=none_detected"
     fi
+  elif grep -Eqi 'not allowed to run sudo|may not run sudo|not in the sudoers file' <<<"$GHrunner_SUDO_POLICY"; then
+    info "ghrunner_sudo=none_detected"
   else
-    printf '%s\n' "$GHrunner_SUDO_POLICY"
     fail "Could not reliably inspect ghrunner sudo policy."
   fi
 else
