@@ -1721,3 +1721,30 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
     if(participants.length)await pool.execute('DELETE FROM participants WHERE id IN ('+participants.map(()=>'?').join(',')+')',participants);
   }
 });
+
+
+
+test('MySQL integration: Telegram inbox enforces completed, pending/failed and stale-processing payload retention',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateInboxWorker}=await import('../../src/bot/update-inbox.worker.js');
+  const base=Number(Date.now())*1000+793;
+  const ids=[base,base+1,base+2,base+3];
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,completed_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'completed',UTC_TIMESTAMP()-INTERVAL 4 DAY,UTC_TIMESTAMP())",[ids[0],ids[0]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,available_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'pending',UTC_TIMESTAMP(),UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[1],ids[1]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,available_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'failed',UTC_TIMESTAMP(),UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[2],ids[2]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,locked_at,lease_token,created_at) VALUES(?,JSON_OBJECT('update_id',?),'processing',UTC_TIMESTAMP()-INTERVAL 31 DAY,?,UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[3],ids[3],'retention-fixture-lease']);
+    let handled=0;
+    const worker=createUpdateInboxWorker({database:pool,log:{error(){}}});
+    const result=await worker({async handleUpdate(){handled++;}},{limit:10});
+    assert.deepEqual(result,{scanned:0,replayed:0,failed:0,skipped:0});
+    assert.equal(handled,0,'expired inbox payloads must not be replayed');
+    const [[remaining]]=await pool.execute('SELECT COUNT(*) AS total FROM telegram_update_inbox WHERE update_id IN (?,?,?,?)',ids);
+    assert.equal(Number(remaining.total),0,'all payload states must be deleted at their documented retention boundary');
+  }finally{
+    await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id IN (?,?,?,?)',ids);
+  }
+});
