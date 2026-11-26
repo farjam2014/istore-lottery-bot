@@ -60,6 +60,7 @@ jobs:
       MYSQL_PRIVILEGE_TEST_DATABASE: ustore_privilege_ci
       MYSQL_PRIVILEGE_RUNTIME_USER: ustore_ci_runtime
       MYSQL_PRIVILEGE_MIGRATION_USER: ustore_ci_migrate
+      MYSQL_MIGRATION_USER: ustore_ci_migrate
       MYSQL_TEST_DATABASE: istore_lottery_ci
       MYSQL_RESTORE_DATABASE: draw_restore_fixture_ci
       MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
@@ -106,6 +107,7 @@ jobs:
             printf 'MYSQL_TEST_READONLY_PASSWORD=%s\n' "$MYSQL_TEST_READONLY_PASSWORD"
             printf 'MYSQL_PRIVILEGE_RUNTIME_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD"
             printf 'MYSQL_PRIVILEGE_MIGRATION_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD"
+            printf 'MYSQL_MIGRATION_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD"
             printf 'MYSQL_BACKUP_PASSWORD=%s\n' "$MYSQL_BACKUP_PASSWORD"
             printf 'MYSQL_RESTORE_PASSWORD=%s\n' "$MYSQL_RESTORE_PASSWORD"
             printf 'DRAW_SEED_ENCRYPTION_KEY=%s\n' "$DRAW_SEED_ENCRYPTION_KEY"
@@ -126,7 +128,8 @@ jobs:
           CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_MIGRATION_PASSWORD';
           CREATE USER 'ustore_ci_backup'@'%' IDENTIFIED BY '$MYSQL_BACKUP_PASSWORD';
           CREATE USER 'ustore_ci_restore'@'%' IDENTIFIED BY '$MYSQL_RESTORE_PASSWORD';
-          GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_migrate'@'%';
           GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_migrate'@'%';
