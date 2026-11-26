@@ -60,6 +60,22 @@ test('production migration preflight checks current privacy and replay schema ca
   }
 });
 
+test('production preflight reports exact row counts for every replay-cleanup session table',()=>{
+  for(const table of [
+    'telegram_user_sessions',
+    'admin_wizards',
+    'payment_card_admin_sessions',
+    'admin_role_sessions',
+    'support_sessions',
+    'profile_change_sessions'
+  ]){
+    assert.ok(preflight.includes(`TABLE_NAME='${table}'`),`preflight must check whether ${table} exists`);
+    assert.ok(preflight.includes(`SELECT ''${table}'' AS table_name, COUNT(*) AS exact_rows`),`preflight must count ${table} rows exactly`);
+  }
+  assert.match(preflight,/FROM support_sessions GROUP BY step/);
+  assert.match(preflight,/PENDING_OR_MISSING_TABLE/);
+});
+
 test('baseline preflight gates migration-added tables and columns before querying them',()=>{
   assert.match(preflight,/TABLE_NAME='telegram_rate_limits'/);
   assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\.last_sequence|MAX\(cc\.sequence_number\)/);
