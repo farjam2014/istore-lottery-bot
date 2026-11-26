@@ -44,7 +44,8 @@ test('MySQL integration: production migration preflight runs against the baselin
     assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
     const rows=results.flatMap(([resultRows])=>Array.isArray(resultRows)?resultRows:[]);
     const pendingTables=rows.filter(row=>row.check_status==='PENDING_OR_MISSING_TABLE');
-    assert.deepEqual(pendingTables.map(row=>row.table_name).sort(),['admin_action_idempotency','telegram_update_inbox'],'Baseline preflight must safely report both migration-created tables as pending.');
+    assert.deepEqual(pendingTables.map(row=>row.table_name).sort(),['admin_action_idempotency'],'Baseline preflight must safely report the not-yet-created idempotency table as pending.');
+    assert.ok(rows.some(row=>row.table_name==='telegram_update_inbox'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0),'Baseline schema already contains an empty Telegram inbox table.');
     const pendingConsent=rows.filter(row=>row.check_status==='PENDING_MIGRATION_002');
     assert.equal(pendingConsent.length,1,'Baseline preflight must report privacy consent columns as pending without querying absent columns.');
     assert.ok(rows.every(row=>!Object.hasOwn(row,'payload')),'Read-only preflight must never return raw Telegram Update payloads.');
