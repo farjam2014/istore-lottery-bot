@@ -112,6 +112,7 @@ test('release runbook requires approval of exact replay-session cleanup impact',
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
   assert.match(runbook,/exact row counts for registration sessions, admin wizard sessions/);
   assert.match(runbook,/explicitly reviewed and approved by the business owner/);
+  assert.match(runbook,/Re-run the complete read-only preflight after the service is stopped/);
   assert.match(runbook,/No active release path is assumed/);
   assert.doesNotMatch(runbook,/ed490912df9eacbd15e344f4ae00a785cda09646/);
 });
