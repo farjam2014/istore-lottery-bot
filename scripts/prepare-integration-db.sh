@@ -5,7 +5,7 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-valid_user() { [[ "$1" =~ ^[A-Za-z0-9_]{1,32}$ ]]; }
+valid_user() { [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,24}$ ]]; }
 valid_password() { [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
 quote_id() { printf '`%s`' "$1"; }
 
@@ -21,6 +21,7 @@ READONLY_USER="${MYSQL_TEST_READONLY_USER:-}"
 READONLY_PASSWORD="${MYSQL_TEST_READONLY_PASSWORD:-}"
 
 APP_USER="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_USER || '')")"
+APP_MIGRATION_USER="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_MIGRATION_USER || '')")"
 PRODUCTION_DB="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_DATABASE || '')")"
 
 [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+_ci$ ]] || die "Set MYSQL_TEST_DATABASE to a dedicated _ci database."
@@ -33,7 +34,7 @@ PRODUCTION_DB="$(node --input-type=module -e "import 'dotenv/config'; process.st
 
 for user in "$TEST_USER" "$ADMIN_USER" "$READONLY_USER"; do
   valid_user "$user" || die "Test usernames must contain 1-32 letters, digits, or underscores."
-  [[ "$user" != "$APP_USER" ]] || die "Test identities must never reuse the production MYSQL_USER."
+  [[ "$user" != "$APP_USER" && "$user" != "$APP_MIGRATION_USER" ]] || die "Test identities must never reuse a production runtime or migration identity."
 done
 [[ "$TEST_USER" != "$ADMIN_USER" && "$TEST_USER" != "$READONLY_USER" && "$ADMIN_USER" != "$READONLY_USER" ]] || die "Test, fixture-admin, and read-only identities must be distinct."
 valid_password "$TEST_PASSWORD" || die "MYSQL_TEST_PASSWORD must be 32-128 letters, digits, underscores, or hyphens."
@@ -54,11 +55,8 @@ done
 
 mysql --protocol=socket <<SQL
 CREATE USER IF NOT EXISTS '$TEST_USER'@'127.0.0.1' IDENTIFIED BY '$TEST_PASSWORD';
-ALTER USER '$TEST_USER'@'127.0.0.1' IDENTIFIED BY '$TEST_PASSWORD';
 CREATE USER IF NOT EXISTS '$ADMIN_USER'@'127.0.0.1' IDENTIFIED BY '$ADMIN_PASSWORD';
-ALTER USER '$ADMIN_USER'@'127.0.0.1' IDENTIFIED BY '$ADMIN_PASSWORD';
 CREATE USER IF NOT EXISTS '$READONLY_USER'@'127.0.0.1' IDENTIFIED BY '$READONLY_PASSWORD';
-ALTER USER '$READONLY_USER'@'127.0.0.1' IDENTIFIED BY '$READONLY_PASSWORD';
 
 GRANT ALL PRIVILEGES ON $(quote_id "$DB_NAME").* TO '$TEST_USER'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON $(quote_id "$DB_NAME").* TO '$ADMIN_USER'@'127.0.0.1';
