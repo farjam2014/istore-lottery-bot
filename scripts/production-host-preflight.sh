@@ -12,7 +12,7 @@ if [[ "$EUID" -ne 0 ]]; then
   echo "Run this read-only audit as root. No changes will be made."
   exit 2
 fi
-for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo; do
+for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab; do
   command -v "$command" >/dev/null 2>&1 || { echo "Required command missing: $command"; exit 2; }
 done
 
@@ -146,7 +146,10 @@ fi
 
 section "BACKUP SCHEDULING"
 BACKUP_TIMERS="$(systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'mysql|mariadb|database|ustore.*backup|backup.*ustore' || true)"
-if [[ -n "$BACKUP_TIMERS" ]]; then printf '%s\n' "$BACKUP_TIMERS"; else info "application_database_backup_timer=not_detected"; fail "No application DB backup timer detected; confirm external scheduling."; fi
+if [[ -n "$BACKUP_TIMERS" ]]; then printf 'backup_timers:\n%s\n' "$BACKUP_TIMERS"; else info "application_database_backup_timer=not_detected"; fi
+CRON_BACKUP_COUNT="$({ crontab -l -u root 2>/dev/null || true; grep -hE '^[[:space:]]*[^#]' /etc/cron.d/* /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* 2>/dev/null || true; } | grep -Eic 'mysqldump|mysqlpump|mariadb-dump|mysql.*backup|mariadb.*backup|ustore.*backup' || true)"
+printf 'database_backup_cron_references=%s (contents are not printed)\n' "$CRON_BACKUP_COUNT"
+if [[ -z "$BACKUP_TIMERS" && "$CRON_BACKUP_COUNT" -eq 0 ]]; then fail "No application DB backup timer or matching cron reference was detected; confirm external scheduling."; fi
 for directory in /root/ustore-backups /opt/ustore-backups; do
   if [[ -d "$directory" ]]; then
     find "$directory" -maxdepth 2 -type f \( -name '*.sql.gz' -o -name '*.sql.zst' -o -name '*.sql.xz' \) -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %p\n' | sort
