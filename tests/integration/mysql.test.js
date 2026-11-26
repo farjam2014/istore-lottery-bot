@@ -46,8 +46,15 @@ test('MySQL integration: production migration preflight runs against the baselin
     for(const statement of statements)results.push(await readonly.query(statement));
     const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
     assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
-    const [[grants]]=await admin.query("SHOW GRANTS FOR '"+reader+"'@'"+readerHost+"'");
-    assert.ok(Object.values(grants||{}).some(value=>String(value).includes('SELECT ON `'+database+'`.*')),'Preflight fixture reader must have only the intended SELECT grant.');
+    const grantee="'" + reader + "'@'" + readerHost + "'";
+    const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerHost,database]);
+    const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerHost]);
+    const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerHost]);
+    const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerHost,database]);
+    assert.deepEqual(schemaPrivileges.map(row=>row.PRIVILEGE_TYPE),['SELECT'],'Preflight fixture reader must have only SELECT on the target schema.');
+    assert.deepEqual(globalPrivileges,[],'Preflight fixture reader must have no global privileges.');
+    assert.equal(Number(tablePrivilegeCount.total),0,'Preflight fixture reader must have no table-specific grants.');
+    assert.deepEqual(otherSchemaPrivileges,[],'Preflight fixture reader must have no grants on other schemas.');
   }finally{
     if(readonly)await readonly.end().catch(()=>{});
     if(setup)await setup.end().catch(()=>{});
