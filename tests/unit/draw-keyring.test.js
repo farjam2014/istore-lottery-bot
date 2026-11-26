@@ -88,7 +88,8 @@ test('prepared draw restore verifier fails closed for missing historical keys, t
   assert.equal(tampered.items[0].reason,'decryption_failed');
   const mismatch=verifyPreparedDrawKeyRows([{...base,seed_hash:'0'.repeat(64)}],keyring);
   assert.equal(mismatch.items[0].reason,'commitment_mismatch');
-  const malformed=verifyPreparedDrawKeyRows([{...base,seed_ciphertext:Buffer.from('not-a-seed').toString('base64')}],keyring);
+  const malformedSeed=encryptDrawSeed('not-a-seed',keyring);
+  const malformed=verifyPreparedDrawKeyRows([{...base,seed_ciphertext:malformedSeed.ciphertext,seed_nonce:malformedSeed.nonce,seed_tag:malformedSeed.tag}],keyring);
   assert.equal(malformed.items[0].reason,'seed_format_invalid');
   assert.equal(verifyPreparedDrawKeyRows([],keyring).status,'no_prepared_draws');
 });
