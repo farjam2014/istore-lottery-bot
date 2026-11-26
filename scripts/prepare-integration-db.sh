@@ -45,7 +45,7 @@ mysql --protocol=socket -N -e "SELECT 1" >/dev/null 2>&1 || die "Root socket acc
 
 # Never repurpose an existing MySQL account: it may belong to another environment.
 for user in "$TEST_USER" "$ADMIN_USER" "$READONLY_USER"; do
-  exists="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM mysql.user WHERE User='$user' AND Host='127.0.0.1'")"
+  exists="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM mysql.user WHERE User='$user'")"
   [[ "$exists" == "0" ]] || die "MySQL account $user@127.0.0.1 already exists; refusing to alter or reuse it."
 done
 
