@@ -75,6 +75,9 @@ test('backup preflight requires an enabled app-database timer and a recorded suc
 });
 
 
+test('backup artifact scan accepts directly encrypted SQL dumps as well as compressed encrypted dumps',()=>{
+  for(const extension of ["*.sql.gpg","*.sql.age","*.sql.enc","*.sql.gz.gpg","*.sql.gz.age","*.sql.gz.enc"]) assert.ok(source.includes("-iname '"+extension+"'"));
+});
 test('backup artifact must be fresh relative to the latest successful encrypted backup timer run',()=>{
   assert.ok(source.includes('LATEST_VERIFIED_BACKUP_RUN_EPOCH=0'));
   assert.ok(source.includes('date -d "$service_last_run" +%s'));
