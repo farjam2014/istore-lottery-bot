@@ -129,8 +129,9 @@ else
 fi
 if id ghrunner >/dev/null 2>&1; then
   id ghrunner
-  sudo -l -U ghrunner 2>&1 || true
-  if sudo -l -U ghrunner 2>&1 | grep -q NOPASSWD; then fail "ghrunner has passwordless sudo."; fi
+  GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1 || true)"
+  printf '%s\n' "$GHrunner_SUDO_POLICY"
+  if grep -q NOPASSWD <<<"$GHrunner_SUDO_POLICY"; then fail "ghrunner has passwordless sudo."; fi
 else
   info "ghrunner_account=not_present"
 fi
@@ -158,10 +159,12 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
   stat -c 'draw_key_backup_directory owner=%U group=%G mode=%a' "$KEY_BACKUP_DIR"
   [[ "$(stat -c '%U:%G:%a' "$KEY_BACKUP_DIR")" == root:root:700 ]] || fail "Draw-key backup directory must be root:root mode 700."
   find "$KEY_BACKUP_DIR" -maxdepth 1 -type f -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %f\n' | sort
-  if find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print -quit | grep -q .; then
+  PLAINTEXT_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print)"
+  if [[ -n "$PLAINTEXT_KEY_FILES" ]]; then
     fail "A plaintext draw-key backup file exists; keep only protected encrypted key backups and rehearse restoration."
   fi
-  if ! find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print -quit | grep -q .; then
+  ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
+  if [[ -z "$ENCRYPTED_KEY_FILES" ]]; then
     fail "No encrypted draw-key backup artifact was detected."
   fi
 else
