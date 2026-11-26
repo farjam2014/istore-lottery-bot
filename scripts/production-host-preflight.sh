@@ -90,7 +90,12 @@ else
   fail "Service WorkingDirectory is missing."
 fi
 if [[ "$PID" =~ ^[1-9][0-9]*$ && -e "/proc/$PID/cwd" ]]; then
-  printf 'main_process_cwd=%s\n' "$(readlink -f "/proc/$PID/cwd")"
+  PROCESS_CWD="$(readlink -f "/proc/$PID/cwd")"
+  ACTIVE_REAL="$(readlink -f "$ACTIVE")"
+  PROCESS_OWNER="$(stat -c '%U' "/proc/$PID")"
+  printf 'main_process_cwd=%s\nmain_process_owner=%s\n' "$PROCESS_CWD" "$PROCESS_OWNER"
+  [[ "$PROCESS_CWD" == "$ACTIVE_REAL" ]] || fail "Live process working directory differs from the active release path."
+  [[ "$PROCESS_OWNER" == "ustorebot" ]] || fail "Live process is not running as ustorebot."
 else
   fail "Service has no live MainPID."
 fi
