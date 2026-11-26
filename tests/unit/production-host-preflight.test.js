@@ -65,3 +65,12 @@ test('backup preflight requires an enabled app-database timer and a recorded suc
   ]) assert.ok(source.includes(value), 'missing backup verification gate: '+value);
   assert.ok(source.includes('tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/'));
 });
+
+
+test('backup timer service must directly expose a database dump command before it counts as verified',()=>{
+  assert.ok(source.includes('systemctl show "$service" -p ExecStart --value'));
+  assert.ok(source.includes('(mysqldump|mysqlpump|mariadb-dump)'));
+  assert.ok(source.includes('dump_command=database_dump_detected'));
+  assert.ok(source.includes('"$dump_command" == "database_dump_detected"'));
+  assert.ok(source.includes('directly verifiable database dump command'));
+});
