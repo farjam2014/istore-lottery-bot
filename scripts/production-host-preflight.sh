@@ -224,11 +224,27 @@ if [[ -f /etc/sudoers.d/istore-admin ]]; then
 fi
 
 section "BACKUP SCHEDULING"
-BACKUP_TIMERS="$(systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'mysql|mariadb|database|ustore.*backup|backup.*ustore' || true)"
-if [[ -n "$BACKUP_TIMERS" ]]; then printf 'backup_timers:\n%s\n' "$BACKUP_TIMERS"; else info "application_database_backup_timer=not_detected"; fi
-CRON_BACKUP_COUNT="$({ crontab -l -u root 2>/dev/null || true; grep -hE '^[[:space:]]*[^#]' /etc/cron.d/* /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* 2>/dev/null || true; } | grep -Eic 'mysqldump|mysqlpump|mariadb-dump|mysql.*backup|mariadb.*backup|ustore.*backup' || true)"
-printf 'database_backup_cron_references=%s (contents are not printed)\n' "$CRON_BACKUP_COUNT"
-if [[ -z "$BACKUP_TIMERS" && "$CRON_BACKUP_COUNT" -eq 0 ]]; then fail "No application DB backup timer or matching cron reference was detected; confirm external scheduling."; fi
+BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$5 ~ /\\.timer$/ && tolower($5) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $5 "|" $6}')"
+VERIFIED_BACKUP_TIMER_COUNT=0
+if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
+  while IFS='|' read -r timer service; do
+    [[ -n "$timer" && -n "$service" ]] || continue
+    timer_state="$(systemctl is-active "$timer" 2>/dev/null || true)"
+    timer_enabled="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
+    service_result="$(systemctl show "$service" -p Result --value 2>/dev/null || true)"
+    service_exit="$(systemctl show "$service" -p ExecMainStatus --value 2>/dev/null || true)"
+    service_last_run="$(systemctl show "$service" -p ExecMainExitTimestamp --value 2>/dev/null || true)"
+    printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s\\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}"
+    if [[ "$timer_state" == "active" && "$timer_enabled" == "enabled" && "$service_result" == "success" && "$service_exit" == "0" && -n "$service_last_run" ]]; then
+      VERIFIED_BACKUP_TIMER_COUNT=$((VERIFIED_BACKUP_TIMER_COUNT+1))
+    fi
+  done <<< "$BACKUP_TIMER_ROWS"
+else
+  info "application_database_backup_timer=not_detected"
+fi
+CRON_BACKUP_COUNT="$({ crontab -l -u root 2>/dev/null || true; grep -hE '^[[:space:]]*[^#]' /etc/cron.d/* /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* 2>/dev/null || true; } | grep -Eic 'mysqldump|mysqlpump|mariadb-dump' || true)"
+printf 'database_backup_cron_references=%s (contents are not printed; cron alone does not prove a successful run)\\n' "$CRON_BACKUP_COUNT"
+if [[ "$VERIFIED_BACKUP_TIMER_COUNT" -eq 0 ]]; then fail "No active, enabled application database backup timer with a recorded successful service run was verified; cron references alone do not prove successful execution."; fi
 for directory in /root/ustore-backups /opt/ustore-backups; do
   if [[ -d "$directory" ]]; then
     find "$directory" -maxdepth 2 -type f \( -name '*.sql.gz' -o -name '*.sql.zst' -o -name '*.sql.xz' \) -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %p\n' | sort
