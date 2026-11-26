@@ -23,3 +23,13 @@ test('production migration runbook enforces root-only credentials and least priv
   assert.match(section,/MIGRATION_TABLE_PRIVILEGES/);
   assert.doesNotMatch(section,/ALL PRIVILEGES ON/);
 });
+
+test('production host preflight detects residual self-hosted runner services and registrations',()=>{
+  const hostAudit=readFileSync(new URL('../../scripts/production-host-preflight.sh',import.meta.url),'utf8');
+  assert.match(hostAudit,/systemctl list-unit-files --type=service/);
+  assert.match(hostAudit,/runner_unit_files=none_detected/);
+  assert.match(hostAudit,/find \/home \/opt \/root -maxdepth 5 -type f -name \.runner/);
+  assert.match(hostAudit,/runner_registration_metadata=none_detected/);
+  assert.match(hostAudit,/self-hosted GitHub Runner registration metadata remains/);
+});
+});
