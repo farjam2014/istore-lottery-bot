@@ -23,5 +23,5 @@ test('campaign-code export denies callers missing either permission',()=>{
 });
 
 test('admin handler contains no negated un-awaited permission promise',()=>{
-  assert.doesNotMatch(source,/!\\s*hasPermission\\s*\\(/);
+  assert.doesNotMatch(source,/!\s*hasPermission\s*\(/);
 });
