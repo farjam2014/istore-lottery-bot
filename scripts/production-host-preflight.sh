@@ -144,6 +144,14 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
     if mysql_q "SELECT VERSION()" >/dev/null 2>&1; then
       MYSQL_READY=1
       printf 'mysql_version=%s\n' "$(mysql_q 'SELECT VERSION()')"
+      BINLOG_ENABLED="$(mysql_q 'SELECT @@GLOBAL.log_bin' 2>/dev/null || echo UNKNOWN)"
+      BINLOG_TRUSTED_CREATORS="$(mysql_q 'SELECT @@GLOBAL.log_bin_trust_function_creators' 2>/dev/null || echo UNKNOWN)"
+      printf 'mysql_binary_logging=%s log_bin_trust_function_creators=%s\n' "$BINLOG_ENABLED" "$BINLOG_TRUSTED_CREATORS"
+      if [[ "$BINLOG_ENABLED" != 0 && "$BINLOG_ENABLED" != 1 ]]; then
+        fail "Could not reliably inspect MySQL binary logging and trigger-creator trust settings."
+      elif [[ "$BINLOG_ENABLED" == 1 && "$BINLOG_TRUSTED_CREATORS" != 1 ]]; then
+        fail "MySQL binary logging is enabled but log_bin_trust_function_creators is OFF; append-only audit trigger migrations would require broader privileges."
+      fi
       R1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       R2="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE')")"
       R3="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','UPDATE','DELETE')")"
