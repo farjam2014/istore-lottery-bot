@@ -132,7 +132,7 @@ test('post-migration integrity checks detect campaign code counter drift and dup
     "counter.last_sequence",
     "MAX(cc.sequence_number)",
     "missing_sequence_count",
-    "counter.campaign_id IS NULL AND COUNT(cc.id)>0",
+    "counter.last_sequence IS NULL AND COUNT(cc.id)>0",
     "GROUP BY campaign_id,sequence_number",
     "HAVING COUNT(*)>1"
   ]){
