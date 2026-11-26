@@ -112,8 +112,8 @@ test('production host preflight is read-only and included in the release runbook
   const hostAudit=readFileSync(new URL('../../scripts/production-host-preflight.sh',import.meta.url),'utf8');
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
   assert.match(hostAudit,/Read-only host-side release gate inventory/);
-  assert.doesNotMatch(hostAudit,/systemctl (?:start|stop|restart|daemon-reload)\\b/i);
-  assert.doesNotMatch(hostAudit,/\\b(?:GRANT|REVOKE|DROP|ALTER|UPDATE|DELETE|TRUNCATE|chmod|chown|rm)\\b/i);
+  assert.doesNotMatch(hostAudit,/systemctl (?:start|stop|restart|daemon-reload)\b/i);
+  assert.doesNotMatch(hostAudit,/\b(?:GRANT|REVOKE|DROP|ALTER|UPDATE|DELETE|TRUNCATE|chmod|chown|rm)\b/i);
   assert.ok(runbook.includes('bash scripts/production-host-preflight.sh'));
   assert.ok(runbook.includes('A non-zero exit is a release blocker'));
 });
