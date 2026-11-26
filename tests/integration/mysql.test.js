@@ -1120,7 +1120,7 @@ test('MySQL integration: retention worker redacts legacy inbox and outbox errors
   const {migrate}=await import('../../src/database/migrate.js');
   const {createRetentionCleanupWorker}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
   const updateId=Number(Date.now())*1000+792;
-  const chatId='retention-redaction-'+updateId;
+  const chatId=Number(String(Date.now())+'792');
   const secret='legacy error phone +989121234567 receipt SECRET-LEGACY';
   try{
     await migrate();
