@@ -12,7 +12,7 @@ if [[ "$EUID" -ne 0 ]]; then
   echo "Run this read-only audit as root. No changes will be made."
   exit 2
 fi
-for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl; do
+for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl pgrep; do
   command -v "$command" >/dev/null 2>&1 || { echo "Required command missing: $command"; exit 2; }
 done
 
@@ -226,12 +226,19 @@ if [[ -n "$RUNNER_UNIT_FILES" ]]; then
 else
   info "runner_unit_files=none_detected"
 fi
-RUNNER_CONFIGS="$(find /home /opt /root -maxdepth 5 -type f \( -name .runner -o -name .credentials -o -name .credentials_rsaparams \) -print 2>/dev/null || true)"
+RUNNER_CONFIGS="$(find /home /opt /root /srv /var/lib /usr/local -maxdepth 6 -type f \( -name .runner -o -name .credentials -o -name .credentials_rsaparams \) -print 2>/dev/null || true)"
 if [[ -n "$RUNNER_CONFIGS" ]]; then
   printf 'runner_registration_metadata_paths:\n%s\n' "$RUNNER_CONFIGS"
   fail "Self-hosted GitHub Runner registration metadata remains on this host."
 else
   info "runner_registration_metadata=none_detected"
+fi
+RUNNER_PROCESSES="$( { pgrep -f '[R]unner.Listener' || true; pgrep -f '[R]unner.Worker' || true; } | sort -u )"
+if [[ -n "$RUNNER_PROCESSES" ]]; then
+  printf 'runner_process_ids=%s\n' "$(tr '\n' ' ' <<<"$RUNNER_PROCESSES" | sed 's/[[:space:]]*$//')"
+  fail "A self-hosted GitHub Runner process is active outside the systemd unit inventory."
+else
+  info "runner_processes=none_detected"
 fi
 if id ghrunner >/dev/null 2>&1; then
   id ghrunner
