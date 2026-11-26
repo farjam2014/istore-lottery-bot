@@ -27,10 +27,14 @@ test('admin handler contains no negated un-awaited permission promise',()=>{
 });
 
 test('campaign managers can search campaign codes but not contact identifiers',()=>{
-  const fallback=source.match(/const \\[rows\\]=contactLookup[\\s\\S]*?:await pool\\.execute\\(\"([^\"]+)\"/);
-  assert.ok(fallback,'expected a separate non-super-admin SQL query');
-  assert.match(fallback[1],/p\\.full_name/);
-  assert.doesNotMatch(fallback[1],/phone|telegram_user_id|instagram_handle/);
+  const start=source.indexOf('const [rows]=contactLookup');
+  const marker=':await pool.execute("';
+  const queryStart=source.indexOf(marker,start);
+  const queryEnd=source.indexOf('"',queryStart+marker.length);
+  assert.ok(start>=0&&queryStart>start&&queryEnd>queryStart,'expected a separate non-super-admin SQL query');
+  const fallbackSql=source.slice(queryStart+marker.length,queryEnd);
+  assert.ok(fallbackSql.includes('p.full_name'));
+  assert.ok(!fallbackSql.includes('phone')&&!fallbackSql.includes('telegram_user_id')&&!fallbackSql.includes('instagram_handle'));
 });
 
 test('campaign-code search exposes contact details only in the configured super-admin branch',()=>{
