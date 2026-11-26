@@ -53,4 +53,7 @@ test('production host preflight requires a reachable versioned HTTPS privacy not
   assert.ok(hostAudit.includes('NOTICE_URL" =~ ^https://'));
   assert.match(hostAudit,/curl --fail --silent --show-error --location --max-time 10 --proto '=https' --proto-redir '=https'/);
   assert.match(hostAudit,/privacy_notice=reachable_https_with_version/);
+  assert.ok(hostAudit.includes('NOTICE_HOST'));
+  assert.ok(hostAudit.includes('www.example.com'));
+  assert.ok(hostAudit.includes('*.invalid'));
 });

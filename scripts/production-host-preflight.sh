@@ -52,7 +52,10 @@ if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
     NOTICE_URL="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_URL)"
     NOTICE_VERSION="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_VERSION)"
     if [[ "$NOTICE_URL" =~ ^https://[^[:space:]]{1,2040}$ && "$NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]]; then
-      if curl --fail --silent --show-error --location --max-time 10 --proto '=https' --proto-redir '=https' --output /dev/null "$NOTICE_URL"; then
+      NOTICE_HOST="$(node --input-type=module -e 'process.stdout.write(new URL(process.argv[1]).hostname)' "$NOTICE_URL")"
+      if [[ "$NOTICE_HOST" == "example.com" || "$NOTICE_HOST" == "www.example.com" || "$NOTICE_HOST" == "localhost" || "$NOTICE_HOST" == *.example || "$NOTICE_HOST" == *.test || "$NOTICE_HOST" == *.invalid ]]; then
+        fail "PRIVACY_NOTICE_URL still points to a placeholder or local host."
+      elif curl --fail --silent --show-error --location --max-time 10 --proto '=https' --proto-redir '=https' --output /dev/null "$NOTICE_URL"; then
         info "privacy_notice=reachable_https_with_version"
       else
         fail "Configured HTTPS privacy notice URL is not reachable."
