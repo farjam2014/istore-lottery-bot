@@ -12,7 +12,7 @@ if [[ "$EUID" -ne 0 ]]; then
   echo "Run this read-only audit as root. No changes will be made."
   exit 2
 fi
-for command in systemctl stat node mysql ss free df awk grep; do
+for command in systemctl stat node mysql ss free df awk grep find; do
   command -v "$command" >/dev/null 2>&1 || { echo "Required command missing: $command"; exit 2; }
 done
 
@@ -151,6 +151,30 @@ for directory in /root/ustore-backups /opt/ustore-backups; do
     find "$directory" -maxdepth 2 -type f \( -name '*.sql.gz' -o -name '*.sql.zst' -o -name '*.sql.xz' \) -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %p\n' | sort
   fi
 done
+
+section "DRAW KEY AND DATABASE BACKUP PROTECTION"
+KEY_BACKUP_DIR=/root/ustore-key-backup
+if [[ -d "$KEY_BACKUP_DIR" ]]; then
+  stat -c 'draw_key_backup_directory owner=%U group=%G mode=%a' "$KEY_BACKUP_DIR"
+  [[ "$(stat -c '%U:%G:%a' "$KEY_BACKUP_DIR")" == root:root:700 ]] || fail "Draw-key backup directory must be root:root mode 700."
+  find "$KEY_BACKUP_DIR" -maxdepth 1 -type f -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %f\n' | sort
+  if find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print -quit | grep -q .; then
+    fail "A plaintext draw-key backup file exists; keep only protected encrypted key backups and rehearse restoration."
+  fi
+  if ! find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print -quit | grep -q .; then
+    fail "No encrypted draw-key backup artifact was detected."
+  fi
+else
+  fail "Protected draw-key backup directory is missing."
+fi
+ENCRYPTED_DB_BACKUPS=0
+for directory in /root/ustore-backups /opt/ustore-backups /root/ustore-release-backup-*; do
+  [[ -d "$directory" ]] || continue
+  count="$(find "$directory" -maxdepth 2 -type f \( -name '*.sql.gz.gpg' -o -name '*.sql.gz.age' -o -name '*.sql.gz.enc' -o -name '*.sql.zst.gpg' -o -name '*.sql.zst.age' -o -name '*.sql.zst.enc' \) -printf '.' | wc -c)"
+  ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+count))
+done
+printf 'encrypted_database_backup_artifacts=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS"
+if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
 
 section "NETWORK AND FIREWALL"
 if command -v ufw >/dev/null 2>&1; then ufw status verbose || true; else info "ufw=not_installed"; fi
