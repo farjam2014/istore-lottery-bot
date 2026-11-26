@@ -1,0 +1,34 @@
+# Narrow allowlists for verified, non-production integration-test fixtures.
+# Each exception is bound to one historical commit, one file, and one named fixture line.
+# Do not add production credentials or broaden these patterns.
+
+[[allowlists]]
+description = "Historical CI-only MySQL fixture credentials in workflow"
+condition = "AND"
+commits = ["0c162dea1b54c90f0a23655f63bdfbeef076eb51"]
+paths = ['''^\.github/workflows/ci\.yml$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*MYSQL_PASSWORD:\s*''',
+  '''^\s*MYSQL_TEST_READONLY_PASSWORD:\s*''',
+]
+
+[[allowlists]]
+description = "Historical deterministic draw-key fixture in CI workflow"
+condition = "AND"
+commits = ["ad0581f278a5be35f73b29953a6fa74228881f29"]
+paths = ['''^\.github/workflows/ci\.yml$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*DRAW_SEED_ENCRYPTION_KEY:\s*''',
+]
+
+[[allowlists]]
+description = "Historical codeSecret used only by a MySQL integration-test fixture"
+condition = "AND"
+commits = ["eae83785799f6d77a2f03c1ffdb177ac4f2bd25b"]
+paths = ['''^tests/mysql-migration\.integration\.test\.js$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*codeSecret:\s*''',
+]
