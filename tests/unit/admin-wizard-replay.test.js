@@ -111,3 +111,30 @@ test('admin campaign and draw confirmation callbacks are bound to the wizard upd
   assert.ok(handler.includes("'admin:campaign:draw:publication-confirm:'+draw.id+':'+ctx.update.update_id"));
   assert.ok(handler.includes('Number(lockedWizard.last_update_id)!==expectedCursor'));
 });
+
+test('admin cancellation buttons are bound to the session cursor and cannot clear a newer wizard',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  for(const value of [
+    "'admin:campaign:cancel:'+cursor",
+    "'admin:campaign:cancel:'+ctx.update.update_id",
+    "step IN ('select_type','confirm') AND last_update_id=?",
+    "'admin:campaign:edit:cancel:'+id+':'+ctx.update.update_id",
+    "step='campaign_edit_value' AND last_update_id=?",
+    "'admin:draw:cancel:'+drawId+':'+ctx.update.update_id",
+    "step IN ('draw_publication_reference','draw_publication_confirm') AND last_update_id=?",
+    "'admin:support:reply:cancel:'+updateId",
+    "step='admin_reply' AND last_update_id=?",
+    "'admin:roles:cancel:'+updateId",
+    "admin_role_sessions WHERE telegram_user_id=? AND last_update_id=?"
+  ]) assert.ok(handler.includes(value),'missing cursor-bound cancellation guard: '+value);
+  assert.ok(handler.includes("bot.action('admin:campaign:cancel',async ctx=>ctx.answerCbQuery("));
+  assert.ok(handler.includes("bot.action('admin:roles:cancel',async ctx=>ctx.answerCbQuery("));
+  assert.ok(handler.includes("bot.action('admin:support:reply:cancel',async ctx=>ctx.answerCbQuery("));
+});
+
+test('session cancellation rejects a callback whose update is not newer than its session cursor',()=>{
+  assert.equal(isStaleAdminReplyUpdate(201,200),false);
+  assert.equal(isStaleAdminReplyUpdate(200,200),true);
+  assert.equal(isStaleAdminReplyUpdate(199,200),true);
+  assert.equal(isStaleAdminReplyUpdate(201,null),true);
+});
