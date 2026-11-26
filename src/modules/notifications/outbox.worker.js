@@ -59,7 +59,7 @@ export function createNotificationOutboxWorker({
       await c.commit();
     }catch(error){await c.rollback();throw error;}finally{c.release();}
 
-    let delivered=0,failed=0,uncertain=0;
+    let delivered=0,failed=0,retried=0,uncertain=0;
     for(const job of jobs){
       let payload;
       try{
@@ -89,7 +89,7 @@ export function createNotificationOutboxWorker({
           [status,delay,outcome.errorLabel,job.id,job.leaseToken]
         );
         log.warn({errorClass:outcome.errorLabel,notificationId:job.id,correlationId:job.correlation_id,attempts,outcome:status,willRetry:status==='pending'},'Telegram notification delivery failed');
-        if(status==='uncertain')uncertain++;else failed++;
+        if(status==='uncertain')uncertain++;else if(status==='pending')retried++;else failed++;
         continue;
       }
 
@@ -101,7 +101,7 @@ export function createNotificationOutboxWorker({
       );
       if(updated.affectedRows){delivered++;}else{uncertain++;}
     }
-    return {claimed:jobs.length,delivered,failed,uncertain};
+    return {claimed:jobs.length,delivered,failed,retried,uncertain};
   };
 }
 

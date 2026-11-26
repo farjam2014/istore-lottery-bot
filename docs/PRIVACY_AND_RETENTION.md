@@ -57,6 +57,16 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
 
+Outbox producers currently include:
+
+- New payment-receipt alerts to finance/admin recipients: the chat ID, Telegram receipt photo file ID, receipt/order IDs, payment reference, campaign title, amount, requested code count, participant full name and phone, participant-supplied receipt note, and inline approval/rejection callback data.
+- Payment decision notifications to participants: order reference plus issued campaign codes on approval, or the operator-provided rejection reason on rejection.
+- Support notifications: free-form administrator reply text and ticket reference; profile-change notifications use a generic status message.
+- Order-expiry notifications: a generic expiry message tied to the participant's Telegram chat ID.
+
+This inventory is based on current source producers; future producers must be reviewed before adding payload fields. In particular, payment-receipt payloads are not merely delivery metadata: they contain personal data and payment evidence references.
+
+
 ## Outbox delivery and duplicate-send controls
 
 - `pending` rows are claimed transactionally with `FOR UPDATE SKIP LOCKED` and a per-attempt lease token; only the worker holding the matching token may finalize the row.
