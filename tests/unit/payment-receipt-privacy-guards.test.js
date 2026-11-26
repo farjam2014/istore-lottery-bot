@@ -51,5 +51,5 @@ test('receipt persistence consumes the upload session in the same transaction',(
   assert.match(submit,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\?.*last_update_id=\?/);
   assert.ok(submit.indexOf('DELETE FROM telegram_user_sessions')<submit.indexOf('await c.commit()'));
   assert.match(submit,/catch\(e\)\{try\{await c\.rollback\(\)\}catch\{\}/);
-  assert.match(submit,/export function isRetryablePaymentReceiptError/);
+  assert.match(service,/export function isRetryablePaymentReceiptError/);
 });
