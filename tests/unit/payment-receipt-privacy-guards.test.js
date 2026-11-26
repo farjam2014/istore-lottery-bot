@@ -24,6 +24,9 @@ test('receipt review notification does not disclose Instagram handles',()=>{
 
 test('receipt queue is readable with payment.read while decisions require payment.review',()=>{
   assert.match(handler,/bot\.command\('payments',async ctx=>\{if\(!await can\(ctx,'payment\.read'\)\)/);
+  const queueLine=handler.split('\n').find(line=>line.includes("bot.command('payments'"));
+  assert.ok(queueLine);
+  assert.doesNotMatch(queueLine,/instagram_handle|اینستاگرام/);
   assert.match(handler,/bot\.action\(paymentApproveAction,async ctx=>\{if\(!await can\(ctx,'payment\.review'\)\)/);
   assert.match(handler,/bot\.action\(paymentRejectAction,async ctx=>\{if\(!await can\(ctx,'payment\.review'\)\)/);
 });
