@@ -143,7 +143,7 @@ test('permanent Telegram 4xx response is terminal failed',async()=>{
     deliver:async()=>{throw Object.assign(new Error('Bad Request'),{response:{error_code:400}});}
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:1,uncertain:0});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:1,retried:0,uncertain:0});
   assert.equal(database.jobs[0].status,'failed');
 });
 
