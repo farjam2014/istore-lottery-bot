@@ -62,7 +62,8 @@ test('callback transactions recheck admin wizard expiry while holding the row lo
   const handler=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
   assert.match(handler,/SELECT step,payload,last_update_id,updated_at FROM admin_wizards WHERE telegram_user_id=\? FOR UPDATE/);
   assert.match(handler,/lockedWizard\.step!=='draw_publication_confirm'\|\|isExpiredAdminWizardSession\(lockedWizard\.updated_at\)/);
-  assert.match(handler,/lockedWizard\.step!=='campaign_edit_value'\|\|isExpiredAdminWizardSession\(lockedWizard\.updated_at\)/);\n  assert.match(handler,/Number\(lockedWizard\.last_update_id\)!==expectedCursor/);
+  assert.match(handler,/lockedWizard\.step!=='campaign_edit_value'\|\|isExpiredAdminWizardSession\(lockedWizard\.updated_at\)/);
+  assert.match(handler,/Number\(lockedWizard\.last_update_id\)!==expectedCursor/);
 });
 
 test('admin support reply rejects updates at or before the session-start cursor',()=>{
