@@ -57,20 +57,29 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   assert.ok(adminUser&&adminPassword,'A test-only grant inspection identity is required.');
   const grantInspector=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'mysql'});
   try{
-    const [[schema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[backupUser,database]);
-    const [[global]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[backupUser]);
-    const [[otherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA<>?",[backupUser,database]);
-    const [[tableGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%'))",[backupUser]);
-    const [[columnGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%'))",[backupUser]);
-    const [[routineGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host='%'",[backupUser]);
-    const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='%'",[backupUser]);
-    const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='%'",[backupUser]);
-    const [[restoreGlobal]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreUser]);
-    const [[migrationSourceSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,database]);
-    const [[migrationRestoreSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,restoreDatabase]);
-    const [[restoreRuntimeSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[restoreRuntimeUser,restoreDatabase]);
-    const [[restoreRuntimeGlobal]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreRuntimeUser]);
-    const [[restoreRuntimeOtherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA<>?",[restoreRuntimeUser,restoreDatabase]);
+    const accountHost=async account=>{
+      const [rows]=await grantInspector.execute('SELECT Host FROM mysql.user WHERE User=?',[account]);
+      assert.equal(rows.length,1,'Each disposable integration identity must exist at exactly one MySQL host.');
+      return String(rows[0].Host);
+    };
+    const backupHost=await accountHost(backupUser);
+    const restoreHost=await accountHost(restoreUser);
+    const migrationHost=await accountHost(String(process.env.MYSQL_MIGRATION_USER||''));
+    const restoreRuntimeHost=await accountHost(restoreRuntimeUser);
+    const [[schema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[backupUser,backupHost,database]);
+    const [[global]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[backupUser,backupHost]);
+    const [[otherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[backupUser,backupHost,database]);
+    const [[tableGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[backupUser,backupHost]);
+    const [[columnGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[backupUser,backupHost]);
+    const [[routineGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host=?",[backupUser,backupHost]);
+    const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST=?",[backupUser,backupHost]);
+    const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host=?",[backupUser,backupHost]);
+    const [[restoreGlobal]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[restoreUser,restoreHost]);
+    const [[migrationSourceSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,migrationHost,database]);
+    const [[migrationRestoreSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,migrationHost,restoreDatabase]);
+    const [[restoreRuntimeSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[restoreRuntimeUser,restoreRuntimeHost,restoreDatabase]);
+    const [[restoreRuntimeGlobal]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[restoreRuntimeUser,restoreRuntimeHost]);
+    const [[restoreRuntimeOtherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[restoreRuntimeUser,restoreRuntimeHost,restoreDatabase]);
     assert.equal(schema.privileges,'SELECT,SHOW VIEW,TRIGGER','backup account must have only the schema-scoped dump privileges');
     assert.equal(Number(global.total),0);
     assert.equal(Number(otherSchemas.total),0);
@@ -141,7 +150,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     );
     assert.equal(sourceTriggerRows.length,2,'Source schema must contain both append-only audit triggers.');
     const sourceTriggerDefiners=sourceTriggerRows.map(row=>({name:row.TRIGGER_NAME,definer:row.DEFINER}));
-    const expectedMigrationDefiner=String(process.env.MYSQL_MIGRATION_USER||'')+'@%';
+    const expectedMigrationDefiner=String(process.env.MYSQL_MIGRATION_USER||'')+'@'+migrationHost;
     assert.ok(expectedMigrationDefiner!=='@%'&&sourceTriggerDefiners.every(row=>row.definer===expectedMigrationDefiner),'Audit triggers must be owned by the dedicated migration identity, not the runtime or restore identity.');
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',backupUser,
