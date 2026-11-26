@@ -26,10 +26,11 @@ test('admin handler contains no negated un-awaited permission promise',()=>{
   assert.doesNotMatch(source,/!\s*hasPermission\s*\(/);
 });
 
-test('campaign managers can search campaign codes but cannot search by contact identifiers',()=>{
-  assert.ok(source.includes("const contactLookup=isConfiguredSuperAdmin(ctx.from.id);"));
-  assert.ok(source.includes("WHERE cc.campaign_id=? AND cc.code LIKE ? ESCAPE '!'"));
-  assert.doesNotMatch(source,/WHERE cc\.campaign_id=\? AND \(cc\.code LIKE \? ESCAPE '!' OR CAST\(p\.telegram_user_id AS CHAR\)=\? OR p\.phone LIKE \? ESCAPE '!'/);
+test('campaign managers can search campaign codes but not contact identifiers',()=>{
+  const fallback=source.match(/const \\[rows\\]=contactLookup[\\s\\S]*?:await pool\\.execute\\(\"([^\"]+)\"/);
+  assert.ok(fallback,'expected a separate non-super-admin SQL query');
+  assert.match(fallback[1],/p\\.full_name/);
+  assert.doesNotMatch(fallback[1],/phone|telegram_user_id|instagram_handle/);
 });
 
 test('campaign-code search exposes contact details only in the configured super-admin branch',()=>{
