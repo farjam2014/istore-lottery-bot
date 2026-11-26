@@ -933,6 +933,51 @@ test('MySQL integration: outbox marks expired sending leases uncertain without d
 });
 
 
+
+test('MySQL integration: outbox stores safe delivery errors and audited manual retry requeues one uncertain notification',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createNotificationOutboxWorker}=await import('../../src/modules/notifications/outbox.worker.js');
+  const {retryOutboxNotification}=await import('../../src/modules/notifications/outbox-admin.service.js');
+  const chatId=String(870000000000n+(BigInt(Date.now())%100000000000n));
+  const secret='private phone +989121234567 receipt SECRET-OUTBOX';
+  let id;
+  const emitted=[];
+  try{
+    await migrate();
+    const [[pending]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE status='pending' AND available_at<=UTC_TIMESTAMP()");
+    assert.equal(Number(pending.total),0,'isolated integration DB must have no runnable outbox rows');
+    const [inserted]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,available_at) VALUES(?,JSON_OBJECT('text','sanitized integration fixture'),'pending',UTC_TIMESTAMP())",[chatId]);
+    id=inserted.insertId;
+    const worker=createNotificationOutboxWorker({
+      database:pool,
+      log:{warn:data=>emitted.push(data),error:data=>emitted.push(data)},
+      deliver:async()=>{throw new Error(secret);}
+    });
+    const result=await worker({}, {limit:1});
+    assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
+    const [[uncertain]]=await pool.execute('SELECT status,attempts,last_error,lease_token,locked_at FROM telegram_notification_outbox WHERE id=?',[id]);
+    assert.equal(uncertain.status,'uncertain');
+    assert.equal(Number(uncertain.attempts),1);
+    assert.equal(uncertain.last_error,'network_or_unknown');
+    assert.equal(uncertain.lease_token,null);
+    assert.equal(uncertain.locked_at,null);
+    assert.equal(JSON.stringify(emitted).includes(secret),false);
+    assert.equal(JSON.stringify(emitted).includes('989121234567'),false);
+    assert.equal(JSON.stringify(emitted).includes('SECRET-OUTBOX'),false);
+
+    await retryOutboxNotification({notificationId:id,adminId:'900000000001',expectedStatus:'uncertain',database:pool});
+    const [[requeued]]=await pool.execute('SELECT status,attempts,manual_retry_count,last_error FROM telegram_notification_outbox WHERE id=?',[id]);
+    assert.equal(requeued.status,'pending');
+    assert.equal(Number(requeued.attempts),0);
+    assert.equal(Number(requeued.manual_retry_count),1);
+    assert.equal(requeued.last_error,'manually_requeued');
+    const [[audit]]=await pool.execute("SELECT COUNT(*) total FROM admin_audit_log WHERE action='system.outbox_manual_retry' AND entity_type='notification_outbox' AND entity_id=?",[id]);
+    assert.equal(Number(audit.total),1);
+  }finally{if(id)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[id]);}
+});
+
+
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
