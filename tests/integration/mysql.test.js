@@ -1149,6 +1149,31 @@ test('MySQL integration: runtime and migration identities enforce separate schem
     await assert.rejects(runtime.query('CREATE TABLE runtime_ddl_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
     await migration.query('CREATE TABLE migration_ddl_probe(id INT PRIMARY KEY)');
     await admin.query('DROP TABLE '+quoteIdentifier(database)+'.'+quoteIdentifier('migration_ddl_probe'));
+    const probeScript=`
+      import {pool} from './src/database/pool.js';
+      import {getMigrationPool,closeMigrationPool} from './src/database/migration-pool.js';
+      try{
+        const [[runtime]]=await pool.query('SELECT CURRENT_USER() AS account');
+        const [[migration]]=await getMigrationPool().query('SELECT CURRENT_USER() AS account');
+        process.stdout.write(JSON.stringify({runtime:runtime.account,migration:migration.account}));
+      }finally{
+        await closeMigrationPool();
+        await pool.end();
+      }
+    `;
+    const probe=spawnSync(process.execPath,['--input-type=module','-e',probeScript],{
+      cwd:process.cwd(),encoding:'utf8',
+      env:{
+        ...process.env,NODE_ENV:'production',BOT_TOKEN:process.env.BOT_TOKEN||'12345678901234567890:test_token_for_ci_only',
+        BOT_ADMIN_IDS:'123456789',PRIVACY_NOTICE_URL:'https://ustore.example.org/privacy',PRIVACY_NOTICE_VERSION:'ci-v1',
+        MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,
+        MYSQL_USER:process.env.MYSQL_PRIVILEGE_RUNTIME_USER,MYSQL_PASSWORD:process.env.MYSQL_PRIVILEGE_RUNTIME_PASSWORD,
+        MYSQL_MIGRATION_USER:process.env.MYSQL_PRIVILEGE_MIGRATION_USER,MYSQL_MIGRATION_PASSWORD:process.env.MYSQL_PRIVILEGE_MIGRATION_PASSWORD,
+        MYSQL_POOL_SIZE:'2',LOG_LEVEL:'silent',MIGRATION_TARGET_DATABASE:database
+      }
+    });
+    assert.equal(probe.status,0,probe.stderr||'Application pool identity probe failed.');
+    assert.deepEqual(JSON.parse(probe.stdout),{runtime:'ustore_ci_runtime@%',migration:'ustore_ci_migrate@%'},'runtime and migration pools must authenticate with their distinct configured identities');
   }finally{
     await Promise.all([admin.end(),runtime.end(),migration.end()]);
   }
