@@ -1,10 +1,6 @@
 # Production staged deployment runbook
 
-This procedure is for the existing release-directory production host. The operator-reported active release path at the time of this audit is:
-
-`/opt/ustore-releases/ed490912df9eacbd15e344f4ae00a785cda09646`
-
-That path and its running process have **not** been independently verified from the VPS in this audit. Re-confirm the actual systemd `WorkingDirectory` and `/proc/<MainPID>/cwd` read-only before using this procedure; do not assume the reported path is still active.
+This procedure is for the existing release-directory production host. **No active release path is assumed by this runbook.** The path, process working directory, and deployed commit must be discovered read-only from the live host immediately before the maintenance window. Do not copy a path from an earlier audit or assume a release-directory name is still active.
 
 It is a **manual, approval-gated deployment plan**. It has not been executed. Use the exact reviewed and merged release commit SHA, never a floating branch.
 
@@ -71,7 +67,11 @@ Stop release preparation if it reports any of the following:
 - existing draw candidates or winners that block migration 006;
 - prepared draw rows requiring historical review. This baseline phase reports draw IDs/status/commitment only; ciphertext, nonce, tag, and keyring metadata are checked in the post-migration phase below;
 - unexpected migration history or missing required schema;
-- migration checksum disagreement.
+- migration checksum disagreement;
+- any replay-session cleanup result marked `PENDING_OR_MISSING_TABLE`;
+- any non-zero session-cleanup count unless the affected flows, customer impact, and support handling have been explicitly reviewed and approved by the business owner.
+
+The preflight now reports exact row counts for registration sessions, admin wizard sessions, payment-card sessions, admin-role sessions, support sessions (including a step breakdown for the `admin_reply` subset), and profile-change sessions. Preserve this output with the release evidence. These counts are an impact inventory, not automatic authorization to delete the rows.
 
 Reconcile the exact target database and key inventory before any write.
 
