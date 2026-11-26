@@ -185,6 +185,9 @@ test('release runbook separates baseline and post-migration integrity checks',()
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
   const readiness=readFileSync(new URL('../../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
   assert.ok(runbook.includes('scripts/production-migration-preflight.sql'));
+  assert.ok(runbook.includes('bash scripts/production-host-preflight.sh'));
+  assert.ok(readiness.includes('scripts/production-host-preflight.sh'));
+  assert.ok(readiness.includes('all six replay-cleanup session tables'));
   assert.ok(runbook.includes('scripts/post-migration-integrity-check.sql'));
   assert.ok(runbook.includes('dedicated SELECT-only MySQL account'));
   assert.ok(runbook.includes('SHOW GRANTS'));
