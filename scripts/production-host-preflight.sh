@@ -317,10 +317,11 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
 else
   fail "Protected draw-key backup directory is missing."
 fi
+BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)
 ENCRYPTED_DB_BACKUPS=0
-for directory in /root/ustore-backups /opt/ustore-backups /root/ustore-release-backup-*; do
+for directory in "${BACKUP_SCAN_DIRS[@]}"; do
   [[ -d "$directory" ]] || continue
-  count="$(find "$directory" -maxdepth 2 -type f \( -name '*.sql.gz.gpg' -o -name '*.sql.gz.age' -o -name '*.sql.gz.enc' -o -name '*.sql.zst.gpg' -o -name '*.sql.zst.age' -o -name '*.sql.zst.enc' \) -printf '.' | wc -c)"
+  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*.sql.gz.gpg' -o -iname '*.sql.gz.age' -o -iname '*.sql.gz.enc' -o -iname '*.sql.zst.gpg' -o -iname '*.sql.zst.age' -o -iname '*.sql.zst.enc' -o -iname '*backup*.tar.gpg' -o -iname '*backup*.tar.age' -o -iname '*backup*.tar.enc' -o -iname '*backup*.tar.gz.gpg' -o -iname '*backup*.tar.gz.age' -o -iname '*backup*.tar.gz.enc' -o -iname '*backup*.tar.zst.gpg' -o -iname '*backup*.tar.zst.age' -o -iname '*backup*.tar.zst.enc' -o -iname '*backup*.zip.gpg' -o -iname '*backup*.zip.age' -o -iname '*backup*.zip.enc' -o -iname '*.dump.gpg' -o -iname '*.dump.age' -o -iname '*.dump.enc' \) -printf '.' | wc -c)"
   ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+count))
 done
 printf 'encrypted_database_backup_artifacts=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS"
@@ -328,13 +329,13 @@ if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup 
 
 
 PLAINTEXT_DB_BACKUPS=0
-for directory in /root/ustore-backups /opt/ustore-backups /root/ustore-release-backup-*; do
+for directory in "${BACKUP_SCAN_DIRS[@]}"; do
   [[ -d "$directory" ]] || continue
-  count="$(find "$directory" -maxdepth 2 -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.sql.zst' -o -name '*.sql.xz' -o -name '*.sql.bz2' -o -name '*.dump' -o -name '*.dump.gz' \) -printf '.' | wc -c)"
+  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*backup*.sql' -o -iname '*backup*.sql.gz' -o -iname '*backup*.sql.zst' -o -iname '*backup*.sql.xz' -o -iname '*backup*.sql.bz2' -o -iname '*before-reset*.sql' -o -iname '*before-reset*.sql.gz' -o -iname '*dump*.sql' -o -iname '*dump*.sql.gz' -o -iname '*backup*.dump' -o -iname '*backup*.dump.gz' -o -iname '*backup*.tar' -o -iname '*backup*.tar.gz' -o -iname '*backup*.tar.zst' -o -iname '*backup*.zip' \) -printf '.' | wc -c)"
   PLAINTEXT_DB_BACKUPS=$((PLAINTEXT_DB_BACKUPS+count))
 done
 printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
-if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database backup artifacts were detected; compression alone is not encryption."; fi
+if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
 
 section "NETWORK AND FIREWALL"
 if command -v ufw >/dev/null 2>&1; then ufw status verbose || true; else info "ufw=not_installed"; fi
