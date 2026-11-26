@@ -119,16 +119,21 @@ test('rate limits are isolated by user and update category',async()=>{
   assert.equal(database.counters.get('11111:callback'),1);
 });
 
-test('handler failure preserves payload and enters bounded retry state',async()=>{
+test('handler failure preserves payload, enters bounded retry state and never logs raw exception text',async()=>{
   const database=fakeDatabase();
-  const guard=createUpdateGuard({database,log:logger,correlate:identity});
-  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error('handler failure phone +989121234567 receipt SECRET-INBOX');}),/handler failure/);
+  const emitted=[];
+  const log={warn(data,message){emitted.push({data,message});},error(data,message){emitted.push({data,message});}};
+  const guard=createUpdateGuard({database,log,correlate:identity});
+  const secretError='handler failure phone +989121234567 receipt SECRET-INBOX';
+  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error(secretError);}),/handler failure/);
   const row=database.inbox.get(300);
   assert.equal(row.status,'failed');
   assert.equal(row.error,'handler_failed','raw handler exception text must never be persisted in the inbox');
   assert.ok(row.payload);
   assert.equal(row.lease,null);
   assert.ok(row.availableDelay>0);
+  assert.equal(JSON.stringify(emitted).includes(secretError),false,'raw handler exception must not be logged');
+  assert.deepEqual(emitted[0].data,{reason:'handler_failed',updateId:300});
 });
 
 test('callback and non-text buckets enforce independent limits',async()=>{
