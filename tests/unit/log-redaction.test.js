@@ -40,3 +40,24 @@ test('structured error logs redact raw database and nested error messages and st
   assert.match(output,/ER_DUP_ENTRY/);
   for(const secret of ['09125550000','private_handle','998877665544','Duplicate entry','Telegram request failed'])assert.equal(output.includes(secret),false,'sensitive error content leaked: '+secret);
 });
+
+
+test('structured database error logs redact SQL text, SQL messages and bound parameters while retaining safe error codes',()=>{
+  let output='';
+  const destination={write(chunk){output+=String(chunk);}};
+  const log=pino({level:'error',redact:{paths:logRedactPaths,censor:'[REDACTED]'}},destination);
+  const phone='091255509876';
+  const sql="INSERT INTO participants(phone) VALUES ('"+phone+"')";
+  const databaseError=Object.assign(new Error("Duplicate entry '"+phone+"' for key 'participants.phone'"),{
+    code:'ER_DUP_ENTRY',
+    sqlMessage:"Duplicate entry '"+phone+"' for key 'participants.phone'",
+    sql,
+    parameters:[phone],
+    params:{phone}
+  });
+  log.error({err:databaseError,sql,sqlMessage:databaseError.sqlMessage,parameters:[phone],nested:{err:databaseError}},'database error redaction test');
+  assert.match(output,/ER_DUP_ENTRY/,'safe database error codes should remain available for diagnosis');
+  for(const secret of [phone,'Duplicate entry','INSERT INTO participants','participants.phone']){
+    assert.equal(output.includes(secret),false,'database error detail leaked: '+secret);
+  }
+});
