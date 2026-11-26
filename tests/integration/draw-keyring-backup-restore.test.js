@@ -80,7 +80,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     assert.equal(Number(roles.total),0);
     assert.equal(Number(proxy.total),0);
     assert.equal(restoreGlobal.privileges,'SET_USER_ID','restore-only identity may hold only SET_USER_ID globally, never SUPER or unrelated global privileges');
-    assert.equal(migrationSourceSchema.privileges,'ALTER,CREATE,INDEX,REFERENCES,SELECT,TRIGGER,UPDATE,DELETE,INSERT','migration identity must retain only the explicitly provisioned source-schema migration privileges.');
+    assert.equal(migrationSourceSchema.privileges,'ALTER,CREATE,DELETE,INDEX,INSERT,REFERENCES,SELECT,TRIGGER,UPDATE','migration identity must retain only the explicitly provisioned source-schema migration privileges.');
     assert.equal(migrationRestoreSchema.privileges,'TRIGGER','migration identity may act as DEFINER on the isolated restore schema only through TRIGGER privilege.');
     assert.equal(restoreRuntimeSchema.privileges,'DELETE,INSERT,SELECT,UPDATE','restored runtime identity must have only schema-scoped DML.');
     assert.equal(Number(restoreRuntimeGlobal.total),0,'restored runtime identity must have no global privileges.');
