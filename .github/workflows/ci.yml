@@ -6,7 +6,6 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-# UX refactor branch validation: run syntax and regression checks after each navigation fix; latest receipt-resume recovery and draw-cancellation navigation update.
 on:
   push:
     branches:
