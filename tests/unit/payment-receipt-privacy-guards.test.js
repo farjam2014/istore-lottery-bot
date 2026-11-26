@@ -30,3 +30,26 @@ test('receipt queue is readable with payment.read while decisions require paymen
   assert.match(handler,/bot\.action\(paymentApproveAction,async ctx=>\{if\(!await can\(ctx,'payment\.review'\)\)/);
   assert.match(handler,/bot\.action\(paymentRejectAction,async ctx=>\{if\(!await can\(ctx,'payment\.review'\)\)/);
 });
+
+
+test('receipt upload does not advance its replay cursor before the receipt transaction commits',()=>{
+  const start=handler.indexOf("bot.on('photo'");
+  const end=handler.indexOf("bot.action('user:orders'",start);
+  const photo=handler.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.doesNotMatch(photo,/UPDATE telegram_user_sessions SET last_update_id/);
+  assert.match(photo,/sessionCursor:\{expectedLastUpdateId:session\.last_update_id,updateId\}/);
+  assert.match(photo,/if\(isRetryablePaymentReceiptError\(e\)\)throw e/);
+});
+
+test('receipt persistence consumes the upload session in the same transaction',()=>{
+  const start=service.indexOf('export async function submitReceipt');
+  const end=service.indexOf('export async function listPendingReceipts',start);
+  const submit=service.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.match(submit,/SELECT step,payload,last_update_id FROM telegram_user_sessions WHERE telegram_user_id=\? FOR UPDATE/);
+  assert.match(submit,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\?.*last_update_id=\?/);
+  assert.ok(submit.indexOf('DELETE FROM telegram_user_sessions')<submit.indexOf('await c.commit()'));
+  assert.match(submit,/catch\(e\)\{try\{await c\.rollback\(\)\}catch\{\}/);
+  assert.match(submit,/export function isRetryablePaymentReceiptError/);
+});
