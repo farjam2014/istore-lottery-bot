@@ -382,10 +382,49 @@ printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACK
 if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
 
 section "NETWORK AND FIREWALL"
-if command -v ufw >/dev/null 2>&1; then ufw status verbose || true; else info "ufw=not_installed"; fi
+if ! command -v ufw >/dev/null 2>&1; then
+  fail "UFW is not installed; a host firewall is required for the public SSH-facing production host."
+else
+  UFW_STATUS="$(ufw status verbose 2>&1 || true)"
+  printf '%s\n' "$UFW_STATUS"
+  if ! grep -q '^Status: active
+section "RESULT"
+if [[ "$FAILURES" -eq 0 ]]; then
+  info "HOST_CHECKS=PASS (does not replace staging, restore, privacy/legal, or load-test approval)"
+else
+  printf 'HOST_CHECKS=BLOCKED failures=%s\n' "$FAILURES"
+  exit 1
+fi
+ <<< "$UFW_STATUS"; then
+    fail "UFW must be active; do not rely on an unverified provider-level firewall."
+  else
+    grep -Eq '^Default: deny \(incoming\), allow \(outgoing\)' <<< "$UFW_STATUS" || fail "UFW defaults must deny inbound traffic and allow outbound Telegram/database traffic."
+    SSH_PORTS="$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}' | sort -nu || true)"
+    if [[ -z "$SSH_PORTS" ]]; then
+      fail "Could not determine the effective SSH listening port; refusing to approve firewall rules."
+    else
+      UFW_RULES="$(ufw status 2>/dev/null || true)"
+      while IFS= read -r port; do
+        [[ -n "$port" ]] || continue
+        if ! awk -v p="$port" '$1==p"/tcp" && $2=="ALLOW" && $3=="IN" {found=1} END{exit !found}' <<< "$UFW_RULES"; then
+          fail "UFW does not explicitly allow the effective SSH port ${port}/tcp; preserve SSH access before changing firewall policy."
+        fi
+      done <<< "$SSH_PORTS"
+      EXTRA_INBOUND_ALLOWS="$(awk '$2=="ALLOW" && $3=="IN" {print $1}' <<< "$UFW_RULES" | while IFS= read -r rule; do
+        allowed=0
+        while IFS= read -r port; do [[ "$rule" == "$port/tcp" ]] && allowed=1; done <<< "$SSH_PORTS"
+        [[ "$allowed" == 1 ]] || printf '%s\n' "$rule"
+      done)"
+      if [[ -n "$EXTRA_INBOUND_ALLOWS" ]]; then
+        printf 'unexpected_inbound_allow_rules:\n%s\n' "$EXTRA_INBOUND_ALLOWS"
+        fail "The Telegram long-polling host must not expose additional inbound services."
+      fi
+    fi
+  fi
+fi
 printf 'listening_tcp_ports:\n'
 ss -lntp 2>/dev/null | awk 'NR==1 || /LISTEN/'
-info "Provider-level firewall status must be checked separately in the hosting control panel."
+info "Provider-level firewall status remains an independent hosting-control-panel check."
 
 section "RESULT"
 if [[ "$FAILURES" -eq 0 ]]; then
