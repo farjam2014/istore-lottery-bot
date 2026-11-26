@@ -200,12 +200,12 @@ test('production host preflight requires active default-deny UFW and explicit SS
     'EXTRA_INBOUND_ALLOWS=',
     'The Telegram long-polling host must not expose additional inbound services.'
   ]) assert.ok(source.includes(value), 'missing firewall gate: '+value);
-  assert.ok(source.includes(String.raw`$2=="ALLOW" && $3=="IN"`));
+  assert.ok(source.includes(String.raw`$1==p"/tcp" && $2=="ALLOW" && $3=="IN"`));
 });
 
 
 test('production host preflight parses inbound UFW rules from verbose status including direction',()=>{
   assert.ok(source.includes('UFW_RULES="$UFW_STATUS"'));
-  assert.ok(source.includes("$2==\\\"ALLOW\\\" && $3==\\\"IN\\\""));
+  assert.ok(source.includes(String.raw`$2=="ALLOW" && $3=="IN"`));
   assert.ok(!source.includes('UFW_RULES="$(ufw status 2>/dev/null || true)"'));
 });
