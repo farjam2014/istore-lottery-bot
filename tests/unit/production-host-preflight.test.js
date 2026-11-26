@@ -97,6 +97,30 @@ test('backup timer service must directly expose a database dump command before i
   assert.ok(source.includes('directly verifiable database dump command'));
 });
 
+test('backup preflight proves the protected backup EnvironmentFile and dedicated least-privilege database identity',()=>{
+  for(const value of [
+    'BACKUP_ENV_DIR=/etc/ustore-telegram-bot',
+    'BACKUP_ENV=$BACKUP_ENV_DIR/ustore-telegram-bot-backup.env',
+    'systemctl show "$VERIFIED_BACKUP_SERVICE" -p EnvironmentFiles --value',
+    'The verified backup service does not load the required protected backup EnvironmentFile.',
+    'root:root:700',
+    'root:root:600',
+    'MYSQL_BACKUP_USER',
+    'MYSQL_BACKUP_PASSWORD',
+    'BACKUP_TARGET_DATABASE',
+    "PRIVILEGE_TYPE IN ('SELECT','SHOW VIEW','TRIGGER')",
+    'backup_schema_privilege_rows=%s expected=3',
+    'backup_global_privileges=%s expected=0',
+    'backup_other_schema_grants=%s expected=0',
+    'backup_granted_roles=%s expected=0',
+    'backup_alternate_host_accounts=%s expected=0',
+    'verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$BACKUP_ENV" MYSQL_BACKUP_USER MYSQL_BACKUP_PASSWORD BACKUP_TARGET_DATABASE backup'
+  ]) assert.ok(source.includes(value), 'missing protected backup identity gate: '+value);
+  assert.ok(source.includes('BACKUP_USER" != "$APP_USER"'));
+  assert.ok(source.includes('BACKUP_USER" != "$MIG_USER"'));
+  assert.ok(source.includes('BACKUP_DB" == "$DB"'));
+});
+
 test('backup timer must expose both database dump and encryption commands in its effective ExecStart',()=>{
   assert.ok(source.includes('encryption_command=not_proven'));
   assert.ok(source.includes('(gpg|age|openssl[[:space:]]+enc)'));
