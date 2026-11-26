@@ -22,6 +22,7 @@ test('installer preserves existing application state and requires production aut
   assert.match(script,/checkout --detach "\$RELEASE_COMMIT"/);
   assert.match(script,/checked_out_commit.*RELEASE_COMMIT/);
   assert.doesNotMatch(script,/BRANCH="install\//,'Installer must not deploy from a floating branch.');
+  assert.ok(script.indexOf('checkout --detach "$RELEASE_COMMIT"')<script.indexOf('Application source is incomplete after the pinned checkout.'),'Source files must be validated only after the exact commit is checked out.');
   assert.match(script,/Tracked or untracked files are present in the checkout/);
   assert.doesNotMatch(script,/unexpected origin remote: \$remote/,'Installer must not print a remote URL that could contain embedded credentials.');
   assert.match(script,/Existing \.env found; preserving it/);
