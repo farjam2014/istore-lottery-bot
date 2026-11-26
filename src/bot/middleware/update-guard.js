@@ -135,7 +135,7 @@ export function createUpdateGuard({
           const delay=terminal?30*24*60*60:Math.min(3600,Math.pow(2,Math.max(1,attempts))*15);
           await database.execute(
             "UPDATE telegram_update_inbox SET status='failed',available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE update_id=? AND lease_token=? AND status='processing'",
-            [delay,String(error?.message||error).slice(0,500),updateId,leaseToken]
+            [delay,'handler_failed',updateId,leaseToken]
           ).catch(cleanupError=>log.error({err:cleanupError,updateId},'Failed to release Telegram update lease'));
         }
         throw error;
