@@ -32,6 +32,14 @@ test('any remaining privileged helper must be root-owned and not writable or set
 });
 
 
+test('runner sudo inspection treats the expected no-sudo response as safe and fails closed on unknown errors',()=>{
+  assert.ok(source.includes('GHrunner_SUDO_STATUS=0'));
+  assert.ok(source.includes('sudo -l -U ghrunner 2>&1'));
+  assert.ok(source.includes('not allowed to run sudo|may not run sudo|not in the sudoers file'));
+  assert.ok(source.includes('ghrunner_sudo=none_detected'));
+  assert.ok(source.includes('Could not reliably inspect ghrunner sudo policy.'));
+});
+
 test('production host preflight requires a dedicated service identity and effective systemd sandbox controls',()=>{
   for(const value of [
     'SERVICE_USER="$(systemctl show "$SERVICE" -p User --value',
