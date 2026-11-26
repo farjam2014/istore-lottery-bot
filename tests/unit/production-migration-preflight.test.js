@@ -62,7 +62,7 @@ test('production migration preflight checks current privacy and replay schema ca
 
 test('baseline preflight gates migration-added tables and columns before querying them',()=>{
   assert.match(preflight,/TABLE_NAME='telegram_rate_limits'/);
-  assert.doesNotMatch(preflight,/UNION ALL SELECT 'telegram_rate_limits', COUNT\(\) FROM telegram_rate_limits/);
+  assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\.last_sequence|MAX\(cc\.sequence_number\)/);
   assert.match(preflight,/PREPARE preflight_stmt FROM @preflight_sql/);
   assert.match(preflight,/PENDING_MIGRATION_003/);
   assert.match(preflight,/information_schema\.COLUMNS[\s\S]*?TABLE_NAME='draw_candidates'[\s\S]*?COLUMN_NAME='campaign_id'/);
@@ -110,4 +110,52 @@ test('append-only audit trigger recovery rejects additional trigger statements',
   const migration=readFileSync(new URL('../../src/database/migrate.js',import.meta.url),'utf8');
   assert.match(migration,/statement!==["']SIGNAL SQLSTATE/);
   assert.doesNotMatch(migration,/statement\.includes\('SQLSTATE/);
+});
+
+
+const postMigrationIntegrity=readFileSync(new URL('../../scripts/post-migration-integrity-check.sql',import.meta.url),'utf8');
+
+test('post-migration integrity checks cover prepared draw encryption and keyring references',()=>{
+  for(const fragment of [
+    "seed_ciphertext IS NULL",
+    "LENGTH(seed_nonce)<>24",
+    "LENGTH(seed_tag)<>32",
+    "algorithm<>'HMAC-SHA256 candidate-commitment-rank-v2'",
+    "SELECT seed_key_id, COUNT(*) AS prepared_draw_count"
+  ]){
+    assert.ok(postMigrationIntegrity.includes(fragment),`post-migration integrity check is missing ${fragment}`);
+  }
+});
+
+test('post-migration integrity checks detect campaign code counter drift and duplicate sequences',()=>{
+  for(const fragment of [
+    "counter.last_sequence",
+    "MAX(cc.sequence_number)",
+    "missing_sequence_count",
+    "counter.last_sequence IS NULL AND COUNT(cc.id)>0",
+    "GROUP BY campaign_id,sequence_number",
+    "HAVING COUNT(*)>1"
+  ]){
+    assert.ok(postMigrationIntegrity.includes(fragment),`post-migration integrity check is missing ${fragment}`);
+  }
+});
+
+test('post-migration integrity script is read-only and separated from baseline preflight',()=>{
+  assert.doesNotMatch(postMigrationIntegrity,/^\s*(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL)\b/im);
+  assert.doesNotMatch(preflight,/seed_ciphertext IS NULL|counter\.last_sequence|MAX\(cc\.sequence_number\)/);
+});
+
+
+test('release runbook separates baseline and post-migration integrity checks',()=>{
+  const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
+  const readiness=readFileSync(new URL('../../docs/RELEASE_READINESS.md',import.meta.url),'utf8');
+  assert.ok(runbook.includes('scripts/production-migration-preflight.sql'));
+  assert.ok(runbook.includes('scripts/post-migration-integrity-check.sql'));
+  assert.ok(runbook.includes('dedicated SELECT-only MySQL account'));
+  assert.ok(runbook.includes('SHOW GRANTS'));
+  assert.ok(readiness.includes('scripts/post-migration-integrity-check.sql'));
+  assert.ok(readiness.includes('counter drift'));
+  assert.ok(readiness.includes('External Production gates'));
+  assert.ok(readiness.includes('full-history secret scan'));
+  assert.ok(readiness.includes('automated database backups are scheduled'));
 });
