@@ -71,6 +71,7 @@ test('backup timer service must directly expose a database dump command before i
   assert.ok(source.includes('systemctl show "$service" -p ExecStart --value'));
   assert.ok(source.includes('(mysqldump|mysqlpump|mariadb-dump)'));
   assert.ok(source.includes('dump_command=database_dump_detected'));
+  assert.ok(source.includes('last_successful_process_exit=%s dump_command=%s'));
   assert.ok(source.includes('"$dump_command" == "database_dump_detected"'));
   assert.ok(source.includes('directly verifiable database dump command'));
 });
