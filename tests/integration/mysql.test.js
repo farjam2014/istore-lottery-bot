@@ -1032,6 +1032,18 @@ test('MySQL integration: concurrent duplicate Telegram updates are claimed by on
 });
 
 
+
+test('MySQL integration: object-level privilege views required by production preflight exist on the deployed MySQL engine',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const [[views]]=await pool.execute("SELECT (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES) AS column_privileges, (SELECT COUNT(*) FROM information_schema.ROUTINE_PRIVILEGES) AS routine_privileges, (SELECT COUNT(*) FROM information_schema.EVENT_PRIVILEGES) AS event_privileges");
+  assert.ok(views);
+  assert.ok(Object.hasOwn(views,'column_privileges'));
+  assert.ok(Object.hasOwn(views,'routine_privileges'));
+  assert.ok(Object.hasOwn(views,'event_privileges'));
+});
+
+
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
