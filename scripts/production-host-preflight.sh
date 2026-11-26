@@ -57,6 +57,7 @@ section "DATABASE PRIVILEGE SUMMARY"
 if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
   DB="$(read_dotenv_value "$ACTIVE/.env" MYSQL_DATABASE)"
   APP_USER="$(read_dotenv_value "$ACTIVE/.env" MYSQL_USER)"
+  APP_PASS="$(read_dotenv_value "$ACTIVE/.env" MYSQL_PASSWORD)"
   DB_HOST="$(read_dotenv_value "$ACTIVE/.env" MYSQL_HOST)"
   if [[ "$DB" =~ ^[A-Za-z0-9_]{1,64}$ && "$APP_USER" =~ ^[A-Za-z0-9_]{1,32}$ && "$DB_HOST" == "127.0.0.1" ]]; then
     mysql_q(){ mysql --protocol=socket --batch --skip-column-names -e "$1"; }
@@ -68,8 +69,9 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       R4="$(mysql_q "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
       R5="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$DB'")"
       R6="$(mysql_q "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1'))")"
-      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6"
-      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 ]]; then
+      R7="$(mysql_q "SELECT COUNT(*) FROM mysql.default_roles WHERE USER='$APP_USER' AND HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\nruntime_default_roles=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6" "$R7"
+      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 || "$R7" != 0 ]]; then
         fail "Runtime account is not proven DML-only on one schema."
       fi
       printf 'runtime_show_grants:\n'
@@ -92,14 +94,15 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
     MIG_USER="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_USER)"
     MIG_PASS="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_PASSWORD)"
     MIG_DB="$(read_dotenv_value "$MIGRATION_ENV" MIGRATION_TARGET_DATABASE)"
-    if [[ "$MIG_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$MIG_PASS" && "$MIG_USER" != "$APP_USER" && "$MIG_DB" == "$DB" ]]; then
+    if [[ "$MIG_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$MIG_PASS" && "$MIG_USER" != "$APP_USER" && "$MIG_PASS" != "$APP_PASS" && "$MIG_DB" == "$DB" ]]; then
       M1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       M2="$(mysql_q "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE','CREATE','ALTER','INDEX','REFERENCES','TRIGGER')")"
       M3="$(mysql_q "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
       M4="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$DB'")"
       M5="$(mysql_q "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1'))")"
-      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5"
-      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 ]]; then
+      M6="$(mysql_q "SELECT COUNT(*) FROM mysql.default_roles WHERE USER='$MIG_USER' AND HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\nmigration_default_roles=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5" "$M6"
+      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 ]]; then
         fail "Migration account does not match schema-scoped least privilege."
       fi
     else
