@@ -28,9 +28,10 @@ ADMIN_PASSWORD="${MYSQL_TEST_ADMIN_PASSWORD:-}"
 READONLY_USER="${MYSQL_TEST_READONLY_USER:-}"
 READONLY_PASSWORD="${MYSQL_TEST_READONLY_PASSWORD:-}"
 
-APP_USER="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_USER || '')")"
-APP_MIGRATION_USER="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_MIGRATION_USER || '')")"
-PRODUCTION_DB="$(node --input-type=module -e "import 'dotenv/config'; process.stdout.write(process.env.MYSQL_DATABASE || '')")"
+read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {readFileSync} from 'node:fs';const values=dotenv.parse(readFileSync('.env'));process.stdout.write(values[process.argv[1]]??'')" "$1"; }
+APP_USER="$(read_dotenv_value MYSQL_USER)"
+APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"
+PRODUCTION_DB="$(read_dotenv_value MYSQL_DATABASE)"
 
 [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+_ci$ ]] || die "Set MYSQL_TEST_DATABASE to a dedicated _ci database."
 [[ "$RESTORE_DB" =~ ^draw_restore_[A-Za-z0-9_]+_ci$ ]] || die "Set MYSQL_RESTORE_DATABASE to a dedicated draw_restore_*_ci database."
