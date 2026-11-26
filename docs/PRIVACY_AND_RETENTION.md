@@ -82,7 +82,10 @@ This inventory is based on current source producers; future producers must be re
 - New participants must acknowledge the published notice before entering name, phone, or Instagram details.
 - Existing participant profiles with a missing or outdated consent version are gated until they acknowledge the current notice.
 - The participant record stores the notice version and first acceptance timestamp. Replaying the same acceptance callback does not refresh the timestamp.
-- This is an auditable notice acknowledgement, not a legal determination that consent is the correct legal basis. The business owner/legal reviewer must approve the notice text, purposes, retention schedule, and lawful basis before launch.
+
+**Pre-consent inbox processing limitation:** the private-chat filter now runs before the durable inbox, so group-chat updates are not persisted. However, for private chats, `updateGuard` still runs before `profileGate` and persists the full Telegram Update JSON before the consent gate executes. An unsolicited pre-consent private message or contact can therefore be stored in `telegram_update_inbox` even though the registration handler will not create a participant profile from it until consent is accepted. The current code does **not** guarantee zero personal-data persistence before acknowledgement. The public notice/legal review must explicitly cover this limited pre-consent processing and its short retention window, or a separately reviewed pre-consent redaction/discard design must be implemented and tested before launch.
+
+- This is an auditable notice acknowledgement, not a legal determination that consent is the correct legal basis. The business owner/legal reviewer must approve the notice text, purposes, retention schedule, pre-consent inbox processing, and lawful basis before launch.
 
 ## Required decisions before production launch
 
