@@ -428,7 +428,7 @@ export function registerAdminHandlers(bot){
     const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,last_update_id) VALUES(?,'campaign_code',?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(campaign_id),campaign_id),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),campaignId,updateId]);
     await ctx.answerCbQuery();
-    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. کد کامل یا بخشی از کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
+    const contactLookup=isConfiguredSuperAdmin(ctx.from.id);\n    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
   });
   bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
@@ -692,9 +692,14 @@ export function registerAdminHandlers(bot){
       if(!consumed.affectedRows)return respond(ctx,'این پیام قدیمی یا تکراری است. جست‌وجو را دوباره آغاز کنید.');
       if(!query||query.startsWith('/'))return respond(ctx,'عبارت جست‌وجو معتبر نیست.');
       const like='%'+query.split('!').join('!!').split('%').join('!%').split('_').join('!_')+'%';
-      const [rows]=await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.id entry_id,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND (cc.code LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!') ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like,query,like]);
+      const contactLookup=isConfiguredSuperAdmin(ctx.from.id);
+      const [rows]=contactLookup
+        ?await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.status entry_status,p.telegram_user_id,p.full_name,p.phone,p.instagram_handle FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND (cc.code LIKE ? ESCAPE '!' OR CAST(p.telegram_user_id AS CHAR)=? OR p.phone LIKE ? ESCAPE '!') ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like,query,like])
+        :await pool.execute("SELECT cc.code,cc.sequence_number,cc.status code_status,e.status entry_status,p.full_name FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id JOIN participants p ON p.id=e.participant_id WHERE cc.campaign_id=? AND cc.code LIKE ? ESCAPE '!' ORDER BY cc.sequence_number IS NULL,cc.sequence_number,cc.id LIMIT 30",[codeSearch.campaign_id,like]);
       if(!rows.length)return respond(ctx,'کدی با این مشخصات در این کمپین پیدا نشد.');
-      const message=rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\n');
+      const message=contactLookup
+        ?rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\n')
+        :rows.map(x=>x.code+' | '+x.full_name+' | '+x.code_status+' | '+x.entry_status).join('\n');
       return respond(ctx,'نتایج جست‌وجو (حداکثر ۳۰ مورد):\n'+message);
     }
     const [paymentSearch]=await pool.execute("SELECT step,last_update_id FROM payment_admin_sessions WHERE telegram_user_id=? AND step='search_order' AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id)]);
