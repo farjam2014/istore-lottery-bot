@@ -35,12 +35,16 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const port=String(process.env.MYSQL_PORT||'3306');
   const user=String(process.env.MYSQL_USER||'');
   assert.ok(user,'MYSQL_USER is required.');
-  const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||user);
-  const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD??process.env.MYSQL_PASSWORD??'');
+  const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
+  const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
+  assert.ok(adminUser&&adminPassword,'A dedicated schema-scoped restore identity is required.');
+  assert.notEqual(user,adminUser,'Test application and restore identities must be distinct.');
   const adminEnv={...process.env,MYSQL_PWD:adminPassword};
-  const restoreDatabase=process.env.MYSQL_RESTORE_DATABASE||('draw_restore_'+randomBytes(8).toString('hex')+'_ci');
-  assert.match(restoreDatabase,/^draw_restore_[a-f0-9]{16}_ci$/,'Invalid isolated restore database name.');
+  const restoreDatabase=String(process.env.MYSQL_RESTORE_DATABASE||'');
+  assert.match(restoreDatabase,/^draw_restore_[A-Za-z0-9_]+_ci$/,'A pre-provisioned isolated restore database is required.');
   assert.notEqual(restoreDatabase,database,'Restore database must differ from source database.');
+  assert.notEqual(restoreDatabase,process.env.MYSQL_PREFLIGHT_DATABASE);
+  assert.notEqual(restoreDatabase,process.env.MYSQL_DRAW_GUARD_DATABASE);
   assert.ok(restoreDatabase.length<=64);
   const childEnv={...process.env,MYSQL_PWD:String(process.env.MYSQL_PASSWORD||'')};
   const oldKeyring=loadDrawKeyring({
@@ -52,7 +56,6 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let campaignId;
   let drawId;
   let restored;
-  let restoreCreated=false;
   let primaryError;
   try{
     await migrateWithDeadlockRetry();
@@ -67,14 +70,11 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     );
     drawId=draw.insertId;
 
-    if(!process.env.MYSQL_RESTORE_DATABASE){
-      execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','CREATE DATABASE `'+restoreDatabase+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'],{env:adminEnv,stdio:'pipe',timeout:60000});
-      restoreCreated=true;
-    }
-    if(process.env.MYSQL_RESTORE_DATABASE){
-      const existingObjects=execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--batch','--skip-column-names','--execute',"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='"+restoreDatabase+"'"],{env:adminEnv,encoding:'utf8',timeout:60000}).trim();
-      assert.equal(existingObjects,'0','Restore database must be empty.');
-    }
+    const [[emptyTables]]=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'information_schema'}).then(async conn=>{
+      try{return await conn.execute('SELECT COUNT(*) AS total FROM TABLES WHERE TABLE_SCHEMA=?',[restoreDatabase]);}
+      finally{await conn.end();}
+    });
+    assert.equal(Number(emptyTables.total),0,'Pre-provisioned restore schema must be empty before import.');
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',user,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
@@ -119,10 +119,18 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     throw error;
   }finally{
     const cleanupErrors=[];
-    if(restored){try{await restored.end();}catch(error){cleanupErrors.push(error);}}
-    if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
-    if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
-    if(restoreCreated){try{execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,'--execute','DROP DATABASE IF EXISTS `'+restoreDatabase+'`'],{env:adminEnv,stdio:'pipe',timeout:60000});}catch(error){cleanupErrors.push(error);}}
+    if(restored){
+      try{
+        await restored.query('SET FOREIGN_KEY_CHECKS=0');
+        const [tables]=await restored.query('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[restoreDatabase]);
+        for(const table of tables){
+          const identifier=String.fromCharCode(96)+String(table.TABLE_NAME).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
+          await restored.query('DROP '+(table.TABLE_TYPE==='VIEW'?'VIEW':'TABLE')+' IF EXISTS '+identifier);
+        }
+        await restored.query('SET FOREIGN_KEY_CHECKS=1');
+      }catch(error){cleanupErrors.push(error);}
+      try{await restored.end();}catch(error){cleanupErrors.push(error);}
+    }
     if(cleanupErrors.length) throw new AggregateError(primaryError?[primaryError,...cleanupErrors]:cleanupErrors,'Backup/restore integration fixture cleanup failed.');
   }
 });
