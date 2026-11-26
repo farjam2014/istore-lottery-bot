@@ -100,8 +100,8 @@ test('database preflight authenticates runtime and migration credentials without
   assert.ok(source.includes("connection=await mysql.createConnection({host,port,user,password,database,connectTimeout:5000});"));
   assert.ok(source.includes("SELECT CURRENT_USER() AS account, DATABASE() AS schema_name"));
   assert.ok(source.includes("identity.account!==user+'@'+host"));
-  assert.ok(source.includes('runtime_authentication=verified'));
-  assert.ok(source.includes('migration_authentication=verified'));
+  assert.ok(source.includes("label+'_authentication=verified\\n'"));
+  assert.ok(source.includes("label+'_authentication=verified\\n'"));
   assert.ok(source.includes('verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$ACTIVE/.env" MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE runtime'));
   assert.ok(source.includes('verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$MIGRATION_ENV" MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE migration'));
   assert.ok(source.includes('unset APP_PASS'));
