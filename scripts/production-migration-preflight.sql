@@ -298,7 +298,7 @@ DEALLOCATE PREPARE preflight_session_stmt;
 SET @preflight_sql := IF(
   (SELECT COUNT(*)=1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='support_sessions'),
   'SELECT step, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM support_sessions GROUP BY step ORDER BY step',
-  'SELECT ''PENDING_OR_MISSING_TABLE'' AS check_status, NULL AS step, NULL AS exact_rows'
+  'SELECT ''support_sessions'' AS table_name, ''PENDING_OR_MISSING_TABLE'' AS check_status, NULL AS step, NULL AS exact_rows'
 );
 PREPARE preflight_session_stmt FROM @preflight_sql;
 EXECUTE preflight_session_stmt;
