@@ -659,6 +659,67 @@ test('MySQL integration: management report aggregates return complete dashboard 
 });
 
 
+
+test('MySQL integration: receipt failure rolls back both receipt and upload-session consumption, then durable retry succeeds',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {submitReceipt,isRetryablePaymentReceiptError}=await import('../../src/modules/payments/payment.service.js');
+  const uid=String(880000000000n+(BigInt(Date.now())%100000000000n));
+  const fileUniqueId='receipt-atomic-'+uid;
+  const fileId='receipt-file-atomic-'+uid;
+  const expectedUpdateId=Number(Date.now())*100;
+  const incomingUpdateId=expectedUpdateId+1;
+  let participantId,campaignId,entryId,orderId;
+  try{
+    await migrate();
+    const [participant]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Atomic Receipt Test','+989121333333','atomic_receipt_test']);
+    participantId=participant.insertId;
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',100000,1)",['receipt-atomic-'+uid,'Receipt Atomicity']);
+    campaignId=campaign.insertId;
+    const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('full_name','Atomic Receipt Test'),'pending_payment')",[campaignId,participantId]);
+    entryId=entry.insertId;
+    const [order]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,requested_code_count,currency,status,expires_at) VALUES(?, ?,100000,1,'IRR','awaiting_receipt',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,'ATOMIC-'+uid]);
+    orderId=order.insertId;
+    await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id) VALUES(?,'awaiting_payment_receipt',?,?)",[uid,JSON.stringify({orderId}),expectedUpdateId]);
+    let injected=false;
+    const failingDatabase={async getConnection(){
+      const connection=await pool.getConnection();
+      return new Proxy(connection,{get(target,key){
+        if(key==='execute')return async(sql,params)=>{
+          if(!injected&&sql.startsWith('INSERT INTO payment_events')){injected=true;const error=new Error('temporary injected transaction failure');error.code='ER_LOCK_DEADLOCK';throw error;}
+          return target.execute(sql,params);
+        };
+        const value=Reflect.get(target,key,target);
+        return typeof value==='function'?value.bind(target):value;
+      }});
+    }};
+    const input={telegramUserId:uid,orderId,fileId,fileUniqueId,note:'receipt retry test',sessionCursor:{expectedLastUpdateId:expectedUpdateId,updateId:incomingUpdateId}};
+    await assert.rejects(submitReceipt({...input,database:failingDatabase}),error=>error.code==='ER_LOCK_DEADLOCK'&&isRetryablePaymentReceiptError(error));
+    assert.equal(injected,true,'the injected failure must happen after the receipt insert inside the transaction');
+    const [[afterRollback]]=await pool.execute("SELECT o.status order_status,(SELECT COUNT(*) FROM payment_receipts WHERE order_id=o.id) receipt_count,(SELECT COUNT(*) FROM telegram_user_sessions WHERE telegram_user_id=?) session_count,(SELECT last_update_id FROM telegram_user_sessions WHERE telegram_user_id=?) session_cursor FROM payment_orders o WHERE o.id=?",[uid,uid,orderId]);
+    assert.equal(afterRollback.order_status,'awaiting_receipt');
+    assert.equal(Number(afterRollback.receipt_count),0);
+    assert.equal(Number(afterRollback.session_count),1);
+    assert.equal(Number(afterRollback.session_cursor),expectedUpdateId);
+    const result=await submitReceipt(input);
+    assert.ok(result.receiptId>0);
+    const [[afterCommit]]=await pool.execute("SELECT o.status order_status,(SELECT COUNT(*) FROM payment_receipts WHERE order_id=o.id) receipt_count,(SELECT COUNT(*) FROM telegram_user_sessions WHERE telegram_user_id=?) session_count FROM payment_orders o WHERE o.id=?",[uid,orderId]);
+    assert.equal(afterCommit.order_status,'under_review');
+    assert.equal(Number(afterCommit.receipt_count),1);
+    assert.equal(Number(afterCommit.session_count),0);
+    await assert.rejects(submitReceipt(input),error=>error.code==='PAYMENT_RECEIPT_SESSION_STALE');
+    const [[finalCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_receipts WHERE order_id=?',[orderId]);
+    assert.equal(Number(finalCount.total),1,'replaying the same Telegram update must not create a second receipt');
+  }finally{
+    await pool.execute('DELETE FROM telegram_user_sessions WHERE telegram_user_id=?',[uid]);
+    if(orderId){await pool.execute('DELETE FROM telegram_notification_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,\'$.photo\'))=?',[fileId]);await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[orderId]);}
+    if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
+  }
+});
+
 test('MySQL integration: payment operations search filters detail and export are consistent',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
