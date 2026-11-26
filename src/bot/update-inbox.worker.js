@@ -46,7 +46,7 @@ export function createUpdateInboxWorker({database=pool,log=logger}={}){
         else if(state?.status==='failed')failed++;
         else skipped++;
       }catch(error){
-        log.error({err:error,updateId:row.update_id},'Durable Telegram update replay failed');
+        log.error({reason:'handler_failed',updateId:row.update_id},'Durable Telegram update replay failed');
         failed++;
       }
     }
