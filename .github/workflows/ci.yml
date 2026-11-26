@@ -58,7 +58,7 @@ jobs:
       MYSQL_TEST_READONLY_USER: ustore_ci_readonly
       MYSQL_TEST_READONLY_PASSWORD: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
       MYSQL_TEST_DATABASE: istore_lottery_ci
-      MYSQL_RESTORE_DATABASE: draw_restore_ci
+      MYSQL_RESTORE_DATABASE: draw_restore_fixture_ci
       MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
       MYSQL_DRAW_GUARD_DATABASE: ustore_drawguard_fixture_ci
       MYSQL_POOL_SIZE: 5
@@ -78,7 +78,7 @@ jobs:
         run: |
           mysql --host 127.0.0.1 --user root --password=root <<'SQL'
           CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE DATABASE IF NOT EXISTS draw_restore_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS draw_restore_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_preflight_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_drawguard_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
