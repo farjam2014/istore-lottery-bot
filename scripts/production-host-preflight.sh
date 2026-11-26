@@ -175,7 +175,7 @@ if id ghrunner >/dev/null 2>&1; then
   id ghrunner
   if GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1)"; then
     printf '%s\n' "$GHrunner_SUDO_POLICY"
-    if grep -Eq '^[[:space:]]*\\([^)]*\\)[[:space:]]' <<<"$GHrunner_SUDO_POLICY"; then
+    if grep -Eq '^[[:space:]]*\([^)]*\)[[:space:]]' <<<"$GHrunner_SUDO_POLICY"; then
       fail "ghrunner has sudo command grants; the self-hosted runner account must have no sudo access."
     else
       info "ghrunner_sudo=none_detected"
