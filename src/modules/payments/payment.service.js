@@ -128,8 +128,7 @@ export async function recordPaymentCardDelivery({telegramUserId,orderId}){
     'INSERT INTO payment_events(order_id,actor_telegram_id,correlation_id,event_type,details) VALUES(?,?,?,?,?)',
     [orderId,String(telegramUserId),getCorrelationId(),'bank_details_presented',JSON.stringify({
       bankName:order.bank_name,
-      cardLast4:String(order.card_number||'').slice(-4),
-      cardHolder:order.card_holder
+      cardLast4:String(order.card_number||'').slice(-4)
     })]
   );
 }
