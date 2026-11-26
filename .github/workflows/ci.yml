@@ -140,7 +140,6 @@ jobs:
           GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_priv_migrate'@'%';
           GRANT SELECT, SHOW VIEW, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_backup'@'%';
-          GRANT TRIGGER ON draw_restore_fixture_ci.* TO 'ustore_ci_testapp'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE ON draw_restore_fixture_ci.* TO 'ustore_ci_restore_runtime'@'%';
           GRANT ALL PRIVILEGES ON draw_restore_fixture_ci.* TO 'ustore_ci_restore'@'%';
           GRANT SET_USER_ID ON *.* TO 'ustore_ci_restore'@'%';
