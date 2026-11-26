@@ -15,7 +15,7 @@ test('integration test script uses the safety runner',()=>{
 
 test('integration runner refuses application database and remote MySQL before requiring credentials',()=>{
   const runner=new URL('../scripts/run-integration-tests.sh',import.meta.url);
-  const base={...process.env,MYSQL_TEST_DATABASE:'isolated_ci',MYSQL_RESTORE_DATABASE:'draw_restore_ci',MYSQL_PREFLIGHT_DATABASE:'ustore_preflight_fixture_ci',MYSQL_DRAW_GUARD_DATABASE:'ustore_drawguard_fixture_ci',MYSQL_USER:'ustore_app_fixture'};
+  const base={...process.env,MYSQL_TEST_DATABASE:'isolated_ci',MYSQL_RESTORE_DATABASE:'draw_restore_fixture_ci',MYSQL_PREFLIGHT_DATABASE:'ustore_preflight_fixture_ci',MYSQL_DRAW_GUARD_DATABASE:'ustore_drawguard_fixture_ci',MYSQL_USER:'ustore_app_fixture'};
   const equalDb=spawnSync('bash',[runner.pathname],{encoding:'utf8',env:{...base,MYSQL_DATABASE:'isolated_ci',MYSQL_HOST:'127.0.0.1'}});
   assert.notEqual(equalDb.status,0);
   assert.match(equalDb.stderr,/Refusing to run tests against a production database/);
