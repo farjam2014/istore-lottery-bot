@@ -56,6 +56,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
   assert.ok(adminUser&&adminPassword,'A test-only grant inspection identity is required.');
   const grantInspector=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'mysql'});
+  let migrationHost;
   try{
     const accountHost=async account=>{
       const [rows]=await grantInspector.execute('SELECT Host FROM mysql.user WHERE User=?',[account]);
@@ -64,7 +65,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     };
     const backupHost=await accountHost(backupUser);
     const restoreHost=await accountHost(restoreUser);
-    const migrationHost=await accountHost(String(process.env.MYSQL_MIGRATION_USER||''));
+    migrationHost=await accountHost(String(process.env.MYSQL_MIGRATION_USER||''));
     const restoreRuntimeHost=await accountHost(restoreRuntimeUser);
     const [[schema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[backupUser,backupHost,database]);
     const [[global]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[backupUser,backupHost]);
