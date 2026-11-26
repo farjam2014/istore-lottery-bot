@@ -23,3 +23,12 @@ test('finance order history does not display actor Telegram IDs or raw event pay
   assert.match(view,/d\.events\.map\(x=>x\.event_type\+' \| '\+formatTehranDateTime\(x\.created_at\)\)/);
   assert.doesNotMatch(view,/x\.actor_telegram_id|x\.details|JSON\.stringify\(x\.details\)/);
 });
+
+test('payment card delivery audit stores only bank and last four digits, not cardholder name or full card number',()=>{
+  const start=service.indexOf('export async function recordPaymentCardDelivery');
+  const delivery=service.slice(start);
+  assert.ok(start>=0);
+  assert.match(delivery,/bankName:order\.bank_name/);
+  assert.match(delivery,/cardLast4:String\(order\.card_number\|\|''\)\.slice\(-4\)/);
+  assert.doesNotMatch(delivery,/cardHolder:order\.card_holder|cardNumber:order\.card_number/);
+});
