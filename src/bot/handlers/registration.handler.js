@@ -3,6 +3,11 @@ import {completeRegistration,getSession,acceptPrivacyConsentSession,advanceSessi
 import {promptFor} from './start.handler.js';
 import {userMenuKeyboard,cancelKeyboard,registrationKeyboard,registrationStartKeyboard,phoneShareKeyboard,privacyNoticeKeyboard} from '../keyboards/user.keyboard.js';
 import {config} from '../../config/env.js';
+import {hasPermission} from '../../modules/admin/admin-role.service.js';
+
+async function isAdminAccount(ctx){
+  return hasPermission(ctx.from?.id,'dashboard.read');
+}
 
 export function isOlderRegistrationReplay(ctx,session){
   const updateId=Number(ctx?.update?.update_id);
@@ -33,7 +38,8 @@ export function buildPrivacyAcceptedSession(existing,version,acceptedAt=new Date
 }
 
 export function registerRegistrationHandlers(bot){
-  bot.action('registration:start',async ctx=>{
+  bot.action('registration:start',async(ctx,next)=>{
+    if(await isAdminAccount(ctx))return next();
     const profile=await findProfile(ctx.from.id);
     if(profile){await ctx.answerCbQuery('حساب شما قبلاً ثبت شده است.');return ctx.reply('حساب شما قبلاً ثبت شده است.',userMenuKeyboard());}
     const s=await getSession(ctx.from.id);
@@ -51,7 +57,8 @@ export function registerRegistrationHandlers(bot){
     }
     return ctx.reply(promptFor(s.step),cancelKeyboard(s.lastUpdateId));
   });
-  bot.action(/^pa:(-1|[0-9]{1,16}):([A-Za-z0-9._-]{1,40})$/,async ctx=>{
+  bot.action(/^pa:(-1|[0-9]{1,16}):([A-Za-z0-9._-]{1,40})$/,async(ctx,next)=>{
+    if(await isAdminAccount(ctx))return next();
     const expectedCursor=Number(ctx.match[1]);
     const callbackVersion=ctx.match[2];
     const existingSession=await getSession(ctx.from.id);
@@ -72,7 +79,8 @@ export function registerRegistrationHandlers(bot){
     if(step==='awaiting_instagram')return ctx.reply(promptFor(step),Markup.removeKeyboard());
     return ctx.reply(promptFor(step),cancelKeyboard(accepted.lastUpdateId));
   });
-  bot.action(/^registration:cancel:(-1|[0-9]{1,16})$/,async ctx=>{
+  bot.action(/^registration:cancel:(-1|[0-9]{1,16})$/,async(ctx,next)=>{
+    if(await isAdminAccount(ctx))return next();
     const expectedCursor=Number(ctx.match[1]);
     const current=await getSession(ctx.from.id);
     if(!registrationSessionCursorMatches(current,expectedCursor))return ctx.answerCbQuery('این دکمه مربوط به مرحله قبلی ثبت‌نام است.',{show_alert:true});
@@ -81,7 +89,7 @@ export function registerRegistrationHandlers(bot){
     await ctx.reply('هر زمان خواستید می‌توانید ثبت‌نام را شروع کنید.',registrationKeyboard());
   });
   bot.command('cancel',async(ctx,next)=>{
-    if(config.adminIds.has(String(ctx.from.id)))return next();
+    if(await isAdminAccount(ctx))return next();
     const session=await getSession(ctx.from.id);
     if(!isRegistrationSessionCancellable(session))return next();
     if(isOlderRegistrationReplay(ctx,session))return ctx.reply('درخواست لغو قدیمی است؛ مرحله فعلی ثبت‌نام را دوباره باز کنید.');
@@ -90,7 +98,7 @@ export function registerRegistrationHandlers(bot){
     await ctx.reply('فرآیند ثبت‌نام لغو شد. برای شروع مجدد، دکمه «ثبت‌نام» را بزنید.',registrationStartKeyboard());
   });
   bot.on('contact',async(ctx,next)=>{
-    if(config.adminIds.has(String(ctx.from.id)))return next();
+    if(await isAdminAccount(ctx))return next();
     const s=await getSession(ctx.from.id);
     if(!s||s.step!=='awaiting_phone')return next();
     if(s.payload?.privacyConsentVersion!==config.PRIVACY_NOTICE_VERSION)return ctx.reply('ابتدا اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
@@ -110,7 +118,7 @@ export function registerRegistrationHandlers(bot){
     }
   });
   bot.on('text',async(ctx,next)=>{
-    if(config.adminIds.has(String(ctx.from.id)))return next();
+    if(await isAdminAccount(ctx))return next();
     const s=await getSession(ctx.from.id);
     const value=ctx.message.text.trim();
     if(!s&&value==='ثبت‌نام')return ctx.reply('پیش از ادامه، لطفاً اطلاعیه حریم خصوصی را مطالعه و تأیید کنید.',privacyNoticeKeyboard(config.PRIVACY_NOTICE_URL,s?.lastUpdateId??-1,config.PRIVACY_NOTICE_VERSION));
