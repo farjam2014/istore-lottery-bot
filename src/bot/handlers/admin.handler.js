@@ -444,9 +444,9 @@ export function registerAdminHandlers(bot){
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,last_update_id) VALUES(?,'campaign_code',?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(campaign_id),campaign_id),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),campaignId,updateId]);
     await ctx.answerCbQuery();
     const contactLookup=isConfiguredSuperAdmin(ctx.from.id);
-    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId+':'+updateId)]]));
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:codes:cancel:'+campaignId+':'+updateId)]]));
   });
-  bot.action(/^admin:campaign:codes:cancel:(\d+):(\d{1,16})$/,async ctx=>{
+  bot.action(/^admin:codes:cancel:(\d+):(\d{1,16})$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
     const campaignId=Number(ctx.match[1]),expected=Number(ctx.match[2]),updateId=Number(ctx.update?.update_id);
     if(isStaleAdminReplyUpdate(updateId,expected))return ctx.answerCbQuery('این دکمه مربوط به جست‌وجوی قبلی است.',{show_alert:true});
