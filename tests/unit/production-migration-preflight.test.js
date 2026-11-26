@@ -67,7 +67,9 @@ test('production preflight reports exact row counts for every replay-cleanup ses
     'payment_card_admin_sessions',
     'admin_role_sessions',
     'support_sessions',
-    'profile_change_sessions'
+    'profile_change_sessions',
+    'admin_search_sessions',
+    'payment_admin_sessions'
   ]){
     assert.ok(preflight.includes(`TABLE_NAME='${table}'`),`preflight must check whether ${table} exists`);
     assert.ok(preflight.includes(`SELECT ''${table}'' AS table_name, COUNT(*) AS exact_rows`),`preflight must count ${table} rows exactly`);
