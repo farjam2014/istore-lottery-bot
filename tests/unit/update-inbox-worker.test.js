@@ -50,3 +50,21 @@ test('malformed payloads are quarantined with bounded retry metadata and worker 
   assert.equal(JSON.stringify(emitted).includes('not-json'),false,'malformed raw payload must not be copied into logs');
   assert.match(updates[0].sql,/available_at<=UTC_TIMESTAMP\(\)/,'quarantine must not race with future-backoff rows');
 });
+
+
+test('handler replay exceptions are not copied into worker logs',async()=>{
+  const rows=[{update_id:77,payload:JSON.stringify({update_id:77}),attempts:1}];
+  const emitted=[];
+  const database={async execute(sql){
+    if(sql.startsWith('DELETE FROM telegram_update_inbox'))return [{affectedRows:0},[]];
+    if(sql.startsWith('SELECT update_id,payload,attempts'))return [rows,[]];
+    if(sql.startsWith('SELECT status FROM telegram_update_inbox'))return [[{status:'failed'}],[]];
+    throw new Error('Unexpected SQL: '+sql);
+  }};
+  const worker=createUpdateInboxWorker({database,log:{error(data,message){emitted.push({data,message});}}});
+  const secretError='handler failure phone +989121234567 receipt SECRET-INBOX';
+  const result=await worker({async handleUpdate(){throw new Error(secretError);}});
+  assert.deepEqual(result,{scanned:1,replayed:0,failed:1,skipped:0});
+  assert.equal(JSON.stringify(emitted).includes(secretError),false);
+  assert.deepEqual(emitted[0].data,{reason:'handler_failed',updateId:77});
+});
