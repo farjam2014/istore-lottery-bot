@@ -15,6 +15,7 @@ The application may process:
 - Payment order references, amounts, bank-card snapshots, Telegram receipt file identifiers, receipt notes, and review decisions.
 - Support ticket subjects, messages, assignments, status, and timestamps.
 - Admin identifiers, role changes, security/audit events, and export activity.
+- Admin action idempotency records in `admin_action_idempotency`, including the acting Telegram ID, action type, entity reference, and creation timestamp, used to prevent duplicate administrative actions.
 - Admin participant-search terms in `admin_search_sessions.query_text`; these may contain a name, phone number, Telegram ID, or Instagram handle and must be treated as personal data.
 - In-progress payment-card administration sessions in `payment_card_admin_sessions.payload` and payment-settings wizard state; these may temporarily contain bank name, card number, cardholder name, and payment instructions.
 - Operational metadata such as update IDs, correlation IDs, retry state, and delivery errors.
@@ -49,6 +50,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | Payment orders and receipts | No approved statutory/business retention schedule is encoded. |
 | Support messages and tickets | No approved retention schedule is encoded. |
 | Admin audit logs and export events | No approved retention schedule is encoded. |
+| Admin action idempotency records (`admin_action_idempotency`) | No cleanup path or approved retention period is currently implemented; records include admin Telegram IDs and must be covered by an explicit replay-protection/retention decision. |
 | Outbox payloads | No complete retention schedule for sent/failed/uncertain payloads is approved. |
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
@@ -69,6 +71,7 @@ The business owner and qualified local counsel must approve:
 - Retention periods for participant profiles, campaign participation and draw evidence.
 - Applicable statutory retention periods for financial records and payment receipts.
 - Retention periods for admin participant-search terms, payment-card/admin wizard session payloads, participant support/profile-change sessions, support messages, Telegram file references, outbox payloads, audit logs, and exports, including automated cleanup of expired session/query rows.
+- Retention and safe expiry policy for admin action idempotency records, balancing replay protection against indefinite storage of admin identifiers.
 - The process for access, correction, deletion, and objection requests, including exceptions where financial, fraud-prevention, or draw-integrity evidence must be retained.
 - Whether data is transferred to, or processed by, hosting, Telegram, backup, monitoring, and other service providers, and the disclosures required.
 - Who may approve a deletion/anonymization request and how the action is audited.
