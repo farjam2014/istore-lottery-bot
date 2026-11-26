@@ -43,6 +43,12 @@ valid_password "$READONLY_PASSWORD" || die "MYSQL_TEST_READONLY_PASSWORD must be
 
 mysql --protocol=socket -N -e "SELECT 1" >/dev/null 2>&1 || die "Root socket access to MySQL failed. Run this script as root."
 
+# Never repurpose an existing MySQL account: it may belong to another environment.
+for user in "$TEST_USER" "$ADMIN_USER" "$READONLY_USER"; do
+  exists="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM mysql.user WHERE User='$user' AND Host='127.0.0.1'")"
+  [[ "$exists" == "0" ]] || die "MySQL account $user@127.0.0.1 already exists; refusing to alter or reuse it."
+done
+
 for db in "$DB_NAME" "$RESTORE_DB" "$PREFLIGHT_DB" "$DRAW_GUARD_DB"; do
   mysql --protocol=socket -e "CREATE DATABASE IF NOT EXISTS $(quote_id "$db") CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 done
@@ -54,9 +60,9 @@ for db in "$RESTORE_DB" "$PREFLIGHT_DB" "$DRAW_GUARD_DB"; do
 done
 
 mysql --protocol=socket <<SQL
-CREATE USER IF NOT EXISTS '$TEST_USER'@'127.0.0.1' IDENTIFIED BY '$TEST_PASSWORD';
-CREATE USER IF NOT EXISTS '$ADMIN_USER'@'127.0.0.1' IDENTIFIED BY '$ADMIN_PASSWORD';
-CREATE USER IF NOT EXISTS '$READONLY_USER'@'127.0.0.1' IDENTIFIED BY '$READONLY_PASSWORD';
+CREATE USER '$TEST_USER'@'127.0.0.1' IDENTIFIED BY '$TEST_PASSWORD';
+CREATE USER '$ADMIN_USER'@'127.0.0.1' IDENTIFIED BY '$ADMIN_PASSWORD';
+CREATE USER '$READONLY_USER'@'127.0.0.1' IDENTIFIED BY '$READONLY_PASSWORD';
 
 GRANT ALL PRIVILEGES ON $(quote_id "$DB_NAME").* TO '$TEST_USER'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON $(quote_id "$DB_NAME").* TO '$ADMIN_USER'@'127.0.0.1';
