@@ -61,3 +61,19 @@ test('registration /cancel is scoped to registration steps and cannot clear a pe
   assert.equal(isRegistrationSessionCancellable({step:'awaiting_payment_receipt'}),false);
   assert.equal(isRegistrationSessionCancellable(null),false);
 });
+
+
+test('all registration routes defer active database-backed admins to later admin handlers',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/registration.handler.js',import.meta.url),'utf8');
+  assert.match(source,/import \{hasPermission\} from '\.\.\/\.\.\/modules\/admin\/admin-role\.service\.js'/);
+  assert.match(source,/async function isAdminAccount\(ctx\)\{\s*return hasPermission\(ctx\.from\?\.id,'dashboard\.read'\);\s*\}/);
+  const registrations=[
+    /bot\.action\('registration:start',async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/,
+    /bot\.action\(\/\^pa:.*?async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/,
+    /bot\.action\(\/\^registration:cancel:.*?async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/,
+    /bot\.command\('cancel',async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/,
+    /bot\.on\('contact',async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/,
+    /bot\.on\('text',async\(ctx,next\)=>\{\s*if\(await isAdminAccount\(ctx\)\)return next\(\);/
+  ];
+  for(const route of registrations)assert.match(source,route,'admin account must not be consumed by a participant registration route');
+});
