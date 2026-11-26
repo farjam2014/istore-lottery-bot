@@ -1114,6 +1114,34 @@ test('MySQL integration: MySQL 8 privilege metadata sources required by producti
 });
 
 
+test('MySQL integration: retention worker redacts legacy inbox and outbox errors without deleting payloads',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createRetentionCleanupWorker}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
+  const updateId=Number(Date.now())*1000+792;
+  const chatId='retention-redaction-'+updateId;
+  const secret='legacy error phone +989121234567 receipt SECRET-LEGACY';
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,last_error) VALUES(?,JSON_OBJECT('update_id',?,'message','keep-this-payload'),'failed',?)",[updateId,updateId,secret]);
+    await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,available_at,last_error) VALUES(?,JSON_OBJECT('text','keep-this-outbox-payload'),'failed',UTC_TIMESTAMP(),?)",[chatId,secret]);
+    const result=await createRetentionCleanupWorker({database:pool})();
+    assert.ok(result.redacted>=2);
+    const [[inbox]]=await pool.execute('SELECT last_error,payload FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    const [[outbox]]=await pool.execute('SELECT last_error,payload FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);
+    assert.equal(inbox.last_error,'legacy_error_redacted');
+    assert.equal(outbox.last_error,'legacy_error_redacted');
+    assert.equal(inbox.payload.message,'keep-this-payload','inbox payload must remain available under its separate retention policy');
+    const outboxPayload=typeof outbox.payload==='string'?JSON.parse(outbox.payload):outbox.payload;
+    assert.equal(outboxPayload.text,'keep-this-outbox-payload','outbox payload must not be deleted by error redaction');
+  }finally{
+    await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);
+  }
+});
+
+
 test('MySQL integration: runtime and migration identities enforce separate schema-scoped grants',{skip:!enabled||!process.env.MYSQL_PRIVILEGE_TEST_DATABASE},async()=>{
   const database=process.env.MYSQL_PRIVILEGE_TEST_DATABASE;
   assert.match(database,/^[A-Za-z0-9_]+_ci$/);
