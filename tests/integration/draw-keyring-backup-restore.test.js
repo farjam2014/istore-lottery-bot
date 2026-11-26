@@ -127,10 +127,10 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     // Strip only DEFINER clauses; retain the trigger DDL so it is recreated
     // under the restore identity and remains part of the restored schema.
     const backupSql=backup.toString('utf8').replace(
-      /DEFINER\\s*=\\s*(?:`[^`]*`|'[^']*'|[^\\s@]+)\\s*@\\s*(?:`[^`]*`|'[^']*'|[^\\s*;]+)/gi,
+      /DEFINER\s*=\s*(?:`[^`]*`|'[^']*'|[^\s@]+)\s*@\s*(?:`[^`]*`|'[^']*'|[^\s*;]+)/gi,
       ''
     );
-    assert.doesNotMatch(backupSql,/DEFINER\\s*=/i,'Restore dump must not require privileged DEFINER impersonation.');
+    assert.doesNotMatch(backupSql,/DEFINER\s*=/i,'Restore dump must not require privileged DEFINER impersonation.');
     assert.match(backupSql,/trg_admin_audit_log_no_update/i,'Backup must retain the append-only audit update trigger.');
     assert.match(backupSql,/trg_admin_audit_log_no_delete/i,'Backup must retain the append-only audit delete trigger.');
     execFileSync('mysql',['--host',host,'--port',port,'--user',restoreUser,restoreDatabase],{
