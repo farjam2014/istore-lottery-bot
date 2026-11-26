@@ -123,3 +123,13 @@ test('database privilege preflight rejects object-level column, routine and even
   assert.ok(source.includes('migration_routine_grants=%s expected=0'));
   assert.ok(source.includes('migration_event_grants=%s expected=0'));
 });
+
+
+test('backup artifact scan includes historical root-level SQL dumps and unencrypted full-backup archives',()=>{
+  assert.ok(source.includes('BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)'));
+  assert.ok(source.includes("-iname '*backup*.sql'"));
+  assert.ok(source.includes("-iname '*before-reset*.sql'"));
+  assert.ok(source.includes("-iname '*backup*.tar.gz'"));
+  assert.ok(source.includes("-iname '*backup*.tar.gz.gpg'"));
+  assert.ok(source.includes('Unencrypted database or full-backup archives were detected'));
+});
