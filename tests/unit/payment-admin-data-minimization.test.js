@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 const source=readFileSync(fileURLToPath(new URL('../../src/modules/payments/payment-admin.service.js',import.meta.url)),'utf8');
 const selectStatements=[...source.matchAll(/"SELECT ([^"]+)"/g)].map(match=>match[1]);
+const projection=sql=>sql.split(/\s+FROM\s+/i)[0];
 
 test('finance order list and search do not select participant contact identifiers',()=>{
   const list=selectStatements.find(sql=>sql.includes('receipt_count'));
@@ -12,8 +13,7 @@ test('finance order list and search do not select participant contact identifier
   assert.ok(list);
   assert.ok(search);
   for(const sql of [list,search]){
-    const projection=sql.split(/\\s+FROM\\s+/i)[0];
-    assert.doesNotMatch(projection,/p\\.(?:telegram_user_id|phone|instagram_handle|telegram_username)/);
+    assert.doesNotMatch(projection(sql),/p\.(?:telegram_user_id|phone|instagram_handle|telegram_username)/);
   }
 });
 
@@ -26,10 +26,9 @@ test('finance order detail exposes only the participant phone needed for payment
 
 test('payment CSV export contains order and campaign fields only',()=>{
   const start=source.indexOf('export async function exportManagedOrders');
+  assert.ok(start>=0);
   const exportSource=source.slice(start);
   const exported=[...exportSource.matchAll(/"SELECT ([^"]+)"/g)].map(match=>match[1])[0];
-  assert.ok(start>=0);
   assert.ok(exported);
-  const projection=exported.split(/\\s+FROM\\s+/i)[0];
-  assert.doesNotMatch(projection,/p\\.(?:telegram_user_id|phone|instagram_handle|telegram_username|full_name)/);
+  assert.doesNotMatch(projection(exported),/p\.(?:telegram_user_id|phone|instagram_handle|telegram_username|full_name)/);
 });
