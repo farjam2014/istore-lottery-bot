@@ -28,7 +28,7 @@ ADMIN_PASSWORD="${MYSQL_TEST_ADMIN_PASSWORD:-}"
 READONLY_USER="${MYSQL_TEST_READONLY_USER:-}"
 READONLY_PASSWORD="${MYSQL_TEST_READONLY_PASSWORD:-}"
 
-read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {readFileSync} from 'node:fs';const values=dotenv.parse(readFileSync('.env'));process.stdout.write(values[process.argv[1]]??'')" "$1"; }
+read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {existsSync,readFileSync} from 'node:fs';const values=existsSync('.env')?dotenv.parse(readFileSync('.env')):process.env;process.stdout.write(values[process.argv[1]]??'')" "$1"; }
 APP_USER="$(read_dotenv_value MYSQL_USER)"
 APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"
 PRODUCTION_DB="$(read_dotenv_value MYSQL_DATABASE)"
