@@ -237,7 +237,7 @@ if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
     service_exec_start="$(systemctl show "$service" -p ExecStart --value 2>/dev/null || true)"
     dump_command=not_proven
     if [[ "$service_exec_start" =~ (mysqldump|mysqlpump|mariadb-dump) ]]; then dump_command=database_dump_detected; fi
-    printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}"
+    printf 'backup_timer=%s state=%s enabled=%s last_service_result=%s exit_status=%s last_successful_process_exit=%s dump_command=%s\n' "$timer" "$timer_state" "$timer_enabled" "$service_result" "$service_exit" "${service_last_run:-not_recorded}" "$dump_command"
     if [[ "$timer_state" == "active" && "$timer_enabled" == "enabled" && "$service_result" == "success" && "$service_exit" == "0" && -n "$service_last_run" && "$dump_command" == "database_dump_detected" ]]; then
       VERIFIED_BACKUP_TIMER_COUNT=$((VERIFIED_BACKUP_TIMER_COUNT+1))
     fi
