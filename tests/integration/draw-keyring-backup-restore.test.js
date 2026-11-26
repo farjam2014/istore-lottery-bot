@@ -66,6 +66,8 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='%'",[backupUser]);
     const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='%'",[backupUser]);
     const [[restoreGlobal]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreUser]);
+    const [[migrationSourceSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,database]);
+    const [[migrationRestoreSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[process.env.MYSQL_MIGRATION_USER,restoreDatabase]);
     const [[restoreRuntimeSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[restoreRuntimeUser,restoreDatabase]);
     const [[restoreRuntimeGlobal]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreRuntimeUser]);
     const [[restoreRuntimeOtherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA<>?",[restoreRuntimeUser,restoreDatabase]);
@@ -78,6 +80,8 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     assert.equal(Number(roles.total),0);
     assert.equal(Number(proxy.total),0);
     assert.equal(restoreGlobal.privileges,'SET_USER_ID','restore-only identity may hold only SET_USER_ID globally, never SUPER or unrelated global privileges');
+    assert.equal(migrationSourceSchema.privileges,'ALTER,CREATE,INDEX,REFERENCES,SELECT,TRIGGER,UPDATE,DELETE,INSERT','migration identity must retain only the explicitly provisioned source-schema migration privileges.');
+    assert.equal(migrationRestoreSchema.privileges,'TRIGGER','migration identity may act as DEFINER on the isolated restore schema only through TRIGGER privilege.');
     assert.equal(restoreRuntimeSchema.privileges,'DELETE,INSERT,SELECT,UPDATE','restored runtime identity must have only schema-scoped DML.');
     assert.equal(Number(restoreRuntimeGlobal.total),0,'restored runtime identity must have no global privileges.');
     assert.equal(Number(restoreRuntimeOtherSchemas.total),0,'restored runtime identity must have no grants on other schemas.');
