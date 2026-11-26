@@ -10,7 +10,7 @@ async function clearFixtureSchema(connection,database){
   const [objects]=await connection.execute('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
   await connection.query('SET FOREIGN_KEY_CHECKS=0');
   try{
-    for(const object of objects)await connection.query('DROP '+(object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE')+' IF EXISTS '+quoteIdentifier(object.TABLE_NAME));
+    for(const object of objects)await connection.query('DROP '+(object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE')+' IF EXISTS '+quoteIdentifier(database)+'.'+quoteIdentifier(object.TABLE_NAME));
   }finally{await connection.query('SET FOREIGN_KEY_CHECKS=1');}
 }
 
