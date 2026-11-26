@@ -149,6 +149,21 @@ PREPARE preflight_session_stmt FROM @preflight_sql;
 EXECUTE preflight_session_stmt;
 DEALLOCATE PREPARE preflight_session_stmt;
 
+-- Count legacy inbox error values without exposing their contents. Older releases
+-- may have persisted raw exception text; current releases use fixed labels only.
+SET @preflight_inbox_error_column_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_update_inbox' AND COLUMN_NAME='last_error'
+);
+SET @preflight_sql := IF(
+  @preflight_inbox_error_column_exists,
+  'SELECT ''telegram_update_inbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_update_inbox WHERE last_error IS NOT NULL AND last_error NOT IN (''invalid_payload'',''payload_update_id_mismatch'',''handler_failed'')',
+  'SELECT ''telegram_update_inbox_legacy_error_rows'' AS metric, NULL AS exact_rows, ''PENDING_OR_MISSING_COLUMN'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
 SET @preflight_session_table_exists := (
   SELECT COUNT(*)=1 FROM information_schema.TABLES
   WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_action_idempotency'
