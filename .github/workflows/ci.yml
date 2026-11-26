@@ -52,16 +52,12 @@ jobs:
       MYSQL_PORT: 3306
       MYSQL_DATABASE: istore_lottery_ci
       MYSQL_USER: ustore_ci_testapp
-      MYSQL_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       MYSQL_TEST_ADMIN_USER: root
       MYSQL_TEST_ADMIN_PASSWORD: root
       MYSQL_TEST_READONLY_USER: ustore_ci_readonly
-      MYSQL_TEST_READONLY_PASSWORD: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
       MYSQL_PRIVILEGE_TEST_DATABASE: ustore_privilege_ci
       MYSQL_PRIVILEGE_RUNTIME_USER: ustore_ci_runtime
-      MYSQL_PRIVILEGE_RUNTIME_PASSWORD: '1111111111111111111111111111111111111111111111111111111111111111'
       MYSQL_PRIVILEGE_MIGRATION_USER: ustore_ci_migrate
-      MYSQL_PRIVILEGE_MIGRATION_PASSWORD: '2222222222222222222222222222222222222222222222222222222222222222'
       MYSQL_TEST_DATABASE: istore_lottery_ci
       MYSQL_RESTORE_DATABASE: draw_restore_fixture_ci
       MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
@@ -71,7 +67,6 @@ jobs:
       RUN_MYSQL_TESTS: '1'
       ALLOW_DATABASE_MIGRATIONS: '1'
       ALLOW_TEST_DATABASE_MIGRATIONS: '1'
-      DRAW_SEED_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       PRIVACY_NOTICE_URL: https://example.com/privacy
       PRIVACY_NOTICE_VERSION: ci-v1
     steps:
@@ -89,18 +84,40 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+      - name: Generate ephemeral MySQL and draw test credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          MYSQL_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_TEST_READONLY_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_PRIVILEGE_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_PRIVILEGE_MIGRATION_PASSWORD="$(openssl rand -hex 32)"
+          DRAW_SEED_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          for value in "$MYSQL_PASSWORD" "$MYSQL_TEST_READONLY_PASSWORD" "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" "$DRAW_SEED_ENCRYPTION_KEY"; do
+            [[ "$value" =~ ^[a-f0-9]{64}$ ]]
+            echo "::add-mask::$value"
+          done
+          {
+            printf 'MYSQL_PASSWORD=%s\n' "$MYSQL_PASSWORD"
+            printf 'MYSQL_TEST_READONLY_PASSWORD=%s\n' "$MYSQL_TEST_READONLY_PASSWORD"
+            printf 'MYSQL_PRIVILEGE_RUNTIME_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD"
+            printf 'MYSQL_PRIVILEGE_MIGRATION_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD"
+            printf 'DRAW_SEED_ENCRYPTION_KEY=%s\n' "$DRAW_SEED_ENCRYPTION_KEY"
+          } >> "$GITHUB_ENV"
       - name: Provision isolated MySQL test identities and schemas
         run: |
-          mysql --host 127.0.0.1 --user root --password=root <<'SQL'
+          set -Eeuo pipefail
+          [[ "$MYSQL_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_TEST_READONLY_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+          mysql --host 127.0.0.1 --user root --password=root <<SQL
           CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS draw_restore_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_preflight_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_drawguard_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS ustore_privilege_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
-          CREATE USER 'ustore_ci_runtime'@'%' IDENTIFIED BY '1111111111111111111111111111111111111111111111111111111111111111';
-          CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '2222222222222222222222222222222222222222222222222222222222222222';
+          CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
+          CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY '$MYSQL_TEST_READONLY_PASSWORD';
+          CREATE USER 'ustore_ci_runtime'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_RUNTIME_PASSWORD';
+          CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_MIGRATION_PASSWORD';
           GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
           GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
