@@ -155,3 +155,11 @@ test('production host preflight detects manually launched GitHub runner processe
   assert.ok(source.includes('runner_processes=none_detected'));
   assert.ok(source.includes('find /home /opt /root /srv /var/lib /usr/local -maxdepth 6 -type f'));
 });
+
+
+test('production host preflight verifies binary-log trust before least-privilege audit-trigger migrations',()=>{
+  assert.ok(source.includes("BINLOG_ENABLED=\"$(mysql_q 'SELECT @@GLOBAL.log_bin'"));
+  assert.ok(source.includes("BINLOG_TRUSTED_CREATORS=\"$(mysql_q 'SELECT @@GLOBAL.log_bin_trust_function_creators'"));
+  assert.ok(source.includes('MySQL binary logging is enabled but log_bin_trust_function_creators is OFF'));
+  assert.ok(source.includes('append-only audit trigger migrations would require broader privileges.'));
+});
