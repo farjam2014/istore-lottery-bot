@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 die(){ printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
-read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {readFileSync} from 'node:fs';const values=dotenv.parse(readFileSync('.env'));process.stdout.write(values[process.argv[1]]??'')" "$1"; }
+read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {existsSync,readFileSync} from 'node:fs';const values=existsSync('.env')?dotenv.parse(readFileSync('.env')):process.env;process.stdout.write(values[process.argv[1]]??'')" "$1"; }
 valid_user(){ [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,22}$ ]]; }
 valid_password(){ [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
 
