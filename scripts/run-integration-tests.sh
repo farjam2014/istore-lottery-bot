@@ -12,7 +12,8 @@ PREFLIGHT_DB="${MYSQL_PREFLIGHT_DATABASE:-}"
 DRAW_GUARD_DB="${MYSQL_DRAW_GUARD_DATABASE:-}"
 APP_DB="$(read_dotenv_value MYSQL_DATABASE)"
 APP_USER="$(read_dotenv_value MYSQL_USER)"
-APP_MIGRATION_USER=\nif [[ -f .env ]]; then APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"; fi
+APP_MIGRATION_USER=
+if [[ -f .env ]]; then APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"; fi
 HOST="${MYSQL_HOST:-$(read_dotenv_value MYSQL_HOST)}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${MYSQL_PORT:-$(read_dotenv_value MYSQL_PORT)}"
