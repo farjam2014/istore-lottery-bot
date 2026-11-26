@@ -53,9 +53,18 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 | Payment event history (`payment_events`) | Records order references, actor Telegram IDs (including system actor `0`), event types, correlation IDs, timestamps, and event-specific details. No cleanup or archival path and no approved retention period are implemented. |
 | Admin role history (`admin_role_events`) | Records target and actor Telegram IDs, role-change action, before/after role, and event time. No cleanup or archival path and no approved retention period are implemented. |
 | Admin action idempotency records (`admin_action_idempotency`) | No cleanup path or approved retention period is currently implemented; records include admin Telegram IDs, action type, entity reference, and creation time. Retention must balance replay protection against indefinite storage of admin identifiers. |
-| Outbox payloads (`telegram_notification_outbox`) | No complete retention schedule for sent/failed/uncertain payloads is approved or encoded. Payloads can contain participant notification text and payment/draw details. |
+| Outbox payloads and delivery errors (`telegram_notification_outbox`) | The worker stores the full Telegram payload (text, photo file reference, caption, and options) for pending, sending, sent, failed, and uncertain rows. No automatic Outbox payload purge is implemented. New worker versions store only fixed error classifications (`invalid_payload`, `telegram_http_429`, `telegram_http_4xx`, `telegram_http_5xx`, `network_or_unknown`) in `last_error`; older rows may contain raw exception text and must be treated as potentially sensitive. Manual retry is super-admin-only, per-notification, state-checked, and audited. Retrying an `uncertain` row can deliver a duplicate message because Telegram send methods do not provide an end-to-end idempotency key. No retention period is approved; do not purge payloads or financial/audit evidence until business/legal approval. |
 
 The short operational retention windows above are not a substitute for a complete personal-data retention policy.
+
+## Outbox delivery and duplicate-send controls
+
+- `pending` rows are claimed transactionally with `FOR UPDATE SKIP LOCKED` and a per-attempt lease token; only the worker holding the matching token may finalize the row.
+- HTTP 429 responses are automatically retried with Telegram `retry_after` (or bounded backoff) and stop after the configured maximum attempts. Definite HTTP 4xx errors other than 429 become `failed`.
+- Network errors, server errors, and expired `sending` leases become `uncertain`; they are not automatically resent because Telegram may already have accepted the message.
+- Manual retry is restricted to a super-admin, one notification at a time, validates the expected prior state under a row lock, and writes an append-only admin audit event. The interface warns that retrying an `uncertain` notification may send a duplicate. This is an explicit operator override, not exactly-once delivery.
+- The outbox worker does not generate campaign codes. A manual retry resends the stored payload; if that payload contains an already-issued code, the same code may be delivered again, but the retry path itself does not issue a new code.
+- Outbox payloads remain stored after delivery/failure/uncertain status. No automated Outbox TTL is implemented or approved. Treat these rows as personal/financial data and keep this as a launch blocker until the business owner and qualified local counsel approve retention, deletion/anonymization, and audit exceptions.
 
 ## Consent capture implementation
 
