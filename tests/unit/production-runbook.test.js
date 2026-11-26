@@ -32,4 +32,3 @@ test('production host preflight detects residual self-hosted runner services and
   assert.match(hostAudit,/runner_registration_metadata=none_detected/);
   assert.match(hostAudit,/self-hosted GitHub Runner registration metadata remains/);
 });
-});
