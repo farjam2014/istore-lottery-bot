@@ -8,7 +8,7 @@ test('CI runs an explicit all-refs full-history Gitleaks scan in addition to the
   assert.match(workflow,/fetch-depth:\s*0/);
   assert.match(workflow,/gitleaks\/gitleaks-action@[0-9a-f]{40}/);
   assert.match(workflow,/name: Scan all Git refs and full history for secrets/);
-  assert.match(workflow,/run: gitleaks git --redact --verbose --exit-code 2 \\./);
+  assert.ok(workflow.includes('run: gitleaks git --redact --verbose --exit-code 2 .'));
   assert.match(workflow,/GITLEAKS_ENABLE_COMMENTS: 'false'/);
   assert.match(workflow,/GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'/);
 });
