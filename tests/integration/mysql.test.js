@@ -978,6 +978,34 @@ test('MySQL integration: outbox stores safe delivery errors and audited manual r
 });
 
 
+
+test('MySQL integration: Telegram inbox persists only a fixed error label when a handler exception contains private data',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateGuard}=await import('../../src/bot/middleware/update-guard.js');
+  const updateId=Number(Date.now())*1000+791;
+  const secret='participant phone +989121234567 receipt SECRET-INBOX-INTEGRATION';
+  try{
+    await migrate();
+    const guard=createUpdateGuard({
+      database:pool,
+      log:{error(){},warn(){}},
+      correlate:(_correlationId,run)=>run(),
+      uuid:()=> 'inbox-test-lease-token'
+    });
+    const ctx={update:{update_id:updateId,message:{text:secret}},state:{}};
+    await assert.rejects(guard(ctx,async()=>{throw new Error(secret);}),/participant phone/);
+    const [[row]]=await pool.execute('SELECT status,last_error,payload FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    assert.equal(row.status,'failed');
+    assert.equal(row.last_error,'handler_failed');
+    const payload=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;
+    assert.equal(payload.message.text,secret,'the inbox retains the original Telegram update payload under its separate retention policy');
+    assert.equal(row.last_error.includes('989121234567'),false);
+    assert.equal(row.last_error.includes('SECRET-INBOX-INTEGRATION'),false);
+  }finally{await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);}
+});
+
+
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
