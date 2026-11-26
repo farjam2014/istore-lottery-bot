@@ -38,7 +38,7 @@ BACKUP_DIR="/root/ustore-release-backup-$STAMP"
 sudo install -d -m 700 "$BACKUP_DIR"
 ```
 
-Obtain `MYSQL_DATABASE` from the protected environment without printing the rest of `.env`. Run the approved consistent dump command for that database, compress it, verify the archive, and record its SHA-256. Keep a copy off-host encrypted.
+Obtain `MYSQL_DATABASE` from the protected environment without printing the rest of `.env`. Stream the approved consistent dump through compression and encryption into the protected backup directory; do not leave a plaintext or compression-only SQL dump on disk. Verify the encrypted archive and record its SHA-256. Keep an independently encrypted off-host copy. The read-only host preflight requires at least one encrypted database-backup artifact and `plaintext_database_backup_artifacts=0`; remove or re-encrypt legacy plaintext dumps before proceeding.
 
 Back up the exact draw-key configuration/key IDs independently in an access-controlled encrypted vault. Preserve the current `.env` as a root-only recovery artifact, encrypted before off-host storage. A database dump without the historical draw keys is not a complete draw recovery backup.
 
