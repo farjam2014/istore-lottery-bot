@@ -7,34 +7,46 @@ import mysql from 'mysql2/promise';
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+const quoteIdentifier=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
+async function clearFixtureSchema(connection,database){
+  const [objects]=await connection.execute('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
+  await connection.query('SET FOREIGN_KEY_CHECKS=0');
+  try{
+    for(const object of objects){
+      const kind=object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE';
+      await connection.query('DROP '+kind+' IF EXISTS '+quoteIdentifier(object.TABLE_NAME));
+    }
+  }finally{
+    await connection.query('SET FOREIGN_KEY_CHECKS=1');
+  }
+}
+async function assertFixtureSchemaEmpty(connection,database){
+  const [[row]]=await connection.execute('SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
+  assert.equal(Number(row.total),0,'Fixture schema '+database+' must be empty before the test.');
+}
+
 
 test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
   const host=process.env.MYSQL_HOST||'127.0.0.1';
   const port=Number(process.env.MYSQL_PORT||3306);
   const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
   const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
-  assert.ok(adminUser,'A disposable MySQL admin account is required for the baseline preflight fixture.');
-  const suffix=randomBytes(6).toString('hex');
-  const database='ustore_preflight_'+suffix+'_ci';
-  const reader='preflight_'+suffix;
-  const readerPassword=randomBytes(24).toString('hex');
-  const quoteId=value=>'`'+String(value).replaceAll('`','``')+'`';
-  let admin,setup,readonly,readerCreated=false,databaseCreated=false,readerHost='';
+  const reader=process.env.MYSQL_TEST_READONLY_USER;
+  const readerPassword=process.env.MYSQL_TEST_READONLY_PASSWORD||'';
+  const readerHost='127.0.0.1';
+  const database=process.env.MYSQL_PREFLIGHT_DATABASE||'';
+  assert.ok(adminUser&&reader&&readerPassword,'Dedicated fixture-admin and read-only accounts are required.');
+  assert.match(database,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
+  assert.notEqual(database,process.env.MYSQL_DATABASE,'Preflight fixture schema must differ from the application test schema.');
+  let admin,setup,readonly;
   try{
     admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
-    const [[client]]=await admin.query("SELECT SUBSTRING_INDEX(USER(),'@',-1) AS client_host");
-    readerHost=String(client.client_host||'');
-    if(!/^[A-Za-z0-9_.:%-]+$/.test(readerHost))throw new Error('Could not determine a safe MySQL client host for the read-only fixture account.');
-    await admin.query('CREATE DATABASE '+quoteId(database)+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-    databaseCreated=true;
+    await assertFixtureSchemaEmpty(admin,database);
     setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
     const schema=await readFile(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
     for(const statement of schema.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean))await setup.query(statement);
     await setup.query('CREATE TABLE schema_migrations (version VARCHAR(120) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     await setup.end();setup=null;
-    await admin.query("CREATE USER '"+reader+"'@'"+readerHost+"' IDENTIFIED BY '"+readerPassword+"'");
-    readerCreated=true;
-    await admin.query('GRANT SELECT ON '+quoteId(database)+".* TO '"+reader+"'@'"+readerHost+"'");
     readonly=await mysql.createConnection({host:'127.0.0.1',port,user:reader,password:readerPassword,database});
     const preflight=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
     const statements=preflight.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean);
@@ -61,8 +73,7 @@ test('MySQL integration: production migration preflight runs against the baselin
     if(readonly)await readonly.end().catch(()=>{});
     if(setup)await setup.end().catch(()=>{});
     if(admin){
-      if(readerCreated)await admin.query("DROP USER IF EXISTS '"+reader+"'@'"+readerHost+"'").catch(()=>{});
-      if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
+      await clearFixtureSchema(admin,database).catch(()=>{});
       await admin.end().catch(()=>{});
     }
   }
@@ -76,9 +87,10 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
   const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
   const suffix=randomBytes(6).toString('hex');
-  const database='ustore_drawguard_'+suffix+'_ci';
-  const quoteId=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
-  let admin,setup,databaseCreated=false;
+  const database=process.env.MYSQL_DRAW_GUARD_DATABASE||'';
+  assert.match(database,/^ustore_drawguard_[A-Za-z0-9_]+_ci$/,'A pre-provisioned draw-guard fixture schema is required.');
+  assert.notEqual(database,process.env.MYSQL_DATABASE,'Draw-guard fixture schema must differ from the application test schema.');
+  let admin,setup;
   const runMigration=stopBefore=>{
     const env={...process.env,NODE_ENV:'test',MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,MYSQL_USER:adminUser,MYSQL_PASSWORD:adminPassword,ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_TEST_DATABASE_MIGRATIONS:'1'};
     delete env.MYSQL_MIGRATION_USER;
@@ -91,8 +103,7 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   };
   try{
     admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
-    await admin.query('CREATE DATABASE '+quoteId(database)+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-    databaseCreated=true;
+    await assertFixtureSchemaEmpty(admin,database);
     const beforeDrawIntegrity='20261117_006_draw_relational_integrity.sql';
     const prepared=runMigration(beforeDrawIntegrity);
     assert.equal(prepared.status,0,prepared.stderr||prepared.stdout);
@@ -137,7 +148,7 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   }finally{
     if(setup)await setup.end().catch(()=>{});
     if(admin){
-      if(databaseCreated)await admin.query('DROP DATABASE IF EXISTS '+quoteId(database)).catch(()=>{});
+      await clearFixtureSchema(admin,database).catch(()=>{});
       await admin.end().catch(()=>{});
     }
   }
