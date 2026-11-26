@@ -68,5 +68,5 @@ test('manual outbox retry rejects invalid status',async()=>{
 test('manual retry replaces legacy exception text with a fixed safe marker',()=>{
   const source=readFileSync(new URL('../../src/modules/notifications/outbox-admin.service.js',import.meta.url),'utf8');
   assert.match(source,/last_error='manually_requeued'/);
-  assert.doesNotMatch(source,/last_error=CONCAT\\(LEFT\\(COALESCE\\(last_error/);
+  assert.equal(source.includes("last_error=CONCAT(LEFT(COALESCE(last_error"),false);
 });
