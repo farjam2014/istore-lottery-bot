@@ -1671,6 +1671,7 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
     const retentionUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
     const retentionUpdateId=Number(Date.now())*100;
     const retentionTables=['telegram_user_sessions','admin_wizards','payment_card_admin_sessions','payment_admin_sessions','admin_search_sessions','admin_role_sessions','support_sessions','profile_change_sessions','telegram_rate_limits'];
+    let outboxInsertId=null;
     try{
       await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'awaiting_name',JSON_OBJECT('full_name','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
       await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'title',JSON_OBJECT('title','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
@@ -1687,6 +1688,7 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
       const rawLegacyError='legacy phone +989121234567 SECRET-RETENTION-'+retentionUpdateId;
       await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,last_error) VALUES(?,JSON_OBJECT('update_id',?,'message',JSON_OBJECT('text',?)),'failed',?)",[retentionUpdateId,retentionUpdateId,inboxPayloadText,rawLegacyError]);
       const [outboxInsert]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,last_error) VALUES(?,JSON_OBJECT('text',?),'failed',?)",[retentionUserId,outboxPayloadText,rawLegacyError]);
+      outboxInsertId=outboxInsert.insertId;
       const result=await cleanupExpiredRetentionRows();
       assert.ok(result.deleted>=10,'retention worker must delete all ten seeded expired rows');
       assert.ok(result.redacted>=2,'retention worker must redact legacy inbox and Outbox errors');
@@ -1707,7 +1709,7 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
       for(const table of retentionTables)await pool.execute('DELETE FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
       await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
       await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[retentionUpdateId]);
-      await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'+'\'$.text\''+'))=?',[retentionUserId,outboxPayloadText]);
+      if(outboxInsertId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[outboxInsertId]);
     }
   }finally{
     if(drawId){
