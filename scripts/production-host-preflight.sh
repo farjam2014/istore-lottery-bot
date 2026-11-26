@@ -19,8 +19,12 @@ done
 read_dotenv_value(){
   node --input-type=module - "$1" "$2" <<'NODE'
 import { readFileSync } from 'node:fs';
-import dotenv from 'dotenv';
-const values=dotenv.parse(readFileSync(process.argv[2]));
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+const file=process.argv[2];
+const require=createRequire(join(dirname(file),'package.json'));
+const dotenv=require('dotenv');
+const values=dotenv.parse(readFileSync(file));
 process.stdout.write(String(values[process.argv[3]] ?? ''));
 NODE
 }
