@@ -12,7 +12,7 @@ if [[ "$EUID" -ne 0 ]]; then
   echo "Run this read-only audit as root. No changes will be made."
   exit 2
 fi
-for command in systemctl stat node mysql ss free df awk grep find; do
+for command in systemctl stat node mysql ss free df awk grep find wc; do
   command -v "$command" >/dev/null 2>&1 || { echo "Required command missing: $command"; exit 2; }
 done
 
