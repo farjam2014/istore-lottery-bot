@@ -59,9 +59,11 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
   APP_USER="$(read_dotenv_value "$ACTIVE/.env" MYSQL_USER)"
   APP_PASS="$(read_dotenv_value "$ACTIVE/.env" MYSQL_PASSWORD)"
   DB_HOST="$(read_dotenv_value "$ACTIVE/.env" MYSQL_HOST)"
-  if [[ "$DB" =~ ^[A-Za-z0-9_]{1,64}$ && "$APP_USER" =~ ^[A-Za-z0-9_]{1,32}$ && "$DB_HOST" == "127.0.0.1" ]]; then
-    mysql_q(){ mysql --protocol=socket --batch --skip-column-names -e "$1"; }
+  MYSQL_READY=0
+  mysql_q(){ mysql --protocol=socket --batch --skip-column-names -e "$1"; }
+  if [[ "$DB" =~ ^[A-Za-z0-9_]{1,64}$ && "$APP_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$APP_PASS" && "$DB_HOST" == "127.0.0.1" ]]; then
     if mysql_q "SELECT VERSION()" >/dev/null 2>&1; then
+      MYSQL_READY=1
       printf 'mysql_version=%s\n' "$(mysql_q 'SELECT VERSION()')"
       R1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       R2="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE')")"
@@ -94,7 +96,7 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
     MIG_USER="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_USER)"
     MIG_PASS="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_PASSWORD)"
     MIG_DB="$(read_dotenv_value "$MIGRATION_ENV" MIGRATION_TARGET_DATABASE)"
-    if [[ "$MIG_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$MIG_PASS" && "$MIG_USER" != "$APP_USER" && "$MIG_PASS" != "$APP_PASS" && "$MIG_DB" == "$DB" ]]; then
+    if [[ "$MYSQL_READY" == 1 && "$MIG_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$MIG_PASS" && "$MIG_USER" != "$APP_USER" && "$MIG_PASS" != "$APP_PASS" && "$MIG_DB" == "$DB" ]]; then
       M1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       M2="$(mysql_q "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE','CREATE','ALTER','INDEX','REFERENCES','TRIGGER')")"
       M3="$(mysql_q "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
