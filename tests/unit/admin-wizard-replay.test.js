@@ -138,3 +138,19 @@ test('session cancellation rejects a callback whose update is not newer than its
   assert.equal(isStaleAdminReplyUpdate(199,200),true);
   assert.equal(isStaleAdminReplyUpdate(201,null),true);
 });
+
+test('payment-card and admin-search cancel buttons are bound to their active cursor',()=>{
+  const handler=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  for(const value of [
+    "'admin:payment-card:cancel:'+ctx.update.update_id",
+    "'admin:payment-card:cancel:'+cardSession.last_update_id",
+    "payment_card_admin_sessions WHERE telegram_user_id=? AND last_update_id=?",
+    "'admin:campaign:codes:cancel:'+campaignId+':'+updateId",
+    "step='campaign_code' AND campaign_id=? AND last_update_id=?",
+    "'admin:participants:search:cancel:'+updateId",
+    "step IN ('participant','participant_results') AND last_update_id=?"
+  ]) assert.ok(handler.includes(value),'missing cursor-bound search/card cancellation: '+value);
+  assert.ok(handler.includes("bot.action('admin:payment-card:cancel',async ctx=>ctx.answerCbQuery("));
+  assert.ok(handler.includes("bot.action(/^admin:campaign:codes:cancel:(\\d+)$/,async ctx=>ctx.answerCbQuery("));
+  assert.ok(handler.includes("bot.action('admin:participants:search:cancel',async ctx=>ctx.answerCbQuery("));
+});
