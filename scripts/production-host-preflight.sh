@@ -12,7 +12,7 @@ if [[ "$EUID" -ne 0 ]]; then
   echo "Run this read-only audit as root. No changes will be made."
   exit 2
 fi
-for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab; do
+for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl; do
   command -v "$command" >/dev/null 2>&1 || { echo "Required command missing: $command"; exit 2; }
 done
 
@@ -47,6 +47,19 @@ if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
     [[ "$(stat -c '%a' "$ACTIVE/.env")" == "600" ]] || fail "Runtime .env mode is not 600."
   else
     fail "Runtime .env is missing."
+  fi
+  if [[ -f "$ACTIVE/.env" && ! -L "$ACTIVE/.env" ]]; then
+    NOTICE_URL="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_URL)"
+    NOTICE_VERSION="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_VERSION)"
+    if [[ "$NOTICE_URL" =~ ^https://[^[:space:]]{1,2040}$ && "$NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]]; then
+      if curl --fail --silent --show-error --location --max-time 10 --proto '=https' --proto-redir '=https' --output /dev/null "$NOTICE_URL"; then
+        info "privacy_notice=reachable_https_with_version"
+      else
+        fail "Configured HTTPS privacy notice URL is not reachable."
+      fi
+    else
+      fail "Runtime .env must contain a valid HTTPS PRIVACY_NOTICE_URL and PRIVACY_NOTICE_VERSION."
+    fi
   fi
 else
   fail "Service WorkingDirectory is missing."

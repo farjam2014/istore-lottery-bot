@@ -17,7 +17,7 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Confirm the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the application database; DDL must use a separate migration account.
 - [ ] Confirm a clean, known code version is deployed and record its commit SHA.
 - [ ] Confirm `.env` is a regular file owned by the service account with mode `600`. Never print or upload it.
-- [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
+- [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data. The read-only host preflight must confirm both values and HTTPS reachability before the maintenance window.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
 - [ ] Confirm the active key ID and every historical key ID referenced by prepared draws are present.
 - [ ] Confirm every historical draw key ID is accounted for in the protected keyring backup; do not infer ciphertext decryptability from the baseline preflight alone.

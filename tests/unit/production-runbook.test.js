@@ -45,3 +45,12 @@ test('production runbook verifies exact append-only audit trigger definitions',(
   assert.match(triggerLine,/REGEXP_REPLACE\(TRIM\(ACTION_STATEMENT\)/);
   assert.match(triggerLine,/ADMIN_AUDIT_LOG IS APPEND-ONLY/);
 });
+
+test('production host preflight requires a reachable versioned HTTPS privacy notice',()=>{
+  const hostAudit=readFileSync(new URL('../../scripts/production-host-preflight.sh',import.meta.url),'utf8');
+  assert.match(hostAudit,/PRIVACY_NOTICE_URL/);
+  assert.match(hostAudit,/PRIVACY_NOTICE_VERSION/);
+  assert.match(hostAudit,/^https:/);
+  assert.match(hostAudit,/curl --fail --silent --show-error --location --max-time 10 --proto '=https' --proto-redir '=https'/);
+  assert.match(hostAudit,/privacy_notice=reachable_https_with_version/);
+});
