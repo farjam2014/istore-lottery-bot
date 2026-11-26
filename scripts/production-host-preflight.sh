@@ -164,7 +164,6 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       printf 'runtime_show_grants:\n'
       mysql_q "SHOW GRANTS FOR '$APP_USER'@'127.0.0.1'" || fail "Could not resolve runtime SHOW GRANTS."
       verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$ACTIVE/.env" MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE runtime || fail "Runtime DB credentials do not authenticate as the expected runtime identity."
-      unset APP_PASS
     else
       fail "Root MySQL socket inspection failed."
     fi
@@ -209,6 +208,7 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
     info "migration_credentials=NOT_CONFIGURED"
     fail "Protected migration-only credentials are missing."
   fi
+  unset APP_PASS
 else
   fail "Could not read active release metadata."
 fi
