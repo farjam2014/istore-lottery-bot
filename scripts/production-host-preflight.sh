@@ -17,15 +17,19 @@ for command in systemctl stat node mysql ss free df awk grep find wc sort date h
 done
 
 read_dotenv_value(){
-  node --input-type=module - "$1" "$2" <<'NODE'
+  node --input-type=module - "$1" "$2" "$3" <<'NODE'
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-const file=process.argv[2];
-const require=createRequire(join(dirname(file),'package.json'));
+import { join } from 'node:path';
+const release=process.argv[2];
+const file=process.argv[3];
+const key=process.argv[4];
+// Resolve dotenv from the active release, not from the protected /etc
+// migration-env directory (which intentionally has no node_modules).
+const require=createRequire(join(release,'package.json'));
 const dotenv=require('dotenv');
 const values=dotenv.parse(readFileSync(file));
-process.stdout.write(String(values[process.argv[3]] ?? ''));
+process.stdout.write(String(values[key] ?? ''));
 NODE
 }
 
@@ -49,8 +53,8 @@ if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
     fail "Runtime .env is missing."
   fi
   if [[ -f "$ACTIVE/.env" && ! -L "$ACTIVE/.env" ]]; then
-    NOTICE_URL="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_URL)"
-    NOTICE_VERSION="$(read_dotenv_value "$ACTIVE/.env" PRIVACY_NOTICE_VERSION)"
+    NOTICE_URL="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" PRIVACY_NOTICE_URL)"
+    NOTICE_VERSION="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" PRIVACY_NOTICE_VERSION)"
     if [[ "$NOTICE_URL" =~ ^https://[^[:space:]]{1,2040}$ && "$NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]]; then
       NOTICE_HOST="$(node --input-type=module -e 'process.stdout.write(new URL(process.argv[1]).hostname)' "$NOTICE_URL")"
       if [[ "$NOTICE_HOST" == "example.com" || "$NOTICE_HOST" == "www.example.com" || "$NOTICE_HOST" == "localhost" || "$NOTICE_HOST" == *.example || "$NOTICE_HOST" == *.test || "$NOTICE_HOST" == *.invalid ]]; then
@@ -75,10 +79,10 @@ fi
 
 section "DATABASE PRIVILEGE SUMMARY"
 if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
-  DB="$(read_dotenv_value "$ACTIVE/.env" MYSQL_DATABASE)"
-  APP_USER="$(read_dotenv_value "$ACTIVE/.env" MYSQL_USER)"
-  APP_PASS="$(read_dotenv_value "$ACTIVE/.env" MYSQL_PASSWORD)"
-  DB_HOST="$(read_dotenv_value "$ACTIVE/.env" MYSQL_HOST)"
+  DB="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" MYSQL_DATABASE)"
+  APP_USER="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" MYSQL_USER)"
+  APP_PASS="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" MYSQL_PASSWORD)"
+  DB_HOST="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" MYSQL_HOST)"
   MYSQL_READY=0
   mysql_q(){ mysql --protocol=socket --batch --skip-column-names -e "$1"; }
   if [[ "$DB" =~ ^[A-Za-z0-9_]{1,64}$ && "$APP_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$APP_PASS" && "$DB_HOST" == "127.0.0.1" ]]; then
@@ -113,9 +117,9 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
     [[ ! -L "$MIGRATION_DIR" && ! -L "$MIGRATION_ENV" ]] || fail "Migration credential path contains a symlink."
     [[ "$(stat -c '%U:%G:%a' "$MIGRATION_DIR")" == root:root:700 ]] || fail "Migration directory must be root:root mode 700."
     [[ "$(stat -c '%U:%G:%a' "$MIGRATION_ENV")" == root:root:600 ]] || fail "Migration env must be root:root mode 600."
-    MIG_USER="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_USER)"
-    MIG_PASS="$(read_dotenv_value "$MIGRATION_ENV" MYSQL_MIGRATION_PASSWORD)"
-    MIG_DB="$(read_dotenv_value "$MIGRATION_ENV" MIGRATION_TARGET_DATABASE)"
+    MIG_USER="$(read_dotenv_value "$ACTIVE" "$MIGRATION_ENV" MYSQL_MIGRATION_USER)"
+    MIG_PASS="$(read_dotenv_value "$ACTIVE" "$MIGRATION_ENV" MYSQL_MIGRATION_PASSWORD)"
+    MIG_DB="$(read_dotenv_value "$ACTIVE" "$MIGRATION_ENV" MIGRATION_TARGET_DATABASE)"
     if [[ "$MYSQL_READY" == 1 && "$MIG_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$MIG_PASS" && "$MIG_USER" != "$APP_USER" && "$MIG_PASS" != "$APP_PASS" && "$MIG_DB" == "$DB" ]]; then
       M1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       M2="$(mysql_q "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE','CREATE','ALTER','INDEX','REFERENCES','TRIGGER')")"
