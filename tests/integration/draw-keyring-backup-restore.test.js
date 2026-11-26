@@ -39,11 +39,16 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const backupPassword=String(process.env.MYSQL_BACKUP_PASSWORD||'');
   const restoreUser=String(process.env.MYSQL_RESTORE_USER||'');
   const restorePassword=String(process.env.MYSQL_RESTORE_PASSWORD||'');
+  const restoreRuntimeUser=String(process.env.MYSQL_RESTORE_RUNTIME_USER||'');
+  const restoreRuntimePassword=String(process.env.MYSQL_RESTORE_RUNTIME_PASSWORD||'');
   assert.ok(backupUser&&backupPassword,'A dedicated schema-scoped backup identity with SELECT, SHOW VIEW and TRIGGER is required.');
   assert.ok(restoreUser&&restorePassword,'A dedicated schema-scoped restore identity is required.');
+  assert.ok(restoreRuntimeUser&&restoreRuntimePassword,'A separate DML-only restored-runtime identity is required.');
   assert.notEqual(user,backupUser,'Application and backup identities must be distinct.');
   assert.notEqual(user,restoreUser,'Application and restore identities must be distinct.');
   assert.notEqual(backupUser,restoreUser,'Backup and restore identities must be distinct.');
+  assert.notEqual(restoreRuntimeUser,restoreUser,'Restored runtime and temporary restore identities must be distinct.');
+  assert.notEqual(restoreRuntimeUser,backupUser,'Restored runtime and backup identities must be distinct.');
   const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
   const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
   assert.ok(adminUser&&adminPassword,'A test-only grant inspection identity is required.');
@@ -58,6 +63,9 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='%'",[backupUser]);
     const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='%'",[backupUser]);
     const [[restoreGlobal]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreUser]);
+    const [[restoreRuntimeSchema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[restoreRuntimeUser,restoreDatabase]);
+    const [[restoreRuntimeGlobal]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreRuntimeUser]);
+    const [[restoreRuntimeOtherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA<>?",[restoreRuntimeUser,restoreDatabase]);
     assert.equal(schema.privileges,'SELECT,SHOW VIEW,TRIGGER','backup account must have only the schema-scoped dump privileges');
     assert.equal(Number(global.total),0);
     assert.equal(Number(otherSchemas.total),0);
@@ -67,6 +75,9 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     assert.equal(Number(roles.total),0);
     assert.equal(Number(proxy.total),0);
     assert.equal(restoreGlobal.privileges,'SET_USER_ID','restore-only identity may hold only SET_USER_ID globally, never SUPER or unrelated global privileges');
+    assert.equal(restoreRuntimeSchema.privileges,'DELETE,INSERT,SELECT,UPDATE','restored runtime identity must have only schema-scoped DML.');
+    assert.equal(Number(restoreRuntimeGlobal.total),0,'restored runtime identity must have no global privileges.');
+    assert.equal(Number(restoreRuntimeOtherSchemas.total),0,'restored runtime identity must have no grants on other schemas.');
   }finally{await grantInspector.end();}
   const backupEnv={...process.env,MYSQL_PWD:backupPassword};
   const restoreEnv={...process.env,MYSQL_PWD:restorePassword};
@@ -150,7 +161,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       sourceTriggerDefiners,
       'Restored audit triggers must preserve their original DEFINER identities.'
     );
-    restoredRuntime=await mysql.createConnection({host,port:Number(port),user,password:String(process.env.MYSQL_PASSWORD||''),database:restoreDatabase});
+    restoredRuntime=await mysql.createConnection({host,port:Number(port),user:restoreRuntimeUser,password:restoreRuntimePassword,database:restoreDatabase});
     const [auditInsert]=await restoredRuntime.execute("INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,'backup_restore_test',NULL,JSON_OBJECT('fixture',1))",[900000001,'restore_fixture']);
     await assert.rejects(restoredRuntime.execute('UPDATE admin_audit_log SET action=? WHERE id=?',['tampered',auditInsert.insertId]),error=>error.code==='ER_SIGNAL_EXCEPTION'&&/append-only/.test(error.message));
     await assert.rejects(restoredRuntime.execute('DELETE FROM admin_audit_log WHERE id=?',[auditInsert.insertId]),error=>error.code==='ER_SIGNAL_EXCEPTION'&&/append-only/.test(error.message));
