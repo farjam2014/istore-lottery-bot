@@ -24,6 +24,9 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Confirm no legacy campaign-code ownership mismatch and no campaign exceeds the 999999 sequence limit.
 - [ ] Confirm no old prepared draw requires manual recovery before applying the draw migrations.
 - [ ] Run `scripts/production-migration-preflight.sql` against the exact target database using a read-only MySQL account; retain its output with the release evidence.
+- [ ] Run `bash scripts/production-host-preflight.sh` as root from the staged release; retain its sanitized host/grant/runner/backup output privately and close every reported blocker.
+- [ ] Review exact row counts for all six replay-cleanup session tables and the support-session step breakdown; approve any non-zero impact and the customer/support handling plan.
+- [ ] Re-run the complete read-only SQL preflight after the service is stopped and immediately before the migration runner; compare it with the earlier baseline.
 
 ## 2. Backup requirements
 
