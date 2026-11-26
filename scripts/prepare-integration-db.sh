@@ -100,7 +100,6 @@ GRANT ALL PRIVILEGES ON $(quote_id "$DRAW_GUARD_DB").* TO '$ADMIN_USER'@'127.0.0
 GRANT SELECT ON $(quote_id "$PREFLIGHT_DB").* TO '$READONLY_USER'@'127.0.0.1';
 
 -- The fixture administrator inspects grants in these system tables; no write access is granted.
-GRANT SELECT ON mysql.user TO '$ADMIN_USER'@'127.0.0.1';
 GRANT SELECT ON mysql.procs_priv TO '$ADMIN_USER'@'127.0.0.1';
 GRANT SELECT ON mysql.role_edges TO '$ADMIN_USER'@'127.0.0.1';
 GRANT SELECT ON mysql.default_roles TO '$ADMIN_USER'@'127.0.0.1';
