@@ -809,7 +809,7 @@ export function registerAdminHandlers(bot){
       const [[draw]]=await pool.execute("SELECT id,status,commitment_published_at FROM campaign_draws WHERE id=?",[wizard.payload.drawId]);
       if(!draw||draw.status!=='prepared'||draw.commitment_published_at){await clearWizard(ctx.from.id);return respond(ctx,'قرعه‌کشی دیگر در وضعیت ثبت انتشار نیست.');}
       await advanceWizard(ctx.from.id,wizard,'draw_publication_confirm',{drawId:Number(draw.id),reference},ctx.update.update_id);
-      return respond(ctx,'لطفاً تأیید کنید که این لینک، محل انتشار عمومی Commitment و Hash نامزدهاست. سامانه صحت یا عمومی‌بودن محتوای لینک را مستقلاً بررسی نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('تأیید ثبت لینک انتشار','admin:campaign:draw:publication-confirm:'+draw.id+':'+ctx.update.update_id)],[Markup.button.callback('لغو','admin:campaign:draw:publication-cancel:'+draw.id)]]));
+      return respond(ctx,'لطفاً تأیید کنید که این لینک، محل انتشار عمومی Commitment و Hash نامزدهاست. سامانه صحت یا عمومی‌بودن محتوای لینک را مستقلاً بررسی نمی‌کند.',Markup.inlineKeyboard([[Markup.button.callback('تأیید ثبت لینک انتشار','admin:campaign:draw:publication-confirm:'+draw.id+':'+ctx.update.update_id)],[Markup.button.callback('لغو','admin:draw:cancel:'+draw.id+':'+ctx.update.update_id)]]));
     }
     const value=ctx.message.text.trim();const p=wizard.payload;
     if(wizard.step==='campaign_edit_value'){
@@ -851,7 +851,7 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery('کمپین ایجاد شد.');
     return respond(ctx,`کمپین «${created.title}» به‌صورت پیش‌نویس ایجاد شد. برای نمایش به کاربران، آن را از فهرست کمپین‌ها فعال کنید.`,campaignMenu());
   });
-  bot.action('admin:campaign:restart',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{},ctx.update.update_id);await ctx.answerCbQuery();return respond(ctx,'نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu());});
+  bot.action('admin:campaign:restart',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await saveWizard(ctx.from.id,'select_type',{},ctx.update.update_id);await ctx.answerCbQuery();return respond(ctx,'نوع کمپین را انتخاب کنید و سپس «ادامه» را بزنید:',typeMenu(null,ctx.update.update_id));});
 }
 
 async function showParticipants(ctx,page=0,query=''){
