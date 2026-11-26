@@ -189,7 +189,7 @@ test('release runbook separates baseline and post-migration integrity checks',()
   assert.ok(runbook.includes('scripts/production-migration-preflight.sql'));
   assert.ok(runbook.includes('bash scripts/production-host-preflight.sh'));
   assert.ok(readiness.includes('scripts/production-host-preflight.sh'));
-  assert.ok(readiness.includes('all six replay-cleanup session tables'));
+  assert.ok(readiness.includes('all six replay-cleanup tables and both retained-but-cursorless search-session tables'));
   assert.ok(runbook.includes('scripts/post-migration-integrity-check.sql'));
   assert.ok(runbook.includes('dedicated SELECT-only MySQL account'));
   assert.ok(runbook.includes('SHOW GRANTS'));
