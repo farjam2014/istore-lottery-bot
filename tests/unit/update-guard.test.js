@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createUpdateGuard} from '../../src/bot/middleware/update-guard.js';
 
 function fakeDatabase(){
@@ -235,4 +236,11 @@ test('lease heartbeat and release failures log fixed labels without exception co
   assert.ok(emitted.some(entry=>entry.data.reason==='lease_heartbeat_failed'));
   assert.ok(emitted.some(entry=>entry.data.reason==='handler_failed'));
   assert.ok(emitted.some(entry=>entry.data.reason==='lease_release_failed'));
+});
+
+test('private-chat filter runs before durable inbox persistence',()=>{
+  const register=readFileSync(new URL('../../src/bot/register.js',import.meta.url),'utf8');
+  assert.ok(register.indexOf('bot.use(privateChatOnly)')>=0);
+  assert.ok(register.indexOf('bot.use(updateGuard())')>=0);
+  assert.ok(register.indexOf('bot.use(privateChatOnly)')<register.indexOf('bot.use(updateGuard())'));
 });
