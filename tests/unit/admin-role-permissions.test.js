@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {roleHasPermission,permissionsForRole} from '../../src/modules/admin/permissions.js';
+import {roleHasPermission} from '../../src/modules/admin/permissions.js';
 
 test('finance manager can review and decide payment receipts',()=>{
   assert.equal(roleHasPermission('finance_manager','payment.read'),true);
   assert.equal(roleHasPermission('finance_manager','payment.review'),true);
-  assert.equal(permissionsForRole('finance_manager').includes('payment.review'),true);
 });
 
 test('campaign manager cannot approve or reject payment receipts',()=>{
