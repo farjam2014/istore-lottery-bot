@@ -87,10 +87,10 @@ PID="$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || true)"
 [[ "$SERVICE_GROUP" == "ustorebot" ]] || fail "Service group must be ustorebot."
 [[ "$NO_NEW_PRIVILEGES" == "yes" ]] || fail "systemd NoNewPrivileges must be enabled."
 [[ "$PRIVATE_TMP" == "yes" ]] || fail "systemd PrivateTmp must be enabled."
-[[ "$PROTECT_SYSTEM" == "full" ]] || fail "systemd ProtectSystem must be full."
+[[ "$PROTECT_SYSTEM" == "strict" ]] || fail "systemd ProtectSystem must be strict."
 [[ "$PROTECT_HOME" == "yes" ]] || fail "systemd ProtectHome must be enabled."
 if [[ -n "$ACTIVE" ]]; then
-  [[ "$READ_WRITE_PATHS" == "$ACTIVE" ]] && info "systemd_read_write_path=active_release_only" || fail "systemd ReadWritePaths must be restricted to exactly the active release path."
+  [[ -z "$READ_WRITE_PATHS" ]] && info "systemd_read_write_paths=none" || fail "systemd service must not have any writable filesystem exceptions; use PrivateTmp for ephemeral files."
   [[ "$EXEC_START" == *"$ACTIVE/src/index.js"* ]] || fail "systemd ExecStart must target the active release entry point."
 fi
 if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
