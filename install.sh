@@ -270,9 +270,8 @@ Restart=always
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=$APP_DIR
 
 [Install]
 WantedBy=multi-user.target
