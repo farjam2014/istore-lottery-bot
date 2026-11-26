@@ -14,7 +14,7 @@ async function clearFixtureSchema(connection,database){
   try{
     for(const object of objects){
       const kind=object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE';
-      await connection.query('DROP '+kind+' IF EXISTS '+quoteIdentifier(object.TABLE_NAME));
+      await connection.query('DROP '+kind+' IF EXISTS '+quoteIdentifier(database)+'.'+quoteIdentifier(object.TABLE_NAME));
     }
   }finally{
     await connection.query('SET FOREIGN_KEY_CHECKS=1');
@@ -67,7 +67,7 @@ test('MySQL integration: production migration preflight runs against the baselin
     const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerAccountHost,database]);
     const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerAccountHost]);
     const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerAccountHost]);
-    const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerHost,database]);
+    const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerAccountHost,database]);
     assert.deepEqual(schemaPrivileges.map(row=>row.PRIVILEGE_TYPE),['SELECT'],'Preflight fixture reader must have only SELECT on the target schema.');
     assert.deepEqual(globalPrivileges,[],'Preflight fixture reader must have no global privileges.');
     assert.equal(Number(tablePrivilegeCount.total),0,'Preflight fixture reader must have no table-specific grants.');
