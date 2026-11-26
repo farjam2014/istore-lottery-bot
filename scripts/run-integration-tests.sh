@@ -12,7 +12,7 @@ PREFLIGHT_DB="${MYSQL_PREFLIGHT_DATABASE:-}"
 DRAW_GUARD_DB="${MYSQL_DRAW_GUARD_DATABASE:-}"
 APP_DB="$(read_dotenv_value MYSQL_DATABASE)"
 APP_USER="$(read_dotenv_value MYSQL_USER)"
-APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"
+APP_MIGRATION_USER=\nif [[ -f .env ]]; then APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"; fi
 HOST="${MYSQL_HOST:-$(read_dotenv_value MYSQL_HOST)}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${MYSQL_PORT:-$(read_dotenv_value MYSQL_PORT)}"
@@ -42,7 +42,7 @@ DRAW_KEY="${DRAW_SEED_ENCRYPTION_KEY:-}"
 for db in "$TEST_DB" "$RESTORE_DB" "$PREFLIGHT_DB" "$DRAW_GUARD_DB"; do
   [[ "$db" != "$APP_DB" ]] || die "Refusing to run tests against the production database."
 done
-[[ "$HOST" =~ ^(127\\.0\\.0\\.1|localhost|::1)$ ]] || die "Integration tests are restricted to loopback MySQL."
+[[ "$HOST" == "127.0.0.1" ]] || die "Integration tests are restricted to loopback MySQL at 127.0.0.1."
 [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && ((PORT>=1 && PORT<=65535)) || die "MYSQL_PORT must be a valid TCP port."
 
 ALL_USERS=("$TEST_USER" "$MIGRATION_USER" "$BACKUP_USER" "$RESTORE_USER" "$RESTORE_RUNTIME_USER" "$ADMIN_USER" "$READONLY_USER")
