@@ -36,7 +36,7 @@ LEFT JOIN campaign_code_counters counter ON counter.campaign_id=c.id
 LEFT JOIN campaign_codes cc ON cc.campaign_id=c.id
 GROUP BY c.id,counter.last_sequence
 HAVING COALESCE(counter.last_sequence,0)<COALESCE(MAX(cc.sequence_number),0)
-    OR (counter.campaign_id IS NULL AND COUNT(cc.id)>0)
+    OR (counter.last_sequence IS NULL AND COUNT(cc.id)>0)
     OR SUM(CASE WHEN cc.id IS NOT NULL AND cc.sequence_number IS NULL THEN 1 ELSE 0 END)>0
 ORDER BY c.id;
 
