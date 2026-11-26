@@ -33,6 +33,6 @@ test('campaign managers can search campaign codes but cannot search by contact i
 });
 
 test('campaign-code search exposes contact details only in the configured super-admin branch',()=>{
-  assert.ok(source.includes("const message=contactLookup\n        ?rows.map(x=>x.code+' | '+x.full_name+' | '+x.phone+' | '+x.telegram_user_id+' | '+x.code_status+' | '+x.entry_status).join('\\n')"));
-  assert.ok(source.includes(":rows.map(x=>x.code+' | '+x.full_name+' | '+x.code_status+' | '+x.entry_status).join('\\n');"));
+  assert.match(source,/const message=contactLookup\s*\?rows\.map\(x=>x\.code\+' \\| '+x\.full_name\+' \\| '+x\.phone\+' \\| '+x\.telegram_user_id/);
+  assert.match(source,/\:rows\.map\(x=>x\.code\+' \\| '+x\.full_name\+' \\| '+x\.code_status\+' \\| '+x\.entry_status/);
 });
