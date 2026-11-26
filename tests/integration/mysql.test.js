@@ -38,10 +38,11 @@ test('MySQL integration: production migration preflight runs against the baselin
   assert.ok(adminUser&&reader&&readerPassword,'Dedicated fixture-admin and read-only accounts are required.');
   assert.match(database,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
   assert.notEqual(database,process.env.MYSQL_DATABASE,'Preflight fixture schema must differ from the application test schema.');
-  let admin,setup,readonly;
+  let admin,setup,readonly,fixtureStarted=false;
   try{
     admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
     await assertFixtureSchemaEmpty(admin,database);
+    fixtureStarted=true;
     setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
     const schema=await readFile(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
     for(const statement of schema.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean))await setup.query(statement);
@@ -73,7 +74,7 @@ test('MySQL integration: production migration preflight runs against the baselin
     if(readonly)await readonly.end().catch(()=>{});
     if(setup)await setup.end().catch(()=>{});
     if(admin){
-      await clearFixtureSchema(admin,database).catch(()=>{});
+      if(fixtureStarted)await clearFixtureSchema(admin,database);
       await admin.end().catch(()=>{});
     }
   }
@@ -90,7 +91,7 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   const database=process.env.MYSQL_DRAW_GUARD_DATABASE||'';
   assert.match(database,/^ustore_drawguard_[A-Za-z0-9_]+_ci$/,'A pre-provisioned draw-guard fixture schema is required.');
   assert.notEqual(database,process.env.MYSQL_DATABASE,'Draw-guard fixture schema must differ from the application test schema.');
-  let admin,setup;
+  let admin,setup,fixtureStarted=false;
   const runMigration=stopBefore=>{
     const env={...process.env,NODE_ENV:'test',MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,MYSQL_USER:adminUser,MYSQL_PASSWORD:adminPassword,ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_TEST_DATABASE_MIGRATIONS:'1'};
     delete env.MYSQL_MIGRATION_USER;
@@ -104,6 +105,7 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   try{
     admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
     await assertFixtureSchemaEmpty(admin,database);
+    fixtureStarted=true;
     const beforeDrawIntegrity='20261117_006_draw_relational_integrity.sql';
     const prepared=runMigration(beforeDrawIntegrity);
     assert.equal(prepared.status,0,prepared.stderr||prepared.stdout);
@@ -148,7 +150,7 @@ test('MySQL integration: draw relational-integrity migration rejects legacy draw
   }finally{
     if(setup)await setup.end().catch(()=>{});
     if(admin){
-      await clearFixtureSchema(admin,database).catch(()=>{});
+      if(fixtureStarted)await clearFixtureSchema(admin,database);
       await admin.end().catch(()=>{});
     }
   }
