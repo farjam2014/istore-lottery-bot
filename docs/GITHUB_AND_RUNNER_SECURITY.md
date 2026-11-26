@@ -4,10 +4,10 @@
 
 - The repository is Public; the owner must confirm that public visibility is intentional.
 - The inspected `main` branch contains only `.github/workflows/tests.yml`, using GitHub-hosted `ubuntu-latest` and immutable action commit pins.
-- The `release/ustore-unified` branch contains only `.github/workflows/ci.yml`; it also uses GitHub-hosted runners and immutable action pins.
+- The `release/ustore-unified` branch contains only `.github/workflows/ci.yml` and uses GitHub-hosted runners, but the inspected workflow still references mutable `actions/checkout@v4` and `actions/setup-node@v4` tags and does not declare a least-privilege `permissions` block. Treat this as an open release blocker until the release branch itself is updated and verified.
 - PR #82 was merged as `7ef2c2a4aac46add9e0c5f92cd0c7f2aaf58626f`, removing the legacy VPS diagnostics workflows.
 - PR #86 was merged as `905c37da8bc95689615f7cdd9368a77a2e632a1b`, removing the remaining VPS operations workflow.
-- The currently inspected `main` and `release/ustore-unified` workflow sets do not target a Production self-hosted runner.
+- The currently inspected `main` and `release/ustore-unified` workflow sets do not target a Production self-hosted runner. The remediation candidate workflow pins its actions to full commit SHAs and declares `contents: read`; this does not change the separate state of the current release branch until the stacked PR changes are integrated.
 
 ## Host-side runner release gate
 
@@ -19,7 +19,7 @@ Do not restore any workflow that targets a Production host or self-hosted runner
 
 ## Required GitHub repository controls
 
-Before release, enable branch protection/rulesets for `main` and `release/ustore-unified`:
+Before release, enable branch protection/rulesets for `main` and `release/ustore-unified`. The latest GitHub API read showed `protected=false` for both branches and an empty repository rulesets list; the linked integration cannot write these administration settings, so treat them as owner-action blockers until verified enabled:
 
 - Require pull requests before merging.
 - Require at least one independent approval.
