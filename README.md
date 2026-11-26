@@ -30,7 +30,39 @@ See docs/COMPLETION_SCOPE.md for product invariants, docs/VERIFIABLE_DRAWS.md fo
 
 Install locked dependencies with npm ci, then run npm test.
 
-MySQL integration tests must use a disposable database whose name ends in _ci or _test. Never point integration tests at the production database. See scripts/prepare-integration-db.sh and scripts/run-integration-tests.sh for the isolated test setup.
+MySQL integration tests use a disposable local MySQL 8 instance. They require separate runtime, migration, backup, restore, restored-runtime, fixture-admin, and read-only identities. Never point them at Production or reuse Production credentials.
+
+Example isolated setup (run from the repository root; use a local MySQL instance and a database name different from the one in .env):
+
+```bash
+export MYSQL_TEST_DATABASE=istore_lottery_local_ci
+export MYSQL_RESTORE_DATABASE=draw_restore_local_ci
+export MYSQL_PREFLIGHT_DATABASE=ustore_preflight_local_ci
+export MYSQL_DRAW_GUARD_DATABASE=ustore_drawguard_local_ci
+
+export MYSQL_TEST_USER=ustore_ci_testapp
+export MYSQL_MIGRATION_USER=ustore_ci_migrate
+export MYSQL_BACKUP_USER=ustore_ci_backup
+export MYSQL_RESTORE_USER=ustore_ci_restore
+export MYSQL_RESTORE_RUNTIME_USER=ustore_ci_restore_runtime
+export MYSQL_TEST_ADMIN_USER=ustore_ci_admin
+export MYSQL_TEST_READONLY_USER=ustore_ci_readonly
+
+export MYSQL_TEST_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_MIGRATION_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_BACKUP_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_RESTORE_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_RESTORE_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_TEST_ADMIN_PASSWORD="$(openssl rand -hex 32)"
+export MYSQL_TEST_READONLY_PASSWORD="$(openssl rand -hex 32)"
+export DRAW_SEED_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+
+sudo --preserve-env=MYSQL_TEST_DATABASE,MYSQL_RESTORE_DATABASE,MYSQL_PREFLIGHT_DATABASE,MYSQL_DRAW_GUARD_DATABASE,MYSQL_TEST_USER,MYSQL_MIGRATION_USER,MYSQL_BACKUP_USER,MYSQL_RESTORE_USER,MYSQL_RESTORE_RUNTIME_USER,MYSQL_TEST_ADMIN_USER,MYSQL_TEST_READONLY_USER,MYSQL_TEST_PASSWORD,MYSQL_MIGRATION_PASSWORD,MYSQL_BACKUP_PASSWORD,MYSQL_RESTORE_PASSWORD,MYSQL_RESTORE_RUNTIME_PASSWORD,MYSQL_TEST_ADMIN_PASSWORD,MYSQL_TEST_READONLY_PASSWORD ./scripts/prepare-integration-db.sh
+
+npm run test:integration
+```
+
+The preparation script refuses to reuse existing MySQL accounts or non-empty fixture schemas. It grants the application test identity DML only, gives DDL only to the separate migration identity, restricts the backup identity to SELECT/SHOW VIEW/TRIGGER, and grants the temporary restore identity SET_USER_ID only for the isolated restore fixture. The optional privilege-matrix test remains CI-only.
 
 ## Production deployment — existing release-managed host
 
