@@ -85,7 +85,8 @@ Only after separate approval:
 
 1. Announce maintenance and prevent new registration/payment writes.
 2. Stop the active service and confirm it is stopped. Do not start the staged release yet.
-3. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release. The shell must export both the runtime database identity (read from the active release `.env`) and the separately protected migration credentials to the migration process, without printing either file or enabling shell tracing. Use this exact pattern:
+3. **Re-run the complete read-only preflight after the service is stopped**, against the exact target database. Preserve this final output, compare migration history/schema/business row counts with the earlier preflight, and re-check the six session-cleanup counts. Stop if anything changed unexpectedly, any table is reported as pending/missing, or a non-zero cleanup count lacks explicit business-owner approval. This stopped-service inventory is the final data-impact baseline for the migration window.
+4. Verify the root-only migration credential file and its exact target database. Run the migration command as root from the staged release. The shell must export both the runtime database identity (read from the active release `.env`) and the separately protected migration credentials to the migration process, without printing either file or enabling shell tracing. Use this exact pattern:
 
    ```bash
    set -Eeuo pipefail
@@ -130,9 +131,9 @@ Only after separate approval:
    ```
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
-4. If a migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
-5. After all migrations complete successfully, run `scripts/post-migration-integrity-check.sql` against the same target database using a dedicated SELECT-only MySQL account, not the migration account. Retain all four result sets. Stop if any prepared draw reports MISSING, MISSING_OR_INVALID, or UNSUPPORTED metadata; compare every returned key ID with the protected keyring inventory and the independent decrypt/restore rehearsal. Any counter-drift or duplicate-sequence row is also a release blocker.
-6. Inspect `SHOW GRANTS` for the runtime `MYSQL_USER` from the protected runtime environment. It must have only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the target application schema, with no global privileges, DDL privileges, or grants on other schemas. If it has broader grants, use the MySQL administrative account to revoke all grants and re-grant only those four DML privileges on the target schema; then re-run `SHOW GRANTS`. Keep the DDL-capable migration account separate and unreadable by the service user.
+7. If a migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
+7. After all migrations complete successfully, run `scripts/post-migration-integrity-check.sql` against the same target database using a dedicated SELECT-only MySQL account, not the migration account. Retain all four result sets. Stop if any prepared draw reports MISSING, MISSING_OR_INVALID, or UNSUPPORTED metadata; compare every returned key ID with the protected keyring inventory and the independent decrypt/restore rehearsal. Any counter-drift or duplicate-sequence row is also a release blocker.
+7. Inspect `SHOW GRANTS` for the runtime `MYSQL_USER` from the protected runtime environment. It must have only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the target application schema, with no global privileges, DDL privileges, or grants on other schemas. If it has broader grants, use the MySQL administrative account to revoke all grants and re-grant only those four DML privileges on the target schema; then re-run `SHOW GRANTS`. Keep the DDL-capable migration account separate and unreadable by the service user.
 7. Capture migration and post-migration outputs and verify `schema_migrations` checksums and expected schema before enabling application traffic.
 
 ## 6. Point systemd at the staged release
