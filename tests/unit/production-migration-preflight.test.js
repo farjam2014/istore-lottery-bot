@@ -128,6 +128,9 @@ test('production host preflight is read-only and included in the release runbook
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
   assert.match(hostAudit,/Read-only host-side release gate inventory/);
   assert.match(hostAudit,/encrypted_database_backup_artifacts/);
+  assert.match(hostAudit,/runner_unit_files=none_detected/);
+  assert.match(hostAudit,/runner_registration_metadata=none_detected/);
+  assert.match(hostAudit,/name \.runner/);
   assert.match(hostAudit,/plaintext_database_backup_artifacts/);
   assert.match(hostAudit,/Unencrypted database backup artifacts were detected/);
   assert.match(hostAudit,/database_backup_cron_references/);
