@@ -5,7 +5,7 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-valid_user() { [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,24}$ ]]; }
+valid_user() { [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,22}$ ]]; }
 valid_password() { [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
 quote_id() { printf '`%s`' "$1"; }
 
