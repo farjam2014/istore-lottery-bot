@@ -131,6 +131,8 @@ test('production host preflight is read-only and included in the release runbook
   assert.match(hostAudit,/runner_unit_files=none_detected/);
   assert.match(hostAudit,/runner_registration_metadata=none_detected/);
   assert.match(hostAudit,/name \.runner/);
+  assert.match(hostAudit,/name \.credentials/);
+  assert.match(hostAudit,/name \.credentials_rsaparams/);
   assert.match(hostAudit,/plaintext_database_backup_artifacts/);
   assert.match(hostAudit,/Unencrypted database backup artifacts were detected/);
   assert.match(hostAudit,/database_backup_cron_references/);
