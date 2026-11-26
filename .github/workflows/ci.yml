@@ -34,6 +34,7 @@ jobs:
     services:
       mysql:
         image: mysql:8.0
+        command: --log-bin-trust-function-creators=1
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: istore_lottery_ci
@@ -58,8 +59,8 @@ jobs:
       MYSQL_TEST_READONLY_PASSWORD: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
       MYSQL_TEST_DATABASE: istore_lottery_ci
       MYSQL_RESTORE_DATABASE: draw_restore_ci
-      MYSQL_PREFLIGHT_DATABASE: ustore_preflight_ci
-      MYSQL_DRAW_GUARD_DATABASE: ustore_drawguard_ci
+      MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
+      MYSQL_DRAW_GUARD_DATABASE: ustore_drawguard_fixture_ci
       MYSQL_POOL_SIZE: 5
       BOT_ADMIN_IDS: 123456789
       RUN_MYSQL_TESTS: '1'
@@ -78,12 +79,12 @@ jobs:
           mysql --host 127.0.0.1 --user root --password=root <<'SQL'
           CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS draw_restore_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE DATABASE IF NOT EXISTS ustore_preflight_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE DATABASE IF NOT EXISTS ustore_drawguard_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_preflight_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_drawguard_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
           CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
           GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
-          GRANT SELECT ON ustore_preflight_ci.* TO 'ustore_ci_readonly'@'%';
+          GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
           SQL
       - run: npm ci
       - run: npm audit --audit-level=high
