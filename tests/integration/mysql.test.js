@@ -1,4 +1,4 @@
-import test from 'node:test';
+import {after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
@@ -7,6 +7,15 @@ import mysql from 'mysql2/promise';
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+const isForeignKeyReferenceError=error=>error?.errno===1452&&error?.sqlState==='23000';
+
+after(async()=>{
+  if(!enabled)return;
+  const {closeMigrationPool}=await import('../../src/database/migration-pool.js');
+  const {pool}=await import('../../src/database/pool.js');
+  await closeMigrationPool();
+  await pool.end();
+});
 const quoteIdentifier=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
 async function clearFixtureSchema(connection,database){
   const [objects]=await connection.execute('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
@@ -163,6 +172,8 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/,'Integration tests only run against a database ending in _ci or _test');
   const {pool}=await import('../../src/database/pool.js');
+  const {getMigrationPool}=await import('../../src/database/migration-pool.js');
+  const migrationPool=getMigrationPool();
   const {migrate}=await import('../../src/database/migrate.js');
   const {createProfile,findByTelegramId,updatePrivacyConsent,saveSession,getSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
@@ -176,7 +187,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
-    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
+    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await migrationPool.query(statement);
     // Seed a pre-migration legacy record to prove sequence backfill preserves issuance history.
     const legacyUid=String(690000000000n+(BigInt(Date.now())%100000000000n));
     const [legacyP]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[legacyUid,'Legacy Migration Tester','+989121234560','legacy_migration']);
@@ -190,7 +201,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[recoveryIndex]]=await pool.execute(
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
     );
-    if(Number(recoveryIndex.total)===0) await pool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
+    if(Number(recoveryIndex.total)===0) await migrationPool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
     const [[migrationHistoryTable]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migrations'");
     if(Number(migrationHistoryTable.total)>0){
       await pool.execute("DELETE FROM schema_migrations WHERE version=?",["20261117_001_campaign_code_sequence.sql"]);
@@ -1311,7 +1322,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     const [[tamperTarget]]=await pool.execute('SELECT id,campaign_code_id,code_snapshot FROM draw_candidates WHERE draw_id=? ORDER BY id LIMIT 1',[drawId]);
     await assert.rejects(
       pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     ); // The database now prevents mutation of the code snapshot itself.
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=?",[tamperTarget.campaign_code_id]);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/وضعیت یکی از کدها/);
@@ -1658,14 +1669,14 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
         'INSERT INTO draw_winners(draw_id,campaign_id,campaign_code_id,participant_id,candidate_id,campaign_entry_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,?,1)',
         [drawId,campaignId,codes[0],participants[1],candidateId,entries[0],codeValues[0]]
       ),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     );
     await assert.rejects(
       pool.execute(
         'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
         [drawId,campaignId,codes[1],entries[1],participants[0],codeValues[1],'c'.repeat(64)]
       ),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     );
     const {cleanupExpiredRetentionRows}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
     const retentionUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
