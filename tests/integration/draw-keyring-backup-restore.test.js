@@ -119,30 +119,35 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       finally{await conn.end();}
     });
     assert.equal(Number(emptyTables.total),0,'Pre-provisioned restore schema must be empty before import.');
+    const [sourceTriggerRows]=await pool.execute(
+      "SELECT TRIGGER_NAME,DEFINER FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') ORDER BY TRIGGER_NAME"
+    );
+    assert.equal(sourceTriggerRows.length,2,'Source schema must contain both append-only audit triggers.');
+    const sourceTriggerDefiners=sourceTriggerRows.map(row=>({name:row.TRIGGER_NAME,definer:row.DEFINER}));
     const backup=execFileSync('mysqldump',[
       '--host',host,'--port',port,'--user',backupUser,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
       '--column-statistics=0',database
     ],{env:backupEnv,encoding:'buffer',maxBuffer:128*1024*1024,timeout:180000});
     assert.ok(backup.length>0,'mysqldump returned an empty backup.');
-    // A least-privilege restore identity must not need SUPER/SET_USER_ID merely
-    // to recreate triggers whose original DEFINER belongs to another account.
-    // Strip only DEFINER clauses; retain the trigger DDL so it is recreated
-    // under the restore identity and remains part of the restored schema.
-    const backupSql=backup.toString('utf8').replace(
-      /DEFINER\s*=\s*(?:`[^`]*`|'[^']*'|[^\s@]+)\s*@\s*(?:`[^`]*`|'[^']*'|[^\s*;]+)/gi,
-      ''
-    );
-    assert.doesNotMatch(backupSql,/DEFINER\s*=/i,'Restore dump must not require privileged DEFINER impersonation.');
+    const backupSql=backup.toString('utf8');
     assert.match(backupSql,/trg_admin_audit_log_no_update/i,'Backup must retain the append-only audit update trigger.');
     assert.match(backupSql,/trg_admin_audit_log_no_delete/i,'Backup must retain the append-only audit delete trigger.');
     execFileSync('mysql',['--host',host,'--port',port,'--user',restoreUser,restoreDatabase],{
-      env:restoreEnv,input:Buffer.from(backupSql,'utf8'),stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
+      env:restoreEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
     });
 
     restored=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:restoreDatabase});
-    const [[triggerRows]]=await restored.execute('SELECT COUNT(*) AS total FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=?',[restoreDatabase]);
-    assert.ok(Number(triggerRows.total)>=2,'Append-only audit triggers must survive backup/restore.');
+    const [restoredTriggerRows]=await restored.execute(
+      "SELECT TRIGGER_NAME,DEFINER FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=? AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') ORDER BY TRIGGER_NAME",
+      [restoreDatabase]
+    );
+    assert.equal(restoredTriggerRows.length,2,'Append-only audit triggers must survive backup/restore.');
+    assert.deepEqual(
+      restoredTriggerRows.map(row=>({name:row.TRIGGER_NAME,definer:row.DEFINER})),
+      sourceTriggerDefiners,
+      'Restored audit triggers must preserve their original DEFINER identities.'
+    );
     restoredRuntime=await mysql.createConnection({host,port:Number(port),user,password:String(process.env.MYSQL_PASSWORD||''),database:restoreDatabase});
     const [auditInsert]=await restoredRuntime.execute("INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,'backup_restore_test',NULL,JSON_OBJECT('fixture',1))",[900000001,'restore_fixture']);
     await assert.rejects(restoredRuntime.execute('UPDATE admin_audit_log SET action=? WHERE id=?',['tampered',auditInsert.insertId]),error=>error.code==='ER_SIGNAL_EXCEPTION'&&/append-only/.test(error.message));
