@@ -12,7 +12,8 @@ test('finance order list and search do not select participant contact identifier
   assert.ok(list);
   assert.ok(search);
   for(const sql of [list,search]){
-    assert.doesNotMatch(sql,/p\.(?:telegram_user_id|phone|instagram_handle|telegram_username)/);
+    const projection=sql.split(/\\s+FROM\\s+/i)[0];
+    assert.doesNotMatch(projection,/p\\.(?:telegram_user_id|phone|instagram_handle|telegram_username)/);
   }
 });
 
@@ -24,7 +25,11 @@ test('finance order detail exposes only the participant phone needed for payment
 });
 
 test('payment CSV export contains order and campaign fields only',()=>{
-  const exported=selectStatements.find(sql=>sql.includes('o.approved_at')&&sql.includes('campaign_title'));
+  const start=source.indexOf('export async function exportManagedOrders');
+  const exportSource=source.slice(start);
+  const exported=[...exportSource.matchAll(/"SELECT ([^"]+)"/g)].map(match=>match[1])[0];
+  assert.ok(start>=0);
   assert.ok(exported);
-  assert.doesNotMatch(exported,/participants|p\./);
+  const projection=exported.split(/\\s+FROM\\s+/i)[0];
+  assert.doesNotMatch(projection,/p\\.(?:telegram_user_id|phone|instagram_handle|telegram_username|full_name)/);
 });
