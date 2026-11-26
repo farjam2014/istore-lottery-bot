@@ -33,6 +33,38 @@ process.stdout.write(String(values[key] ?? ''));
 NODE
 }
 
+verify_mysql_identity(){
+  node --input-type=module - "$1" "$2" "$3" "$4" "$5" "$6" "$7" <<'NODE'
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+const [release,runtimeFile,credentialFile,userKey,passwordKey,databaseKey,label]=process.argv.slice(2);
+const require=createRequire(join(release,'package.json'));
+const dotenv=require('dotenv');
+const mysql=require('mysql2/promise');
+const runtime=dotenv.parse(readFileSync(runtimeFile));
+const credentials=dotenv.parse(readFileSync(credentialFile));
+const host=runtime.MYSQL_HOST;
+const port=Number(runtime.MYSQL_PORT||3306);
+const user=credentials[userKey];
+const password=credentials[passwordKey];
+const database=credentials[databaseKey]||runtime.MYSQL_DATABASE;
+let connection;
+try{
+  if(!host||!user||!password||!database)throw new Error('missing credentials');
+  connection=await mysql.createConnection({host,port,user,password,database,connectTimeout:5000});
+  const [[identity]]=await connection.query('SELECT CURRENT_USER() AS account, DATABASE() AS schema_name');
+  if(identity.account!==user+'@'+host||identity.schema_name!==database)throw new Error('unexpected MySQL identity');
+  process.stdout.write(label+'_authentication=verified\n');
+}catch{
+  process.stderr.write(label+'_authentication=failed (credentials, TCP access, or effective MySQL identity mismatch)\n');
+  process.exitCode=1;
+}finally{
+  if(connection)await connection.end().catch(()=>{});
+}
+NODE
+}
+
 section "HOST AND SERVICE"
 printf 'timestamp_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf 'hostname=%s\n' "$(hostname)"
@@ -128,6 +160,8 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       fi
       printf 'runtime_show_grants:\n'
       mysql_q "SHOW GRANTS FOR '$APP_USER'@'127.0.0.1'" || fail "Could not resolve runtime SHOW GRANTS."
+      verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$ACTIVE/.env" MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE runtime || fail "Runtime DB credentials do not authenticate as the expected runtime identity."
+      unset APP_PASS
     else
       fail "Root MySQL socket inspection failed."
     fi
@@ -160,6 +194,7 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 || "$M7" != 0 || "$M8" != 0 || "$M9" != 0 ]]; then
         fail "Migration account does not match schema-scoped least privilege on exactly one host identity."
       fi
+      verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$MIGRATION_ENV" MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE migration || fail "Migration DB credentials do not authenticate as the expected migration identity."
     else
       fail "Migration credentials are missing, not distinct, or bound to another database."
     fi
