@@ -39,7 +39,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const backupPassword=String(process.env.MYSQL_BACKUP_PASSWORD||'');
   const restoreUser=String(process.env.MYSQL_RESTORE_USER||'');
   const restorePassword=String(process.env.MYSQL_RESTORE_PASSWORD||'');
-  assert.ok(backupUser&&backupPassword,'A dedicated read-only backup identity is required.');
+  assert.ok(backupUser&&backupPassword,'A dedicated schema-scoped backup identity with SELECT, SHOW VIEW and TRIGGER is required.');
   assert.ok(restoreUser&&restorePassword,'A dedicated schema-scoped restore identity is required.');
   assert.notEqual(user,backupUser,'Application and backup identities must be distinct.');
   assert.notEqual(user,restoreUser,'Application and restore identities must be distinct.');
@@ -52,7 +52,6 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   assert.notEqual(restoreDatabase,process.env.MYSQL_PREFLIGHT_DATABASE);
   assert.notEqual(restoreDatabase,process.env.MYSQL_DRAW_GUARD_DATABASE);
   assert.ok(restoreDatabase.length<=64);
-  const childEnv={...process.env,MYSQL_PWD:String(process.env.MYSQL_PASSWORD||'')};
   const oldKeyring=loadDrawKeyring({
     DRAW_SEED_ENCRYPTION_KEYS:JSON.stringify({'key-a':oldKey}),
     DRAW_SEED_ACTIVE_KEY_ID:'key-a'
@@ -79,10 +78,14 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     const backupProbe=await mysql.createConnection({host,port:Number(port),user:backupUser,password:backupPassword,database});
     try{
       await assert.rejects(backupProbe.execute('CREATE TABLE backup_write_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+      await assert.rejects(backupProbe.execute("INSERT INTO campaigns(slug,title,status,participation_type) VALUES('backup-write-probe','x','closed','free')"),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+      await assert.rejects(backupProbe.execute('UPDATE campaigns SET title=title WHERE id=?',[campaignId]),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+      await assert.rejects(backupProbe.execute('DELETE FROM campaigns WHERE id=?',[campaignId]),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
     }finally{await backupProbe.end();}
     const restoreSourceProbe=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database});
     try{
       await assert.rejects(restoreSourceProbe.execute('CREATE TABLE restore_scope_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+      await assert.rejects(restoreSourceProbe.execute('SELECT id FROM campaigns LIMIT 1'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
     }finally{await restoreSourceProbe.end();}
     const [[emptyTables]]=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:'information_schema'}).then(async conn=>{
       try{return await conn.execute('SELECT COUNT(*) AS total FROM TABLES WHERE TABLE_SCHEMA=?',[restoreDatabase]);}
