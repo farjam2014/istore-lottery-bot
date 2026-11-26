@@ -1058,25 +1058,27 @@ test('MySQL integration: runtime and migration identities enforce separate schem
   assert.match(database,/^[A-Za-z0-9_]+_ci$/);
   const host=process.env.MYSQL_HOST||'127.0.0.1';
   const port=Number(process.env.MYSQL_PORT||3306);
+  // The Actions MySQL service is reached across Docker networking, so CI uses a wildcard account host.
+  const accountHost='%';
   const admin=await mysql.createConnection({host,port,user:process.env.MYSQL_TEST_ADMIN_USER,password:process.env.MYSQL_TEST_ADMIN_PASSWORD||''});
   const runtime=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_RUNTIME_USER,password:process.env.MYSQL_PRIVILEGE_RUNTIME_PASSWORD});
   const migration=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_MIGRATION_USER,password:process.env.MYSQL_PRIVILEGE_MIGRATION_PASSWORD});
   try{
     const [[runtimeIdentity]]=await runtime.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
     const [[migrationIdentity]]=await migration.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
-    assert.equal(runtimeIdentity.account,'ustore_ci_runtime@127.0.0.1');
+    assert.equal(runtimeIdentity.account,'ustore_ci_runtime@%');
     assert.equal(runtimeIdentity.schema_name,database);
-    assert.equal(migrationIdentity.account,'ustore_ci_migrate@127.0.0.1');
+    assert.equal(migrationIdentity.account,'ustore_ci_migrate@%');
     assert.equal(migrationIdentity.schema_name,database);
     const grants=async user=>{
-      const [schemaRows]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[user,database]);
-      const [[globalRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'",[user]);
-      const [[otherSchemas]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>?",[user,database]);
-      const [[tableRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1'))",[user]);
-      const [[columnRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1'))",[user]);
-      const [[routineRows]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host='127.0.0.1'",[user]);
-      const [[roles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='127.0.0.1'",[user]);
-      const [[proxy]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='127.0.0.1'",[user]);
+      const [schemaRows]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[user,accountHost,database]);
+      const [[globalRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[user,accountHost]);
+      const [[otherSchemas]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[user,accountHost,database]);
+      const [[tableRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[user,accountHost]);
+      const [[columnRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[user,accountHost]);
+      const [[routineRows]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host=?",[user,accountHost]);
+      const [[roles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST=?",[user,accountHost]);
+      const [[proxy]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host=?",[user,accountHost]);
       return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),proxy:Number(proxy.total)};
     };
     const runtimeGrants=await grants('ustore_ci_runtime');
