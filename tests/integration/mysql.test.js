@@ -7,7 +7,7 @@ import mysql from 'mysql2/promise';
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
-const isForeignKeyReferenceError=error=>error?.errno===1452&&error?.sqlState==='23000';
+const isForeignKeyReferenceError=error=>[1451,1452].includes(Number(error?.errno))&&error?.sqlState==='23000';
 
 after(async()=>{
   if(!enabled)return;
@@ -965,8 +965,6 @@ test('MySQL integration: transactional outbox notifications roll back and commit
   }finally{await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
 });
 
-test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
-
 
 test('MySQL integration: campaign scheduler transitions use database UTC time consistently',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
@@ -1184,7 +1182,7 @@ test('MySQL integration: runtime and migration identities enforce separate schem
       return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),defaultRoles:Number(defaultRoles.total),proxy:Number(proxy.total),alternateHosts:Number(alternateHosts.total)};
     };
     const runtimeGrants=await grants('ustore_ci_runtime');
-    const migrationGrants=await grants('ustore_ci_migrate');
+    const migrationGrants=await grants('ustore_ci_priv_migrate');
     assert.deepEqual(runtimeGrants,{schema:['DELETE','INSERT','SELECT','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
     assert.deepEqual(migrationGrants,{schema:['ALTER','CREATE','DELETE','INDEX','INSERT','REFERENCES','SELECT','TRIGGER','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
     await assert.rejects(runtime.query('CREATE TABLE runtime_ddl_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
