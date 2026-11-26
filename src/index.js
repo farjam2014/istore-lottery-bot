@@ -37,7 +37,7 @@ async function main(){
  const updateInboxTimer=setInterval(async()=>{
   if(updateInboxRunning)return;updateInboxRunning=true;
   try{const result=await processUpdateInbox(bot,{limit:10});if(result.scanned)logger.info(result,'Durable Telegram update inbox recovery scanned');}
-  catch(error){logger.error({err:error},'Durable Telegram update inbox recovery failed');}
+  catch{logger.error({reason:'update_inbox_worker_failed'},'Durable Telegram update inbox recovery failed');}
   finally{updateInboxRunning=false;}
  },15_000);
  const outboxTimer=setInterval(async()=>{
