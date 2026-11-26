@@ -58,15 +58,15 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const grantInspector=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'mysql'});
   let migrationHost;
   try{
-    const accountHost=async account=>{
-      const [rows]=await grantInspector.execute('SELECT Host FROM mysql.user WHERE User=?',[account]);
-      assert.equal(rows.length,1,'Each disposable integration identity must exist at exactly one MySQL host.');
+    const accountHost=async(account,schemaName)=>{
+      const [rows]=await grantInspector.execute("SELECT DISTINCT SUBSTRING(SUBSTRING_INDEX(GRANTEE,'@',-1),2,CHAR_LENGTH(SUBSTRING_INDEX(GRANTEE,'@',-1))-2) AS Host FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE LIKE CONCAT(QUOTE(?),'@%') AND TABLE_SCHEMA=?",[account,schemaName]);
+      assert.equal(rows.length,1,'Each disposable integration identity must have grants at exactly one MySQL host.');
       return String(rows[0].Host);
     };
-    const backupHost=await accountHost(backupUser);
-    const restoreHost=await accountHost(restoreUser);
-    migrationHost=await accountHost(String(process.env.MYSQL_MIGRATION_USER||''));
-    const restoreRuntimeHost=await accountHost(restoreRuntimeUser);
+    const backupHost=await accountHost(backupUser,database);
+    const restoreHost=await accountHost(restoreUser,restoreDatabase);
+    migrationHost=await accountHost(String(process.env.MYSQL_MIGRATION_USER||''),database);
+    const restoreRuntimeHost=await accountHost(restoreRuntimeUser,restoreDatabase);
     const [[schema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=?",[backupUser,backupHost,database]);
     const [[global]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[backupUser,backupHost]);
     const [[otherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[backupUser,backupHost,database]);
