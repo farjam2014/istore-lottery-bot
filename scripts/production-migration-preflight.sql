@@ -134,6 +134,49 @@ FROM (
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
 
+-- Privacy and replay/audit records: aggregate counts only; never select personal payloads.
+-- Telegram Update JSON can contain personal data, so only the row count is emitted.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_update_inbox'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''telegram_update_inbox'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_update_inbox',
+  'SELECT ''telegram_update_inbox'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_action_idempotency'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''admin_action_idempotency'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM admin_action_idempotency',
+  'SELECT ''admin_action_idempotency'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- Consent-state breakdown is aggregate-only and safe before migration 002.
+SET @preflight_privacy_columns_exist := (
+  SELECT COUNT(*)=2 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants'
+    AND COLUMN_NAME IN ('privacy_consent_version','privacy_consent_at')
+);
+SET @preflight_sql := IF(
+  @preflight_privacy_columns_exist,
+  'SELECT COALESCE(privacy_consent_version,''<NULL>'') AS consent_version, COUNT(*) AS participant_count, SUM(privacy_consent_at IS NULL) AS missing_acceptance_timestamp_count FROM participants GROUP BY privacy_consent_version ORDER BY privacy_consent_version',
+  'SELECT ''PENDING_MIGRATION_002'' AS check_status, NULL AS consent_version, NULL AS participant_count, NULL AS missing_acceptance_timestamp_count'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
 -- Exact impact inventory for legacy session rows affected by replay migrations.
 -- Missing tables are reported as pending prerequisite migrations, never silently treated as zero.
 
