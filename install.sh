@@ -2,13 +2,13 @@
 set -Eeuo pipefail
 
 REPO="https://github.com/farjam2014/istore-lottery-bot.git"
-BRANCH="install/resumable-ubuntu-v2"
 APP_DIR="/opt/ustore-telegram-bot"
 APP_USER="ustorebot"
 SERVICE="ustore-telegram-bot"
 ENV_FILE="$APP_DIR/.env"
 MIGRATION_ENV_DIR="/etc/ustore-telegram-bot"
 MIGRATION_ENV_FILE="$MIGRATION_ENV_DIR/ustore-telegram-bot-migration.env"
+RELEASE_COMMIT="${USTORE_RELEASE_COMMIT:-}"
 
 log(){ printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -21,6 +21,7 @@ trap 'rc=$?; printf "\nInstaller stopped (exit %s). Existing databases and unrel
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "Supported Ubuntu versions: 22.04 and 24.04." ;; esac
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required."
 [[ -e /dev/tty ]] || fail "An interactive terminal is required."
+[[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Set USTORE_RELEASE_COMMIT to the exact reviewed 40-character release commit SHA."
 
 # Refuse to touch an active service whose effective runtime points elsewhere.
 if systemctl is-active --quiet "$SERVICE"; then
@@ -62,7 +63,7 @@ fi
 
 UPDATE_EXISTING=0
 if [[ ! -e "$APP_DIR" ]]; then
-  git clone --depth 1 --single-branch --branch "$BRANCH" "$REPO" "$APP_DIR"
+  git clone --no-checkout --depth 1 "$REPO" "$APP_DIR"
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 else
   [[ -d "$APP_DIR/.git" ]] || fail "$APP_DIR exists but is not a Git checkout; move it manually after reviewing its contents."
@@ -204,9 +205,15 @@ if systemctl is-active --quiet "$SERVICE"; then
 fi
 if [[ "$UPDATE_EXISTING" == "1" ]]; then
   log "Updating the existing checkout after the service has stopped."
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-  runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout -B "$BRANCH" FETCH_HEAD
 fi
+log "Fetching the exact reviewed release commit."
+runuser -u "$APP_USER" -- git -C "$APP_DIR" fetch --depth 1 origin "$RELEASE_COMMIT"
+fetched_commit="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" rev-parse FETCH_HEAD)"
+[[ "$fetched_commit" == "$RELEASE_COMMIT" ]] || fail "Fetched commit does not match USTORE_RELEASE_COMMIT."
+runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout --detach "$RELEASE_COMMIT"
+checked_out_commit="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" rev-parse HEAD)"
+[[ "$checked_out_commit" == "$RELEASE_COMMIT" ]] || fail "Checked-out commit does not match USTORE_RELEASE_COMMIT."
+log "Pinned source commit: $checked_out_commit"
 
 log "Installing production dependencies and running automated tests."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm ci --omit=dev"
