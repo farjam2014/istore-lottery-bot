@@ -54,6 +54,8 @@ jobs:
       MYSQL_USER: ustore_ci_testapp
       MYSQL_TEST_ADMIN_USER: root
       MYSQL_TEST_ADMIN_PASSWORD: root
+      MYSQL_BACKUP_USER: ustore_ci_backup
+      MYSQL_RESTORE_USER: ustore_ci_restore
       MYSQL_TEST_READONLY_USER: ustore_ci_readonly
       MYSQL_PRIVILEGE_TEST_DATABASE: ustore_privilege_ci
       MYSQL_PRIVILEGE_RUNTIME_USER: ustore_ci_runtime
@@ -92,8 +94,10 @@ jobs:
           MYSQL_TEST_READONLY_PASSWORD="$(openssl rand -hex 32)"
           MYSQL_PRIVILEGE_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
           MYSQL_PRIVILEGE_MIGRATION_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_BACKUP_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_RESTORE_PASSWORD="$(openssl rand -hex 32)"
           DRAW_SEED_ENCRYPTION_KEY="$(openssl rand -hex 32)"
-          for value in "$MYSQL_PASSWORD" "$MYSQL_TEST_READONLY_PASSWORD" "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" "$DRAW_SEED_ENCRYPTION_KEY"; do
+          for value in "$MYSQL_PASSWORD" "$MYSQL_TEST_READONLY_PASSWORD" "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" "$MYSQL_BACKUP_PASSWORD" "$MYSQL_RESTORE_PASSWORD" "$DRAW_SEED_ENCRYPTION_KEY"; do
             [[ "$value" =~ ^[a-f0-9]{64}$ ]]
             echo "::add-mask::$value"
           done
@@ -102,12 +106,14 @@ jobs:
             printf 'MYSQL_TEST_READONLY_PASSWORD=%s\n' "$MYSQL_TEST_READONLY_PASSWORD"
             printf 'MYSQL_PRIVILEGE_RUNTIME_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD"
             printf 'MYSQL_PRIVILEGE_MIGRATION_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD"
+            printf 'MYSQL_BACKUP_PASSWORD=%s\n' "$MYSQL_BACKUP_PASSWORD"
+            printf 'MYSQL_RESTORE_PASSWORD=%s\n' "$MYSQL_RESTORE_PASSWORD"
             printf 'DRAW_SEED_ENCRYPTION_KEY=%s\n' "$DRAW_SEED_ENCRYPTION_KEY"
           } >> "$GITHUB_ENV"
       - name: Provision isolated MySQL test identities and schemas
         run: |
           set -Eeuo pipefail
-          [[ "$MYSQL_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_TEST_READONLY_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$MYSQL_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_TEST_READONLY_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_BACKUP_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_RESTORE_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
           mysql --host 127.0.0.1 --user root --password=root <<SQL
           CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
           CREATE DATABASE IF NOT EXISTS draw_restore_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -118,10 +124,14 @@ jobs:
           CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY '$MYSQL_TEST_READONLY_PASSWORD';
           CREATE USER 'ustore_ci_runtime'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_RUNTIME_PASSWORD';
           CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_MIGRATION_PASSWORD';
+          CREATE USER 'ustore_ci_backup'@'%' IDENTIFIED BY '$MYSQL_BACKUP_PASSWORD';
+          CREATE USER 'ustore_ci_restore'@'%' IDENTIFIED BY '$MYSQL_RESTORE_PASSWORD';
           GRANT ALL PRIVILEGES ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
           GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
           GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_migrate'@'%';
+          GRANT SELECT, SHOW VIEW, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_backup'@'%';
+          GRANT ALL PRIVILEGES ON draw_restore_fixture_ci.* TO 'ustore_ci_restore'@'%';
           SQL
       - run: npm ci
       - run: npm audit --audit-level=high
