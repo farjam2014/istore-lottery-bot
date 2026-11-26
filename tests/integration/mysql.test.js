@@ -1,13 +1,9 @@
-import test,{after} from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
-import {pool} from '../../src/database/pool.js';
-
-after(async()=>{if(enabled)await pool.end();});
-
 // admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
@@ -46,7 +42,6 @@ test('MySQL integration: production migration preflight runs against the baselin
     for(const statement of statements)results.push(await readonly.query(statement));
     const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
     assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
-    const grantee="'" + reader + "'@'" + readerHost + "'";
     const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerHost,database]);
     const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerHost]);
     const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerHost]);
