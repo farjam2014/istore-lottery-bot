@@ -1,4 +1,4 @@
-import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
+import {createCipheriv,createDecipheriv,createHash,randomBytes} from 'node:crypto';
 
 const KEY_ID_PATTERN=/^[A-Za-z0-9._-]{1,64}$/;
 const KEY_PATTERN=/^[a-f0-9]{64}$/i;
@@ -46,4 +46,25 @@ export function decryptDrawSeed(row,keyring=loadDrawKeyring()){
   }catch{
     throw new Error('Draw seed decryption failed. The configured key may be incorrect or the stored ciphertext may be corrupted.');
   }
+}
+
+
+export function verifyPreparedDrawKeyRows(rows,keyring){
+  const items=[];
+  for(const row of rows||[]){
+    const drawId=Number(row?.id);
+    const keyId=String(row?.seed_key_id??'legacy-env');
+    let reason=null;
+    try{
+      const seed=decryptDrawSeed(row,keyring);
+      if(!/^[a-f0-9]{64}$/i.test(seed))reason='seed_format_invalid';
+      else if(createHash('sha256').update(seed).digest('hex')!==String(row?.seed_hash??'').toLowerCase())reason='commitment_mismatch';
+    }catch(error){
+      reason=String(error?.message||'').includes('not available')?'key_unavailable':'decryption_failed';
+    }
+    items.push({drawId,keyId,status:reason?'failed':'verified',reason});
+  }
+  const verified=items.filter(item=>item.status==='verified').length;
+  const failed=items.length-verified;
+  return {status:failed?'failed':items.length?'verified':'no_prepared_draws',checked:items.length,verified,failed,items};
 }
