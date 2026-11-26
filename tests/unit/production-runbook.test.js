@@ -30,5 +30,5 @@ test('production host preflight detects residual self-hosted runner services and
   assert.match(hostAudit,/runner_unit_files=none_detected/);
   assert.match(hostAudit,/find \/home \/opt \/root -maxdepth 5 -type f -name \.runner/);
   assert.match(hostAudit,/runner_registration_metadata=none_detected/);
-  assert.match(hostAudit,/self-hosted GitHub Runner registration metadata remains/);
+  assert.match(hostAudit,/Self-hosted GitHub Runner registration metadata remains/);
 });
