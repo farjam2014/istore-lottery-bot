@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed,verifyPreparedDrawKeyRows} from '../../src/modules/draw/draw-keyring.js';
 
 const oldKey='11'.repeat(32);
