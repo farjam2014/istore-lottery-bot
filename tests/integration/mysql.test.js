@@ -1139,13 +1139,15 @@ test('MySQL integration: runtime and migration identities enforce separate schem
       const [[columnRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[user,accountHost]);
       const [[routineRows]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host=?",[user,accountHost]);
       const [[roles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST=?",[user,accountHost]);
+      const [[defaultRoles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.default_roles WHERE USER=? AND HOST=?",[user,accountHost]);
       const [[proxy]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host=?",[user,accountHost]);
-      return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),proxy:Number(proxy.total)};
+      const [[alternateHosts]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.user WHERE User=? AND Host<>?",[user,accountHost]);
+      return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),defaultRoles:Number(defaultRoles.total),proxy:Number(proxy.total),alternateHosts:Number(alternateHosts.total)};
     };
     const runtimeGrants=await grants('ustore_ci_runtime');
     const migrationGrants=await grants('ustore_ci_migrate');
-    assert.deepEqual(runtimeGrants,{schema:['DELETE','INSERT','SELECT','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,proxy:0});
-    assert.deepEqual(migrationGrants,{schema:['ALTER','CREATE','DELETE','INDEX','INSERT','REFERENCES','SELECT','TRIGGER','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,proxy:0});
+    assert.deepEqual(runtimeGrants,{schema:['DELETE','INSERT','SELECT','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
+    assert.deepEqual(migrationGrants,{schema:['ALTER','CREATE','DELETE','INDEX','INSERT','REFERENCES','SELECT','TRIGGER','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
     await assert.rejects(runtime.query('CREATE TABLE runtime_ddl_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
     await migration.query('CREATE TABLE migration_ddl_probe(id INT PRIMARY KEY)');
     await admin.query('DROP TABLE '+quoteIdentifier(database)+'.'+quoteIdentifier('migration_ddl_probe'));
