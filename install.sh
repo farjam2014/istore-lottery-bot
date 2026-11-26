@@ -77,8 +77,6 @@ else
   log "Existing checkout validated; source update is deferred until after service-stop authorization checks."
 fi
 
-[[ -f "$APP_DIR/package.json" && -f "$APP_DIR/src/index.js" ]] || fail "Application source is incomplete."
-
 read_env(){ sed -n "s/^$1=//p" "$ENV_FILE" | head -n 1; }
 if [[ ! -e "$ENV_FILE" ]]; then
   printf '\nUStore Telegram Bot — resumable installation\n'
@@ -214,6 +212,7 @@ runuser -u "$APP_USER" -- git -C "$APP_DIR" checkout --detach "$RELEASE_COMMIT"
 checked_out_commit="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" rev-parse HEAD)"
 [[ "$checked_out_commit" == "$RELEASE_COMMIT" ]] || fail "Checked-out commit does not match USTORE_RELEASE_COMMIT."
 log "Pinned source commit: $checked_out_commit"
+[[ -f "$APP_DIR/package.json" && -f "$APP_DIR/src/index.js" ]] || fail "Application source is incomplete after the pinned checkout."
 
 log "Installing production dependencies and running automated tests."
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR' && npm ci --omit=dev"
