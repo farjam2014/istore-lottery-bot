@@ -30,7 +30,8 @@ READONLY_PASSWORD="${MYSQL_TEST_READONLY_PASSWORD:-}"
 
 read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {existsSync,readFileSync} from 'node:fs';const values=existsSync('.env')?dotenv.parse(readFileSync('.env')):process.env;process.stdout.write(values[process.argv[1]]??'')" "$1"; }
 APP_USER="$(read_dotenv_value MYSQL_USER)"
-APP_MIGRATION_USER=\nif [[ -f .env ]]; then APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"; fi
+APP_MIGRATION_USER=
+if [[ -f .env ]]; then APP_MIGRATION_USER="$(read_dotenv_value MYSQL_MIGRATION_USER)"; fi
 PRODUCTION_DB="$(read_dotenv_value MYSQL_DATABASE)"
 
 [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+_ci$ ]] || die "Set MYSQL_TEST_DATABASE to a dedicated _ci database."
