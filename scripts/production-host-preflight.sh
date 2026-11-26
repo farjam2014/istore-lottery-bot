@@ -96,9 +96,12 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       R5="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$DB'")"
       R6="$(mysql_q "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1'))")"
       R7="$(mysql_q "SELECT COUNT(*) FROM mysql.default_roles WHERE USER='$APP_USER' AND HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
-      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\nruntime_default_roles=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6" "$R7"
-      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 || "$R7" != 0 ]]; then
-        fail "Runtime account is not proven DML-only on one schema."
+      R8="$(mysql_q "SELECT COUNT(*) FROM mysql.role_edges WHERE TO_USER='$APP_USER' AND TO_HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      R9="$(mysql_q "SELECT COUNT(*) FROM mysql.user WHERE User='$APP_USER' AND Host<>'127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      R10="$(mysql_q "SELECT COUNT(*) FROM mysql.proxies_priv WHERE User='$APP_USER' AND Host='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      printf 'runtime_schema_privilege_rows=%s expected=4\nruntime_allowed_dml_rows=%s expected=4\nruntime_unexpected_schema_privileges=%s expected=0\nruntime_global_privileges=%s expected=0\nruntime_other_schema_grants=%s expected=0\nruntime_table_grants=%s expected=0\nruntime_default_roles=%s expected=0\nruntime_granted_roles=%s expected=0\nruntime_alternate_host_accounts=%s expected=0\nruntime_proxy_grants=%s expected=0\n' "$R1" "$R2" "$R3" "$R4" "$R5" "$R6" "$R7" "$R8" "$R9" "$R10"
+      if [[ "$R1" != 4 || "$R2" != 4 || "$R3" != 0 || "$R4" != 0 || "$R5" != 0 || "$R6" != 0 || "$R7" != 0 || "$R8" != 0 || "$R9" != 0 || "$R10" != 0 ]]; then
+        fail "Runtime account is not proven DML-only on exactly one host identity and one schema."
       fi
       printf 'runtime_show_grants:\n'
       mysql_q "SHOW GRANTS FOR '$APP_USER'@'127.0.0.1'" || fail "Could not resolve runtime SHOW GRANTS."
@@ -127,9 +130,12 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       M4="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$DB'")"
       M5="$(mysql_q "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MIG_USER'),'@',QUOTE('127.0.0.1'))")"
       M6="$(mysql_q "SELECT COUNT(*) FROM mysql.default_roles WHERE USER='$MIG_USER' AND HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
-      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\nmigration_default_roles=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5" "$M6"
-      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 ]]; then
-        fail "Migration account does not match schema-scoped least privilege."
+      M7="$(mysql_q "SELECT COUNT(*) FROM mysql.role_edges WHERE TO_USER='$MIG_USER' AND TO_HOST='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      M8="$(mysql_q "SELECT COUNT(*) FROM mysql.user WHERE User='$MIG_USER' AND Host<>'127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      M9="$(mysql_q "SELECT COUNT(*) FROM mysql.proxies_priv WHERE User='$MIG_USER' AND Host='127.0.0.1'" 2>/dev/null || echo UNKNOWN)"
+      printf 'migration_schema_privilege_rows=%s expected=9\nmigration_required_privilege_types=%s expected=9\nmigration_global_privileges=%s expected=0\nmigration_other_schema_grants=%s expected=0\nmigration_table_grants=%s expected=0\nmigration_default_roles=%s expected=0\nmigration_granted_roles=%s expected=0\nmigration_alternate_host_accounts=%s expected=0\nmigration_proxy_grants=%s expected=0\n' "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7" "$M8" "$M9"
+      if [[ "$M1" != 9 || "$M2" != 9 || "$M3" != 0 || "$M4" != 0 || "$M5" != 0 || "$M6" != 0 || "$M7" != 0 || "$M8" != 0 || "$M9" != 0 ]]; then
+        fail "Migration account does not match schema-scoped least privilege on exactly one host identity."
       fi
     else
       fail "Migration credentials are missing, not distinct, or bound to another database."
@@ -167,15 +173,27 @@ else
 fi
 if id ghrunner >/dev/null 2>&1; then
   id ghrunner
-  GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1 || true)"
-  printf '%s\n' "$GHrunner_SUDO_POLICY"
-  if grep -q NOPASSWD <<<"$GHrunner_SUDO_POLICY"; then fail "ghrunner has passwordless sudo."; fi
+  if GHrunner_SUDO_POLICY="$(sudo -l -U ghrunner 2>&1)"; then
+    printf '%s\n' "$GHrunner_SUDO_POLICY"
+    if grep -Eq '^[[:space:]]*\\([^)]*\\)[[:space:]]' <<<"$GHrunner_SUDO_POLICY"; then
+      fail "ghrunner has sudo command grants; the self-hosted runner account must have no sudo access."
+    else
+      info "ghrunner_sudo=none_detected"
+    fi
+  else
+    printf '%s\n' "$GHrunner_SUDO_POLICY"
+    fail "Could not reliably inspect ghrunner sudo policy."
+  fi
 else
   info "ghrunner_account=not_present"
 fi
 if [[ -e /usr/local/sbin/istore-admin ]]; then
   stat -c 'privileged_helper owner=%U group=%G mode=%a' /usr/local/sbin/istore-admin
   sha256sum /usr/local/sbin/istore-admin
+  [[ "$(stat -c '%U:%G' /usr/local/sbin/istore-admin)" == "root:root" ]] || fail "Privileged helper must be owned by root:root."
+  if find /usr/local/sbin/istore-admin -maxdepth 0 -perm /6022 -print -quit | grep -q .; then
+    fail "Privileged helper has setuid/setgid or group/world write permissions."
+  fi
 fi
 if [[ -f /etc/sudoers.d/istore-admin ]]; then
   grep -nE '^[[:space:]]*[^#].*istore-admin' /etc/sudoers.d/istore-admin || true
