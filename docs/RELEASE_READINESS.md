@@ -12,6 +12,7 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
 - [ ] Review the full PR diff and migration files; do not rely on `mergeable=true` alone.
+- [ ] Confirm the full-history Gitleaks scan across all fetched Git refs passed on the exact PR head; the incremental Push/PR scan alone is not a historical secret audit.
 - [ ] Confirm the target host, application directory, systemd unit, Node version, MySQL version, and database name.
 - [ ] Confirm `MYSQL_DATABASE` and runtime `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
 - [ ] Confirm the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the application database; DDL must use a separate migration account.
