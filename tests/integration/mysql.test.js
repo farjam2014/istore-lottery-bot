@@ -1168,7 +1168,7 @@ test('MySQL integration: runtime and migration identities enforce separate schem
     const [[migrationIdentity]]=await migration.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
     assert.equal(runtimeIdentity.account,'ustore_ci_runtime@%');
     assert.equal(runtimeIdentity.schema_name,database);
-    assert.equal(migrationIdentity.account,'ustore_ci_migrate@%');
+    assert.equal(migrationIdentity.account,'ustore_ci_priv_migrate@%');
     assert.equal(migrationIdentity.schema_name,database);
     const grants=async user=>{
       const [schemaRows]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[user,accountHost,database]);
@@ -1214,7 +1214,7 @@ test('MySQL integration: runtime and migration identities enforce separate schem
       }
     });
     assert.equal(probe.status,0,probe.stderr||'Application pool identity probe failed.');
-    assert.deepEqual(JSON.parse(probe.stdout),{runtime:'ustore_ci_runtime@%',migration:'ustore_ci_migrate@%'},'runtime and migration pools must authenticate with their distinct configured identities');
+    assert.deepEqual(JSON.parse(probe.stdout),{runtime:'ustore_ci_runtime@%',migration:'ustore_ci_priv_migrate@%'},'runtime and migration pools must authenticate with their distinct configured identities');
   }finally{
     await Promise.all([admin.end(),runtime.end(),migration.end()]);
   }
