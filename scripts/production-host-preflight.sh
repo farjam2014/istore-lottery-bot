@@ -186,6 +186,16 @@ done
 printf 'encrypted_database_backup_artifacts=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS"
 if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
 
+
+PLAINTEXT_DB_BACKUPS=0
+for directory in /root/ustore-backups /opt/ustore-backups /root/ustore-release-backup-*; do
+  [[ -d "$directory" ]] || continue
+  count="$(find "$directory" -maxdepth 2 -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.sql.zst' -o -name '*.sql.xz' -o -name '*.sql.bz2' -o -name '*.dump' -o -name '*.dump.gz' \) -printf '.' | wc -c)"
+  PLAINTEXT_DB_BACKUPS=$((PLAINTEXT_DB_BACKUPS+count))
+done
+printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
+if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database backup artifacts were detected; compression alone is not encryption."; fi
+
 section "NETWORK AND FIREWALL"
 if command -v ufw >/dev/null 2>&1; then ufw status verbose || true; else info "ufw=not_installed"; fi
 printf 'listening_tcp_ports:\n'
