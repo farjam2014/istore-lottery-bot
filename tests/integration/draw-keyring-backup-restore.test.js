@@ -44,6 +44,28 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   assert.notEqual(user,backupUser,'Application and backup identities must be distinct.');
   assert.notEqual(user,restoreUser,'Application and restore identities must be distinct.');
   assert.notEqual(backupUser,restoreUser,'Backup and restore identities must be distinct.');
+  const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
+  const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
+  assert.ok(adminUser&&adminPassword,'A test-only grant inspection identity is required.');
+  const grantInspector=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'mysql'});
+  try{
+    const [[schema]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA=?",[backupUser,database]);
+    const [[global]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[backupUser]);
+    const [[otherSchemas]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND TABLE_SCHEMA<>?",[backupUser,database]);
+    const [[tableGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%'))",[backupUser]);
+    const [[columnGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%'))",[backupUser]);
+    const [[routineGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host='%'",[backupUser]);
+    const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='%'",[backupUser]);
+    const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='%'",[backupUser]);
+    assert.equal(schema.privileges,'SELECT,SHOW VIEW,TRIGGER','backup account must have only the schema-scoped dump privileges');
+    assert.equal(Number(global.total),0);
+    assert.equal(Number(otherSchemas.total),0);
+    assert.equal(Number(tableGrants.total),0);
+    assert.equal(Number(columnGrants.total),0);
+    assert.equal(Number(routineGrants.total),0);
+    assert.equal(Number(roles.total),0);
+    assert.equal(Number(proxy.total),0);
+  }finally{await grantInspector.end();}
   const backupEnv={...process.env,MYSQL_PWD:backupPassword};
   const restoreEnv={...process.env,MYSQL_PWD:restorePassword};
   const restoreDatabase=String(process.env.MYSQL_RESTORE_DATABASE||'');
