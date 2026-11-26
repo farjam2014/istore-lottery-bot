@@ -35,11 +35,17 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   const port=String(process.env.MYSQL_PORT||'3306');
   const user=String(process.env.MYSQL_USER||'');
   assert.ok(user,'MYSQL_USER is required.');
-  const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
-  const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
-  assert.ok(adminUser&&adminPassword,'A dedicated schema-scoped restore identity is required.');
-  assert.notEqual(user,adminUser,'Test application and restore identities must be distinct.');
-  const adminEnv={...process.env,MYSQL_PWD:adminPassword};
+  const backupUser=String(process.env.MYSQL_BACKUP_USER||'');
+  const backupPassword=String(process.env.MYSQL_BACKUP_PASSWORD||'');
+  const restoreUser=String(process.env.MYSQL_RESTORE_USER||'');
+  const restorePassword=String(process.env.MYSQL_RESTORE_PASSWORD||'');
+  assert.ok(backupUser&&backupPassword,'A dedicated read-only backup identity is required.');
+  assert.ok(restoreUser&&restorePassword,'A dedicated schema-scoped restore identity is required.');
+  assert.notEqual(user,backupUser,'Application and backup identities must be distinct.');
+  assert.notEqual(user,restoreUser,'Application and restore identities must be distinct.');
+  assert.notEqual(backupUser,restoreUser,'Backup and restore identities must be distinct.');
+  const backupEnv={...process.env,MYSQL_PWD:backupPassword};
+  const restoreEnv={...process.env,MYSQL_PWD:restorePassword};
   const restoreDatabase=String(process.env.MYSQL_RESTORE_DATABASE||'');
   assert.match(restoreDatabase,/^draw_restore_[A-Za-z0-9_]+_ci$/,'A pre-provisioned isolated restore database is required.');
   assert.notEqual(restoreDatabase,database,'Restore database must differ from source database.');
@@ -70,22 +76,30 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     );
     drawId=draw.insertId;
 
-    const [[emptyTables]]=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:'information_schema'}).then(async conn=>{
+    const backupProbe=await mysql.createConnection({host,port:Number(port),user:backupUser,password:backupPassword,database});
+    try{
+      await assert.rejects(backupProbe.execute('CREATE TABLE backup_write_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+    }finally{await backupProbe.end();}
+    const restoreSourceProbe=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database});
+    try{
+      await assert.rejects(restoreSourceProbe.execute('CREATE TABLE restore_scope_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+    }finally{await restoreSourceProbe.end();}
+    const [[emptyTables]]=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:'information_schema'}).then(async conn=>{
       try{return await conn.execute('SELECT COUNT(*) AS total FROM TABLES WHERE TABLE_SCHEMA=?',[restoreDatabase]);}
       finally{await conn.end();}
     });
     assert.equal(Number(emptyTables.total),0,'Pre-provisioned restore schema must be empty before import.');
     const backup=execFileSync('mysqldump',[
-      '--host',host,'--port',port,'--user',user,
+      '--host',host,'--port',port,'--user',backupUser,
       '--single-transaction','--skip-lock-tables','--no-tablespaces',
       '--column-statistics=0',database
-    ],{env:childEnv,encoding:'buffer',maxBuffer:128*1024*1024,timeout:180000});
+    ],{env:backupEnv,encoding:'buffer',maxBuffer:128*1024*1024,timeout:180000});
     assert.ok(backup.length>0,'mysqldump returned an empty backup.');
-    execFileSync('mysql',['--host',host,'--port',port,'--user',adminUser,restoreDatabase],{
-      env:adminEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
+    execFileSync('mysql',['--host',host,'--port',port,'--user',restoreUser,restoreDatabase],{
+      env:restoreEnv,input:backup,stdio:['pipe','pipe','pipe'],maxBuffer:128*1024*1024,timeout:180000
     });
 
-    restored=await mysql.createConnection({host,port:Number(port),user:adminUser,password:adminPassword,database:restoreDatabase});
+    restored=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:restoreDatabase});
     const [[restoredDraw]]=await restored.execute('SELECT id,campaign_id,status,seed_hash,seed_ciphertext,seed_nonce,seed_tag,seed_key_id FROM campaign_draws WHERE id=?',[drawId]);
     assert.ok(restoredDraw,'Prepared draw row was not present after database restore.');
     assert.equal(restoredDraw.status,'prepared');
