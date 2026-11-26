@@ -94,7 +94,7 @@ test('release readiness inventory lists every SQL migration in the repository',(
 
 test('release runbook verifies append-only admin audit triggers after migration',()=>{
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
-  assert.match(runbook,/information_schema\\.TRIGGERS/);
+  assert.match(runbook,/information_schema\.TRIGGERS/);
   assert.match(runbook,/trg_admin_audit_log_no_update/);
   assert.match(runbook,/trg_admin_audit_log_no_delete/);
   assert.match(runbook,/AUDIT_TRIGGER_COUNT/);
@@ -102,8 +102,8 @@ test('release runbook verifies append-only admin audit triggers after migration'
 
 test('append-only audit trigger recovery verifies the protected table identity',()=>{
   const migration=readFileSync(new URL('../../src/database/migrate.js',import.meta.url),'utf8');
-  assert.match(migration,/SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema\\.TRIGGERS/);
-  assert.match(migration,/row\\.EVENT_OBJECT_TABLE!=='admin_audit_log'/);
+  assert.match(migration,/SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema\.TRIGGERS/);
+  assert.match(migration,/row\.EVENT_OBJECT_TABLE!=='admin_audit_log'/);
 });
 
 test('append-only audit trigger recovery rejects additional trigger statements',()=>{
