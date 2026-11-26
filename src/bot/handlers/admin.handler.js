@@ -142,7 +142,7 @@ async function advancePaymentCardSession(ctx,expectedStep,step,payload){
   if(!result.affectedRows)throw new Error('مرحله ثبت کارت تغییر کرده یا این پیام قبلاً پردازش شده است؛ فهرست کارت‌ها را دوباره باز کنید.');
 }
 async function showPaymentCardInput(ctx,editing=false){
-  return respond(ctx,(editing?'✏️ ویرایش کارت بانکی':'➕ افزودن کارت بانکی')+'\n\nمرحله ۱ از ۴: نام بانک را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel'),Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]]));
+  return respond(ctx,(editing?'✏️ ویرایش کارت بانکی':'➕ افزودن کارت بانکی')+'\n\nمرحله ۱ از ۴: نام بانک را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel:'+ctx.update.update_id),Markup.button.callback('↩️ فهرست کارت‌ها','admin:payment-cards')]]));
 }
 function slugify(title){const suffix=randomBytes(3).toString('hex');const base=title.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'campaign';return `${base}-${suffix}`;}
 const CAMPAIGNS_PER_PAGE=6;
@@ -444,15 +444,18 @@ export function registerAdminHandlers(bot){
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,last_update_id) VALUES(?,'campaign_code',?,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(step),step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),VALUES(campaign_id),campaign_id),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),campaignId,updateId]);
     await ctx.answerCbQuery();
     const contactLookup=isConfiguredSuperAdmin(ctx.from.id);
-    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId)]]));
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. '+(contactLookup?'کد، Telegram ID یا شماره موبایل قابل جست‌وجو است.':'فقط کد کامل یا بخشی از کد قابل جست‌وجو است.')+'\nکمپین: '+campaign.title,Markup.inlineKeyboard([[Markup.button.callback('لغو','admin:campaign:codes:cancel:'+campaignId+':'+updateId)]]));
   });
-  bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>{
+  bot.action(/^admin:campaign:codes:cancel:(\d+):(\d{1,16})$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
-    const campaignId=Number(ctx.match[1]);
-    await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND campaign_id=?",[String(ctx.from.id),campaignId]);
+    const campaignId=Number(ctx.match[1]),expected=Number(ctx.match[2]),updateId=Number(ctx.update?.update_id);
+    if(isStaleAdminReplyUpdate(updateId,expected))return ctx.answerCbQuery('این دکمه مربوط به جست‌وجوی قبلی است.',{show_alert:true});
+    const [deleted]=await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step='campaign_code' AND campaign_id=? AND last_update_id=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id),campaignId,expected]);
+    if(!deleted.affectedRows)return ctx.answerCbQuery('جست‌وجو تغییر کرده یا منقضی شده است؛ این دکمه اثری ندارد.',{show_alert:true});
     await ctx.answerCbQuery('جست‌وجو لغو شد.');
     return showCampaignDetail(ctx,campaignId);
   });
+  bot.action(/^admin:campaign:codes:cancel:(\d+)$/,async ctx=>ctx.answerCbQuery('این دکمه قدیمی است؛ جست‌وجوی فعال تغییر نکرد.',{show_alert:true}));
 
   bot.action(/^admin:campaign:codes:export:(\d+)$/,async ctx=>{
     if(!(await hasPermission(ctx.from.id,'campaign.read'))||!(await hasPermission(ctx.from.id,'participant.export')))return deny(ctx);
@@ -473,14 +476,18 @@ export function registerAdminHandlers(bot){
     const updateId=Number(ctx.update?.update_id);if(!Number.isSafeInteger(updateId))return ctx.answerCbQuery('شناسه پیام معتبر نیست؛ دوباره تلاش کنید.',{show_alert:true});
     await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,campaign_id,query_text,last_update_id) VALUES(?,'participant',NULL,NULL,?) ON DUPLICATE KEY UPDATE step=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),'participant',step),campaign_id=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),NULL,campaign_id),query_text=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),NULL,query_text),created_at=IF(VALUES(last_update_id)>COALESCE(last_update_id,-1),CURRENT_TIMESTAMP,created_at),last_update_id=GREATEST(COALESCE(last_update_id,-1),VALUES(last_update_id))",[String(ctx.from.id),updateId]);
     await ctx.answerCbQuery();
-    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel')]]));
+    return respond(ctx,'عبارت جست‌وجو را ارسال کنید. نام، شماره موبایل، آیدی اینستاگرام یا Telegram ID قابل جست‌وجو است.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو جست‌وجو','admin:participants:search:cancel:'+updateId)]]));
   });
-  bot.action('admin:participants:search:cancel',async ctx=>{
+  bot.action(/^admin:participants:search:cancel:(\d{1,16})$/,async ctx=>{
     if(!await hasPermission(ctx.from.id,'participant.directory.read'))return deny(ctx);
-    await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results')",[String(ctx.from.id)]);
+    const expected=Number(ctx.match[1]),updateId=Number(ctx.update?.update_id);
+    if(isStaleAdminReplyUpdate(updateId,expected))return ctx.answerCbQuery('این دکمه مربوط به جست‌وجوی قبلی است.',{show_alert:true});
+    const [deleted]=await pool.execute("DELETE FROM admin_search_sessions WHERE telegram_user_id=? AND step IN ('participant','participant_results') AND last_update_id=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)",[String(ctx.from.id),expected]);
+    if(!deleted.affectedRows)return ctx.answerCbQuery('جست‌وجو تغییر کرده یا منقضی شده است؛ این دکمه اثری ندارد.',{show_alert:true});
     await ctx.answerCbQuery('جست‌وجو لغو شد.');
     return showParticipants(ctx,0);
   });
+  bot.action('admin:participants:search:cancel',async ctx=>ctx.answerCbQuery('این دکمه قدیمی است؛ جست‌وجوی فعال تغییر نکرد.',{show_alert:true}));
   bot.action(/^admin:participants:page:(\d+)$/,async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});const [[searchState]]=await pool.execute("SELECT query_text FROM admin_search_sessions WHERE telegram_user_id=? AND step='participant_results'",[String(ctx.from.id)]);await ctx.answerCbQuery();return showParticipants(ctx,Number(ctx.match[1]),searchState?.query_text||'');});
   bot.action(/^admin:participant:view:(\d+)(?::(\d+))?$/,async ctx=>{
     if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});
@@ -649,12 +656,16 @@ export function registerAdminHandlers(bot){
     await ctx.answerCbQuery(active?'کارت فعال شد.':'کارت غیرفعال شد.');
     return showPaymentCards(ctx);
   });
-  bot.action('admin:payment-card:cancel',async ctx=>{
+  bot.action(/^admin:payment-card:cancel:(\d{1,16})$/,async ctx=>{
     if(!await isAdmin(ctx))return deny(ctx);
-    await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=?',[String(ctx.from.id)]);
+    const expected=Number(ctx.match[1]),updateId=Number(ctx.update?.update_id);
+    if(isStaleAdminReplyUpdate(updateId,expected))return ctx.answerCbQuery('این دکمه مربوط به مرحله قبلی ثبت کارت است.',{show_alert:true});
+    const [deleted]=await pool.execute('DELETE FROM payment_card_admin_sessions WHERE telegram_user_id=? AND last_update_id=? AND updated_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 24 HOUR)',[String(ctx.from.id),expected]);
+    if(!deleted.affectedRows)return ctx.answerCbQuery('مرحله ثبت کارت تغییر کرده یا منقضی شده است؛ این دکمه اثری ندارد.',{show_alert:true});
     await ctx.answerCbQuery('فرایند لغو شد.');
     return showPaymentCards(ctx);
   });
+  bot.action('admin:payment-card:cancel',async ctx=>ctx.answerCbQuery('این دکمه قدیمی است؛ نشست فعال تغییر نکرد.',{show_alert:true}));
 
   bot.action('admin:stats',async ctx=>{if(!await isAdmin(ctx))return ctx.answerCbQuery('دسترسی غیرمجاز.',{show_alert:true});await ctx.answerCbQuery();return respond(ctx,'گزارش‌ها و عملکرد مالی',Markup.inlineKeyboard([[Markup.button.callback('مشاهده گزارش جامع','admin:reports')],[Markup.button.callback('بازگشت','admin:home')]]));});
   bot.action('admin:reports',async ctx=>{
@@ -728,7 +739,7 @@ export function registerAdminHandlers(bot){
     }
     if(cardSession){
       if(isOlderAdminWizardReplay(ctx,{lastUpdateId:cardSession.last_update_id===null?null:Number(cardSession.last_update_id)}))return respond(ctx,'این پیام قبلاً پردازش شده است. لطفاً مرحله فعلی را ادامه دهید.');
-      if(cardSession.step==='saving')return respond(ctx,'ذخیره کارت در مرحله قبل آغاز شده اما نتیجه نهایی ثبت نشده است. ابتدا فهرست کارت‌ها را بررسی کنید؛ در صورت نیاز، نشست را لغو و دوباره شروع کنید.',Markup.inlineKeyboard([[Markup.button.callback('بررسی فهرست کارت‌ها','admin:payment-cards')],[Markup.button.callback('لغو نشست کارت','admin:payment-card:cancel')]]));
+      if(cardSession.step==='saving')return respond(ctx,'ذخیره کارت در مرحله قبل آغاز شده اما نتیجه نهایی ثبت نشده است. ابتدا فهرست کارت‌ها را بررسی کنید؛ در صورت نیاز، نشست را لغو و دوباره شروع کنید.',Markup.inlineKeyboard([[Markup.button.callback('بررسی فهرست کارت‌ها','admin:payment-cards')],[Markup.button.callback('لغو نشست کارت','admin:payment-card:cancel:'+cardSession.last_update_id)]]));
       const payload=typeof cardSession.payload==='string'?JSON.parse(cardSession.payload):cardSession.payload;
       const value=ctx.message.text.trim();
       if(value.startsWith('/'))return respond(ctx,'برای ادامه اطلاعات کارت را وارد کنید یا دکمه لغو را بزنید.');
@@ -736,18 +747,18 @@ export function registerAdminHandlers(bot){
         if(value.length<2||value.length>80)return respond(ctx,'نام بانک باید بین ۲ تا ۸۰ نویسه باشد.');
         payload.bankName=value;
         await advancePaymentCardSession(ctx,'bank_name','card_number',payload);
-        return respond(ctx,'مرحله ۲ از ۴: شماره کارت ۱۶ رقمی را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
+        return respond(ctx,'مرحله ۲ از ۴: شماره کارت ۱۶ رقمی را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel:'+ctx.update.update_id)]]));
       }
       if(cardSession.step==='card_number'){
         try{payload.cardNumber=normalizeCardNumber(value);}catch(e){return respond(ctx,e.message);}
         await advancePaymentCardSession(ctx,'card_number','card_holder',payload);
-        return respond(ctx,'مرحله ۳ از ۴: نام و نام خانوادگی صاحب کارت را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
+        return respond(ctx,'مرحله ۳ از ۴: نام و نام خانوادگی صاحب کارت را ارسال کنید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel:'+ctx.update.update_id)]]));
       }
       if(cardSession.step==='card_holder'){
         if(value.length<3||value.length>120)return respond(ctx,'نام صاحب کارت باید بین ۳ تا ۱۲۰ نویسه باشد.');
         payload.cardHolder=value;
         await advancePaymentCardSession(ctx,'card_holder','instructions',payload);
-        return respond(ctx,'مرحله ۴ از ۴: توضیحات پرداخت را ارسال کنید؛ اگر توضیحی ندارید «-» بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel')]]));
+        return respond(ctx,'مرحله ۴ از ۴: توضیحات پرداخت را ارسال کنید؛ اگر توضیحی ندارید «-» بفرستید.',Markup.inlineKeyboard([[Markup.button.callback('✖️ لغو','admin:payment-card:cancel:'+ctx.update.update_id)]]));
       }
       if(cardSession.step==='instructions'){
         if(value.length>500)return respond(ctx,'توضیحات حداکثر ۵۰۰ نویسه باشد.');
