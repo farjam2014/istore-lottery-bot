@@ -72,7 +72,7 @@ test('production preflight reports privacy, Telegram inbox, and idempotency aggr
   ]){
     assert.ok(preflight.includes(fragment),'preflight is missing aggregate impact check: '+fragment);
   }
-  assert.doesNotMatch(preflight,/SELECT\s+(?:payload|\*)\s+FROM\s+telegram_update_inbox/i);
+  assert.doesNotMatch(preflight,/SELECT\s+(?:payload|last_error|\*)\s+FROM\s+telegram_update_inbox/i);
 });
 
 test('production preflight reports exact row counts for every replay-cleanup session table',()=>{
