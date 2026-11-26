@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-die(){ printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
+die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 read_dotenv_value(){ node --input-type=module -e "import dotenv from 'dotenv';import {existsSync,readFileSync} from 'node:fs';const values=existsSync('.env')?dotenv.parse(readFileSync('.env')):process.env;process.stdout.write(values[process.argv[1]]??'')" "$1"; }
 valid_user(){ [[ "$1" =~ ^ustore_ci_[A-Za-z0-9_]{1,22}$ ]]; }
 valid_password(){ [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
@@ -91,10 +91,10 @@ export RUN_MYSQL_TESTS=1
 # values from a developer's .env and accidentally target an unrelated schema.
 unset MYSQL_PRIVILEGE_TEST_DATABASE MYSQL_PRIVILEGE_RUNTIME_USER MYSQL_PRIVILEGE_RUNTIME_PASSWORD MYSQL_PRIVILEGE_MIGRATION_USER MYSQL_PRIVILEGE_MIGRATION_PASSWORD || true
 
-printf 'Running integration tests against dedicated schema: %s\\n' "$MYSQL_DATABASE"
-printf 'Fixture schemas: %s, %s, %s\\n' "$MYSQL_RESTORE_DATABASE" "$MYSQL_PREFLIGHT_DATABASE" "$MYSQL_DRAW_GUARD_DATABASE"
-printf 'Production database is not used: %s\\n' "$APP_DB"
-printf 'Production runtime and migration identities are not used.\\n'
+printf 'Running integration tests against dedicated schema: %s\n' "$MYSQL_DATABASE"
+printf 'Fixture schemas: %s, %s, %s\n' "$MYSQL_RESTORE_DATABASE" "$MYSQL_PREFLIGHT_DATABASE" "$MYSQL_DRAW_GUARD_DATABASE"
+printf 'Production database is not used: %s\n' "$APP_DB"
+printf 'Production runtime and migration identities are not used.\n'
 node --test --test-timeout=600000 --test-concurrency=1 tests/integration/mysql.test.js
 node --test --test-timeout=600000 --test-concurrency=1 tests/integration/draw-keyring-backup-restore.test.js
 node --test --test-timeout=600000 --test-concurrency=1 tests/integration/production-preflight-baseline.test.js
