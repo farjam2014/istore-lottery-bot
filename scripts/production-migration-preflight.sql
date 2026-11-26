@@ -134,6 +134,103 @@ FROM (
 LEFT JOIN schema_migrations actual ON actual.version=expected.version
 ORDER BY expected.version;
 
+-- Exact impact inventory for session rows intentionally cleared by the replay migrations.
+-- Missing tables are reported as pending prerequisite migrations, never silently treated as zero.
+
+-- registration sessions cleared by 20261124_003.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_user_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''telegram_user_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_user_sessions',
+  'SELECT ''telegram_user_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- admin wizard sessions cleared by 20261124_004.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''admin_wizards'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM admin_wizards',
+  'SELECT ''admin_wizards'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- payment-card wizard sessions cleared by 20261124_004.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_card_admin_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''payment_card_admin_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM payment_card_admin_sessions',
+  'SELECT ''payment_card_admin_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- admin-role wizard sessions cleared by 20261124_004.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_role_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''admin_role_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM admin_role_sessions',
+  'SELECT ''admin_role_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- support sessions cleared by 20261125_001 and 20261125_003.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='support_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''support_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM support_sessions',
+  'SELECT ''support_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- profile-change sessions cleared by 20261125_003.
+SET @preflight_session_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_sessions'
+);
+SET @preflight_sql := IF(
+  @preflight_session_table_exists,
+  'SELECT ''profile_change_sessions'' AS table_name, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM profile_change_sessions',
+  'SELECT ''profile_change_sessions'' AS table_name, NULL AS exact_rows, ''PENDING_OR_MISSING_TABLE'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+-- Support-session step breakdown identifies the admin_reply subset removed by migration 20261125_001.
+SET @preflight_sql := IF(
+  (SELECT COUNT(*)=1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='support_sessions'),
+  'SELECT step, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM support_sessions GROUP BY step ORDER BY step',
+  'SELECT ''PENDING_OR_MISSING_TABLE'' AS check_status, NULL AS step, NULL AS exact_rows'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
 -- Current schema capabilities required by the new application.
 SELECT table_name, column_name, column_type, is_nullable, column_default
 FROM information_schema.columns
