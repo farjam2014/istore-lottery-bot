@@ -5,11 +5,12 @@ import {execFileSync} from 'node:child_process';
 import mysql from 'mysql2/promise';
 import {pool} from '../../src/database/pool.js';
 import {migrate} from '../../src/database/migrate.js';
+import {getMigrationPool,closeMigrationPool} from '../../src/database/migration-pool.js';
 import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed} from '../../src/modules/draw/draw-keyring.js';
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
 
-after(async()=>{await pool.end();});
+after(async()=>{await closeMigrationPool();await pool.end();});
 const oldKey='31'.repeat(32);
 const newKey='42'.repeat(32);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
@@ -131,7 +132,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
       finally{await conn.end();}
     });
     assert.equal(Number(emptyTables.total),0,'Pre-provisioned restore schema must be empty before import.');
-    const [sourceTriggerRows]=await pool.execute(
+    const [sourceTriggerRows]=await getMigrationPool().execute(
       "SELECT TRIGGER_NAME,DEFINER FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') ORDER BY TRIGGER_NAME"
     );
     assert.equal(sourceTriggerRows.length,2,'Source schema must contain both append-only audit triggers.');
