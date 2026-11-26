@@ -105,6 +105,7 @@ test('database preflight authenticates runtime and migration credentials without
   assert.ok(source.includes('verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$ACTIVE/.env" MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE runtime'));
   assert.ok(source.includes('verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$MIGRATION_ENV" MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE migration'));
   assert.ok(source.includes('unset APP_PASS'));
+  assert.ok(source.indexOf('"$MIG_PASS" != "$APP_PASS"') < source.indexOf('unset APP_PASS'),'runtime password comparison must happen before clearing the runtime password');
   assert.doesNotMatch(source,/MYSQL_PASSWORD=[^\\s]+/);
   assert.doesNotMatch(source,/MYSQL_MIGRATION_PASSWORD=[^\\s]+/);
 });
