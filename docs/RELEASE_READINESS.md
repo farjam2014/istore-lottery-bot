@@ -20,7 +20,7 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 - [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
 - [ ] Confirm the active key ID and every historical key ID referenced by prepared draws are present.
-- [ ] Confirm there are no prepared draws with missing ciphertext, nonce, tag, unknown key IDs, or unsupported algorithms.
+- [ ] Confirm every historical draw key ID is accounted for in the protected keyring backup; do not infer ciphertext decryptability from the baseline preflight alone.
 - [ ] Confirm no legacy campaign-code ownership mismatch and no campaign exceeds the 999999 sequence limit.
 - [ ] Confirm no old prepared draw requires manual recovery before applying the draw migrations.
 - [ ] Run `scripts/production-migration-preflight.sql` against the exact target database using a read-only MySQL account; retain its output with the release evidence.
@@ -36,7 +36,9 @@ Before any production schema change:
 5. Restore the backup into a separate disposable database and verify key application tables and row counts.
 6. Back up all draw seed key material independently of the database backup. Preserve the exact key IDs and their mapping to key material in an access-controlled encrypted vault.
 7. Perform a recovery rehearsal proving that the restored database and independently restored keyring can decrypt a prepared draw.
-8. Do not proceed if any backup, restore, key custody, or decryption check fails.
+8. Verify automated database backups are scheduled, the last successful run is recorded, retention and alerting are configured, and the backup is encrypted at rest; gzip compression alone is not encryption.
+9. Confirm no plaintext draw-seed key copies remain in backup locations after the encrypted keyring backup and restore rehearsal are verified.
+10. Do not proceed if any backup, restore, key custody, or decryption check fails.
 
 A database dump alone is not a complete backup for prepared draws. Losing the historical key referenced by a prepared draw makes its encrypted seed unrecoverable.
 
@@ -100,9 +102,11 @@ Run production migrations only after explicit approval, a verified backup, and a
 5. Install production dependencies with the repository's supported Node.js version.
 6. Run the approved migration command once against the exact target database using the protected migration-only credential file; do not inject migration credentials into the service environment.
 7. If a migration fails, stop. Capture the error and inspect `schema_migrations` plus `information_schema`; do not blindly rerun or manually drop objects.
-8. Verify migration checksums and the expected schema before enabling application traffic.
-9. Start or restart the systemd service only after separate deployment approval.
-10. Observe logs and service health before re-enabling registration and payment workflows.
+8. Run `scripts/post-migration-integrity-check.sql` with a dedicated SELECT-only account after migrations. Confirm no missing/invalid prepared-draw metadata, unsupported algorithms, counter drift, or duplicate code sequences; compare reported key IDs with the protected keyring and restore rehearsal.
+9. Verify the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the target schema, with no global or other-schema grants; keep DDL privileges on the separate protected migration account.
+10. Verify migration checksums and the expected schema before enabling application traffic.
+11. Start or restart the systemd service only after separate deployment approval.
+12. Observe logs and service health before re-enabling registration and payment workflows.
 
 The Ubuntu installer does not create a database backup. Its approval flags authorize schema/database changes; they do not replace backup verification or production approval.
 Before using the installer on an existing host, verify that its systemd unit already points to the installer's exact application directory. The installer must refuse mismatched service paths before stopping any service. This installer is not the production release deployment mechanism for the current host, whose active source is under `/opt/ustore-releases/`; use the reviewed staged-release procedure instead.
@@ -117,6 +121,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] `/start` and the participant profile flow work.
 - [ ] Duplicate registration is idempotent and does not return revoked/disqualified codes.
 - [ ] New code format, sequence boundaries, per-campaign counter isolation, and database uniqueness are correct.
+- [ ] Post-migration integrity SQL returns no missing/invalid draw encryption metadata, unsupported algorithms, code-counter drift, or duplicate sequence values.
 - [ ] Paid-order creation, receipt submission, approval/rejection, and code issuance work end-to-end.
 - [ ] Admin role and permission checks are enforced server-side.
 - [ ] Campaign editing opens the input prompt for every editable field (title, description, prize title/description, terms, start/end/draw dates, capacity, price, and codes per participant); invalid inputs are rejected without changing campaign data, and valid inputs persist and appear in campaign details.
@@ -189,3 +194,21 @@ Do not label the release READY until the latest-head CI, production read-only in
 - Before launch, publish a privacy notice and approve retention periods for participant contact data, receipts, payment/order records, support transcripts, and audit logs.
 - Verify least-privilege export permissions: participant export requires `participant.export`; campaign code export requires `campaign.read` and `participant.export`; payment export requires `payment.export`. Operational roles must not receive global participant-directory access unless explicitly approved.
 - Review Telegram update inbox retention: completed payloads are purged after three days; pending/failed and stale-processing payloads are purged after thirty days.
+
+
+## 10. External Production gates — not proven by CI
+
+The following items require independent host, account, business, or legal verification. A green GitHub Actions run does not close them.
+
+- [ ] Confirm Public repository visibility is intentional; complete a full-history secret scan and rotate any credential ever committed.
+- [ ] Enable branch protection on `main` and `release/ustore-unified`: required PR review, exact CI checks, up-to-date branches, resolved conversations, and no force-push/deletion.
+- [ ] Verify no Production self-hosted runner remains registered or online; remove the host-side runner service and any privileged service-management path it could invoke.
+- [ ] Verify the Production runtime MySQL account has only DML privileges on the application schema and no global or other-schema grants; provision and protect a separate migration-only account.
+- [ ] Verify automated database backups are scheduled, encrypted at rest, access-controlled, retained under an approved schedule, and monitored. Do not treat `.sql.gz` compression as encryption.
+- [ ] Verify draw-seed key backups are encrypted, mapped by key ID, independently recoverable, and have no unnecessary plaintext copies.
+- [ ] Restore an actual Production backup and the corresponding keyring to an isolated host; decrypt a prepared draw and compare the recovered seed hash to its stored commitment.
+- [ ] Publish the reviewed HTTPS privacy notice and set its version; approve retention periods for participants, payment receipts/orders, support messages, Telegram inbox payloads, audit logs, outbox records, exports, and backups.
+- [ ] Complete live Telegram private-chat and Telegram Business acceptance tests. If paid campaigns are enabled, test the manual bank-card/receipt review and code-issuance flow end to end; there is no payment gateway in this release.
+- [ ] Rehearse the full migration on a restored copy of Production data, including migration 006 legacy-draw guards, failure handling, and forward-fix/restore decision criteria.
+- [ ] Do not claim operator-independent randomness: the server operator controls the draw-seed key. The verifier checks the committed candidate set and deterministic selection, not completeness of eligibility or an external randomness beacon.
+- [ ] Treat proof artifacts as pseudonymous, not anonymous: they contain internal participant IDs. The verifier does not fetch or authenticate the publication URL. Do not publish raw proof artifacts broadly until privacy/legal approval or a pseudonymization design is in place.
