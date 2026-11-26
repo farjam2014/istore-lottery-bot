@@ -57,6 +57,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     const [[routineGrants]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host='%'",[backupUser]);
     const [[roles]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='%'",[backupUser]);
     const [[proxy]]=await grantInspector.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='%'",[backupUser]);
+    const [[restoreGlobal]]=await grantInspector.execute("SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',') AS privileges FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('%')) AND PRIVILEGE_TYPE<>'USAGE'",[restoreUser]);
     assert.equal(schema.privileges,'SELECT,SHOW VIEW,TRIGGER','backup account must have only the schema-scoped dump privileges');
     assert.equal(Number(global.total),0);
     assert.equal(Number(otherSchemas.total),0);
@@ -65,6 +66,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     assert.equal(Number(routineGrants.total),0);
     assert.equal(Number(roles.total),0);
     assert.equal(Number(proxy.total),0);
+    assert.equal(restoreGlobal.privileges,'SET_USER_ID','restore-only identity may hold only SET_USER_ID globally, never SUPER or unrelated global privileges');
   }finally{await grantInspector.end();}
   const backupEnv={...process.env,MYSQL_PWD:backupPassword};
   const restoreEnv={...process.env,MYSQL_PWD:restorePassword};
@@ -83,6 +85,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let campaignId;
   let drawId;
   let restored;
+  let restoredRuntime;
   let primaryError;
   try{
     await migrateWithDeadlockRetry();
@@ -138,6 +141,12 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     });
 
     restored=await mysql.createConnection({host,port:Number(port),user:restoreUser,password:restorePassword,database:restoreDatabase});
+    const [[triggerRows]]=await restored.execute('SELECT COUNT(*) AS total FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=?',[restoreDatabase]);
+    assert.ok(Number(triggerRows.total)>=2,'Append-only audit triggers must survive backup/restore.');
+    restoredRuntime=await mysql.createConnection({host,port:Number(port),user,password:String(process.env.MYSQL_PASSWORD||''),database:restoreDatabase});
+    const [auditInsert]=await restoredRuntime.execute("INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,?,'backup_restore_test',NULL,JSON_OBJECT('fixture',1))",[900000001,'restore_fixture']);
+    await assert.rejects(restoredRuntime.execute('UPDATE admin_audit_log SET action=? WHERE id=?',['tampered',auditInsert.insertId]),error=>error.code==='ER_SIGNAL_EXCEPTION'&&/append-only/.test(error.message));
+    await assert.rejects(restoredRuntime.execute('DELETE FROM admin_audit_log WHERE id=?',[auditInsert.insertId]),error=>error.code==='ER_SIGNAL_EXCEPTION'&&/append-only/.test(error.message));
     const [[restoredDraw]]=await restored.execute('SELECT id,campaign_id,status,seed_hash,seed_ciphertext,seed_nonce,seed_tag,seed_key_id FROM campaign_draws WHERE id=?',[drawId]);
     assert.ok(restoredDraw,'Prepared draw row was not present after database restore.');
     assert.equal(restoredDraw.status,'prepared');
@@ -173,6 +182,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
     const cleanupErrors=[];
     if(drawId){try{await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}catch(error){cleanupErrors.push(error);}}
     if(campaignId){try{await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);}catch(error){cleanupErrors.push(error);}}
+    if(restoredRuntime){try{await restoredRuntime.end();}catch(error){cleanupErrors.push(error);}}
     if(restored){
       try{
         await restored.query('SET FOREIGN_KEY_CHECKS=0');
