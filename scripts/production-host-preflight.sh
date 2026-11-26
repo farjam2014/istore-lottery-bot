@@ -319,7 +319,7 @@ CURRENT_EPOCH="$(date +%s)"
 BACKUP_RUN_AGE_SECONDS=unknown
 if [[ "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" -gt 0 ]]; then
   BACKUP_RUN_AGE_SECONDS=$((CURRENT_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))
-  printf 'latest_verified_backup_age_seconds=%s maximum=%s\\n' "$BACKUP_RUN_AGE_SECONDS" "$MAX_BACKUP_AGE_SECONDS"
+  printf 'latest_verified_backup_age_seconds=%s maximum=%s\n' "$BACKUP_RUN_AGE_SECONDS" "$MAX_BACKUP_AGE_SECONDS"
   if [[ "$BACKUP_RUN_AGE_SECONDS" -lt 0 || "$BACKUP_RUN_AGE_SECONDS" -gt "$MAX_BACKUP_AGE_SECONDS" ]]; then
     fail "Latest successful encrypted database backup is older than the 26-hour recovery-point limit."
   fi
@@ -367,7 +367,7 @@ done
 printf 'encrypted_database_backup_artifacts=%s latest_artifact_epoch=%s latest_artifact_path=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS" "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" "${LATEST_ENCRYPTED_DB_BACKUP_PATH:-not_found}"
 if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
 BACKUP_ARTIFACT_RUN_DELTA=$((LATEST_ENCRYPTED_DB_BACKUP_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))
-printf 'encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\\n' "$BACKUP_ARTIFACT_RUN_DELTA"
+printf 'encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\n' "$BACKUP_ARTIFACT_RUN_DELTA"
 if [[ "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" -eq 0 || "$BACKUP_ARTIFACT_RUN_DELTA" -lt -300 || "$BACKUP_ARTIFACT_RUN_DELTA" -gt 300 ]]; then
   fail "The latest encrypted database backup artifact timestamp does not match the latest verified successful backup timer run within five minutes."
 fi
