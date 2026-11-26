@@ -101,7 +101,7 @@ Do not delete payment, draw, or audit evidence automatically until the applicabl
 
 ## Engineering safeguards required
 
-- Keep personal data out of logs. The logger redaction list includes common Telegram, phone, Instagram, and actor identifiers; unit tests cover nested and top-level keys.
+- Keep personal data out of logs. The logger redaction list includes common Telegram, phone, Instagram, and actor identifiers plus SQL statements, SQL error messages, and bound parameters; unit tests cover nested and top-level keys.
 - Treat `telegram_update_inbox.payload` and its backups as personal data. Restrict database/backup access, apply the same approved retention and deletion policy, and do not copy raw payloads into diagnostics or exports.
 - Receipt uploads consume the pending upload session in the same database transaction that stores the receipt, changes the order to review, records the payment event, and queues administrator notifications. Transient database failures are allowed to escape the handler so the durable Inbox can retry; validation/state errors remain terminal. Inbox replay is at-least-once, not exactly-once, so every other high-impact handler must be protected by transaction-level state checks or a stable idempotency key before production.
 - Keep participant export and payment export behind explicit permissions. Export actions must be audited.
