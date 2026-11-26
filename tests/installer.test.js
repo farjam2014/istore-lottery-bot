@@ -15,6 +15,13 @@ test('Ubuntu installer has valid Bash syntax',()=>{
 test('installer preserves existing application state and requires production authorization',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/git -C .*status --porcelain --untracked-files=all/);
+  assert.match(script,/USTORE_RELEASE_COMMIT/);
+  assert.match(script,/Set USTORE_RELEASE_COMMIT to the exact reviewed 40-character release commit SHA/);
+  assert.match(script,/git clone --no-checkout --depth 1/);
+  assert.match(script,/git -C "\\$APP_DIR" fetch --depth 1 origin "\\$RELEASE_COMMIT"/);
+  assert.match(script,/checkout --detach "\\$RELEASE_COMMIT"/);
+  assert.match(script,/checked_out_commit.*RELEASE_COMMIT/);
+  assert.doesNotMatch(script,/BRANCH="install\\//,'Installer must not deploy from a floating branch.');
   assert.match(script,/Tracked or untracked files are present in the checkout/);
   assert.doesNotMatch(script,/unexpected origin remote: \$remote/,'Installer must not print a remote URL that could contain embedded credentials.');
   assert.match(script,/Existing \.env found; preserving it/);
