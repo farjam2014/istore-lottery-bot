@@ -28,7 +28,10 @@ test('production host preflight detects residual self-hosted runner services and
   const hostAudit=readFileSync(new URL('../../scripts/production-host-preflight.sh',import.meta.url),'utf8');
   assert.match(hostAudit,/systemctl list-unit-files --type=service/);
   assert.match(hostAudit,/runner_unit_files=none_detected/);
-  assert.match(hostAudit,/find \/home \/opt \/root -maxdepth 5 -type f -name \.runner/);
+  assert.match(hostAudit,/RUNNER_CONFIGS=.*find \/home \/opt \/root -maxdepth 5/);
+  assert.match(hostAudit,/name \.runner/);
+  assert.match(hostAudit,/name \.credentials/);
+  assert.match(hostAudit,/name \.credentials_rsaparams/);
   assert.match(hostAudit,/runner_registration_metadata=none_detected/);
   assert.match(hostAudit,/Self-hosted GitHub Runner registration metadata remains/);
 });
