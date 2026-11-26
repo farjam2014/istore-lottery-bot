@@ -286,6 +286,7 @@ section "BACKUP SCHEDULING"
 BACKUP_TIMER_ROWS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '$(NF-1) ~ /\.timer$/ && tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/ {print $(NF-1) "|" $NF}')"
 VERIFIED_BACKUP_TIMER_COUNT=0
 LATEST_VERIFIED_BACKUP_RUN_EPOCH=0
+VERIFIED_BACKUP_SERVICE=
 if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
   while IFS='|' read -r timer service; do
     [[ -n "$timer" && -n "$service" ]] || continue
@@ -305,11 +306,62 @@ if [[ -n "$BACKUP_TIMER_ROWS" ]]; then
       run_epoch="$(date -d "$service_last_run" +%s 2>/dev/null || echo 0)"
       if [[ "$run_epoch" =~ ^[0-9]+$ && "$run_epoch" -gt "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" ]]; then
         LATEST_VERIFIED_BACKUP_RUN_EPOCH="$run_epoch"
+        VERIFIED_BACKUP_SERVICE="$service"
       fi
     fi
   done <<< "$BACKUP_TIMER_ROWS"
 else
   info "application_database_backup_timer=not_detected"
+fi
+
+# A successful-looking timer and an encrypted-looking filename are not enough:
+# prove the actual unit loads the protected backup identity and that this account
+# can read only the target schema with the minimum mysqldump privileges.
+BACKUP_ENV_DIR=/etc/ustore-telegram-bot
+BACKUP_ENV=$BACKUP_ENV_DIR/ustore-telegram-bot-backup.env
+if [[ -n "$VERIFIED_BACKUP_SERVICE" && "$MYSQL_READY" == 1 && -n "${APP_USER:-}" && -n "${MIG_USER:-}" ]]; then
+  BACKUP_ENV_FILES="$(systemctl show "$VERIFIED_BACKUP_SERVICE" -p EnvironmentFiles --value 2>/dev/null || true)"
+  if [[ "$BACKUP_ENV_FILES" != *"$BACKUP_ENV"* ]]; then
+    fail "The verified backup service does not load the required protected backup EnvironmentFile."
+  fi
+  if [[ -d "$BACKUP_ENV_DIR" && -f "$BACKUP_ENV" ]]; then
+    stat -c 'backup_env_directory owner=%U group=%G mode=%a' "$BACKUP_ENV_DIR"
+    stat -c 'backup_env_file owner=%U group=%G mode=%a' "$BACKUP_ENV"
+    [[ ! -L "$BACKUP_ENV_DIR" && ! -L "$BACKUP_ENV" ]] || fail "Backup credential path contains a symlink."
+    [[ "$(stat -c '%U:%G:%a' "$BACKUP_ENV_DIR")" == root:root:700 ]] || fail "Backup credential directory must be root:root mode 700."
+    [[ "$(stat -c '%U:%G:%a' "$BACKUP_ENV")" == root:root:600 ]] || fail "Backup credential file must be root:root mode 600."
+    BACKUP_USER="$(read_dotenv_value "$ACTIVE" "$BACKUP_ENV" MYSQL_BACKUP_USER)"
+    BACKUP_PASS="$(read_dotenv_value "$ACTIVE" "$BACKUP_ENV" MYSQL_BACKUP_PASSWORD)"
+    BACKUP_DB="$(read_dotenv_value "$ACTIVE" "$BACKUP_ENV" BACKUP_TARGET_DATABASE)"
+    RUNTIME_PASS="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" MYSQL_PASSWORD)"
+    MIGRATION_PASS="$(read_dotenv_value "$ACTIVE" "$MIGRATION_ENV" MYSQL_MIGRATION_PASSWORD)"
+    if [[ "$BACKUP_USER" =~ ^[A-Za-z0-9_]{1,32}$ && -n "$BACKUP_PASS" && "$BACKUP_DB" == "$DB" && "$BACKUP_USER" != "$APP_USER" && "$BACKUP_USER" != "$MIG_USER" && "$BACKUP_PASS" != "$RUNTIME_PASS" && "$BACKUP_PASS" != "$MIGRATION_PASS" ]]; then
+      B1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
+      B2="$(mysql_q "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','SHOW VIEW','TRIGGER')")"
+      B3="$(mysql_q "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
+      B4="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$DB'")"
+      B5="$(mysql_q "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1'))")"
+      B6="$(mysql_q "SELECT COUNT(*) FROM mysql.default_roles WHERE USER='$BACKUP_USER' AND HOST='127.0.0.1'")"
+      B7="$(mysql_q "SELECT COUNT(*) FROM mysql.role_edges WHERE TO_USER='$BACKUP_USER' AND TO_HOST='127.0.0.1'")"
+      B8="$(mysql_q "SELECT COUNT(*) FROM mysql.user WHERE User='$BACKUP_USER' AND Host<>'127.0.0.1'")"
+      B9="$(mysql_q "SELECT COUNT(*) FROM mysql.proxies_priv WHERE User='$BACKUP_USER' AND Host='127.0.0.1'")"
+      B10="$(mysql_q "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1'))")"
+      B11="$(mysql_q "SELECT COUNT(*) FROM mysql.procs_priv WHERE User='$BACKUP_USER' AND Host='127.0.0.1'")"
+      B12="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$BACKUP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND IS_GRANTABLE='YES'")"
+      printf 'backup_schema_privilege_rows=%s expected=3\nbackup_required_privilege_types=%s expected=3\nbackup_global_privileges=%s expected=0\nbackup_other_schema_grants=%s expected=0\nbackup_table_grants=%s expected=0\nbackup_default_roles=%s expected=0\nbackup_granted_roles=%s expected=0\nbackup_alternate_host_accounts=%s expected=0\nbackup_proxy_grants=%s expected=0\nbackup_column_grants=%s expected=0\nbackup_routine_object_grants=%s expected=0\nbackup_grant_option_rows=%s expected=0\n' "$B1" "$B2" "$B3" "$B4" "$B5" "$B6" "$B7" "$B8" "$B9" "$B10" "$B11" "$B12"
+      if [[ "$B1" != 3 || "$B2" != 3 || "$B3" != 0 || "$B4" != 0 || "$B5" != 0 || "$B6" != 0 || "$B7" != 0 || "$B8" != 0 || "$B9" != 0 || "$B10" != 0 || "$B11" != 0 || "$B12" != 0 ]]; then
+        fail "Backup account is not proven least-privilege on exactly one host identity and one schema."
+      fi
+      verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$BACKUP_ENV" MYSQL_BACKUP_USER MYSQL_BACKUP_PASSWORD BACKUP_TARGET_DATABASE backup || fail "Backup DB credentials do not authenticate as the expected backup identity."
+    else
+      fail "Backup credentials are missing, not distinct, or bound to another database."
+    fi
+    unset BACKUP_PASS RUNTIME_PASS MIGRATION_PASS
+  else
+    fail "Protected backup-only credentials are missing."
+  fi
+else
+  fail "A successful backup service and inspectable runtime/migration DB identities are required before backup credentials can be verified."
 fi
 CRON_BACKUP_COUNT="$({ crontab -l -u root 2>/dev/null || true; grep -hE '^[[:space:]]*[^#]' /etc/cron.d/* /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* 2>/dev/null || true; } | grep -Eic 'mysqldump|mysqlpump|mariadb-dump' || true)"
 printf 'database_backup_cron_references=%s (contents are not printed; cron alone does not prove a successful run)\n' "$CRON_BACKUP_COUNT"
