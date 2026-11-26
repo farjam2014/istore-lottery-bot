@@ -40,15 +40,31 @@ printf 'node=%s\n' "$(node --version)"
 free -h | awk '/^Mem:/ {print "memory_total=" $2 " memory_available=" $7}'
 df -h / | awk 'NR==2 {print "disk_available=" $4 " disk_total=" $2}'
 SERVICE=ustore-telegram-bot.service
-systemctl show "$SERVICE" -p LoadState -p ActiveState -p SubState -p User -p MainPID -p WorkingDirectory -p ExecStart --no-pager || fail "Could not inspect service."
+systemctl show "$SERVICE" -p LoadState -p ActiveState -p SubState -p User -p Group -p MainPID -p WorkingDirectory -p ExecStart -p NoNewPrivileges -p PrivateTmp -p ProtectSystem -p ProtectHome -p ReadWritePaths --no-pager || fail "Could not inspect service."
+SERVICE_USER="$(systemctl show "$SERVICE" -p User --value 2>/dev/null || true)"
+SERVICE_GROUP="$(systemctl show "$SERVICE" -p Group --value 2>/dev/null || true)"
+NO_NEW_PRIVILEGES="$(systemctl show "$SERVICE" -p NoNewPrivileges --value 2>/dev/null || true)"
+PRIVATE_TMP="$(systemctl show "$SERVICE" -p PrivateTmp --value 2>/dev/null || true)"
+PROTECT_SYSTEM="$(systemctl show "$SERVICE" -p ProtectSystem --value 2>/dev/null || true)"
+PROTECT_HOME="$(systemctl show "$SERVICE" -p ProtectHome --value 2>/dev/null || true)"
+READ_WRITE_PATHS="$(systemctl show "$SERVICE" -p ReadWritePaths --value 2>/dev/null || true)"
 ACTIVE="$(systemctl show "$SERVICE" -p WorkingDirectory --value 2>/dev/null || true)"
 PID="$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || true)"
+[[ "$SERVICE_USER" == "ustorebot" ]] || fail "Service must run as the dedicated ustorebot account, not root or another identity."
+[[ "$SERVICE_GROUP" == "ustorebot" ]] || fail "Service group must be ustorebot."
+[[ "$NO_NEW_PRIVILEGES" == "yes" ]] || fail "systemd NoNewPrivileges must be enabled."
+[[ "$PRIVATE_TMP" == "yes" ]] || fail "systemd PrivateTmp must be enabled."
+[[ "$PROTECT_SYSTEM" == "full" ]] || fail "systemd ProtectSystem must be full."
+[[ "$PROTECT_HOME" == "yes" ]] || fail "systemd ProtectHome must be enabled."
+if [[ -n "$ACTIVE" ]]; then
+  case " $READ_WRITE_PATHS " in *" $ACTIVE "*) info "systemd_read_write_path=active_release_only";; *) fail "systemd ReadWritePaths must explicitly allow the active release path and no broader app path.";; esac
+fi
 if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
   printf 'active_release_path=%s\n' "$ACTIVE"
   if [[ -f "$ACTIVE/.env" ]]; then
     stat -c 'runtime_env owner=%U group=%G mode=%a type=%F' "$ACTIVE/.env"
     [[ ! -L "$ACTIVE/.env" ]] || fail "Runtime .env is a symlink."
-    [[ "$(stat -c '%a' "$ACTIVE/.env")" == "600" ]] || fail "Runtime .env mode is not 600."
+    [[ "$(stat -c '%U:%G:%a' "$ACTIVE/.env")" == "ustorebot:ustorebot:600" ]] || fail "Runtime .env must be owned by ustorebot:ustorebot with mode 600."
   else
     fail "Runtime .env is missing."
   fi
