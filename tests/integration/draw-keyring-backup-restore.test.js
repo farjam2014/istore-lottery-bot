@@ -59,7 +59,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   let migrationHost;
   try{
     const accountHost=async(account,schemaName)=>{
-      const [rows]=await grantInspector.execute("SELECT DISTINCT SUBSTRING(SUBSTRING_INDEX(GRANTEE,'@',-1),2,CHAR_LENGTH(SUBSTRING_INDEX(GRANTEE,'@',-1))-2) AS Host FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE LIKE CONCAT(QUOTE(?),'@%') AND TABLE_SCHEMA=?",[account,schemaName]);
+      const [rows]=await grantInspector.execute("SELECT DISTINCT SUBSTRING(SUBSTRING_INDEX(GRANTEE,'@',-1),2,CHAR_LENGTH(SUBSTRING_INDEX(GRANTEE,'@',-1))-2) AS Host FROM information_schema.SCHEMA_PRIVILEGES WHERE SUBSTRING_INDEX(GRANTEE,'@',1)=QUOTE(?) AND TABLE_SCHEMA=?",[account,schemaName]);
       assert.equal(rows.length,1,'Each disposable integration identity must have grants at exactly one MySQL host.');
       return String(rows[0].Host);
     };
