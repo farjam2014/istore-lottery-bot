@@ -50,6 +50,7 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   assert.notEqual(restoreRuntimeUser,user,'Restored runtime and source application identities must be distinct.');
   assert.notEqual(restoreRuntimeUser,restoreUser,'Restored runtime and temporary restore identities must be distinct.');
   assert.notEqual(restoreRuntimeUser,backupUser,'Restored runtime and backup identities must be distinct.');
+  const restoreDatabase=String(process.env.MYSQL_RESTORE_DATABASE||'');
   const adminUser=String(process.env.MYSQL_TEST_ADMIN_USER||'');
   const adminPassword=String(process.env.MYSQL_TEST_ADMIN_PASSWORD||'');
   assert.ok(adminUser&&adminPassword,'A test-only grant inspection identity is required.');
@@ -82,7 +83,6 @@ test('MySQL backup/restore preserves prepared draw ciphertext and historical key
   }finally{await grantInspector.end();}
   const backupEnv={...process.env,MYSQL_PWD:backupPassword};
   const restoreEnv={...process.env,MYSQL_PWD:restorePassword};
-  const restoreDatabase=String(process.env.MYSQL_RESTORE_DATABASE||'');
   assert.match(restoreDatabase,/^draw_restore_[A-Za-z0-9_]+_ci$/,'A pre-provisioned isolated restore database is required.');
   assert.notEqual(restoreDatabase,database,'Restore database must differ from source database.');
   assert.notEqual(restoreDatabase,process.env.MYSQL_PREFLIGHT_DATABASE);
