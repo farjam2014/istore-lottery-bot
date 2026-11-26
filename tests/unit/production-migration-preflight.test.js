@@ -114,6 +114,8 @@ test('production host preflight is read-only and included in the release runbook
   const hostAudit=readFileSync(new URL('../../scripts/production-host-preflight.sh',import.meta.url),'utf8');
   const runbook=readFileSync(new URL('../../docs/PRODUCTION_STAGED_DEPLOYMENT.md',import.meta.url),'utf8');
   assert.match(hostAudit,/Read-only host-side release gate inventory/);
+  assert.match(hostAudit,/encrypted_database_backup_artifacts/);
+  assert.match(hostAudit,/plaintext draw-key backup file exists/);
   assert.doesNotMatch(hostAudit,/systemctl (?:start|stop|restart|daemon-reload)\b/i);
   assert.doesNotMatch(hostAudit,/^\s*(?:systemctl\s+(?:start|stop|restart|daemon-reload)|chmod|chown|rm|mv|ufw\s+(?:enable|allow|deny))\b/im);
   assert.ok(runbook.includes('bash scripts/production-host-preflight.sh'));
