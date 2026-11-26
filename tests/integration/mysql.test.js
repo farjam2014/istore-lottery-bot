@@ -1053,6 +1053,46 @@ test('MySQL integration: MySQL 8 privilege metadata sources required by producti
 });
 
 
+test('MySQL integration: runtime and migration identities enforce separate schema-scoped grants',{skip:!enabled||!process.env.MYSQL_PRIVILEGE_TEST_DATABASE},async()=>{
+  const database=process.env.MYSQL_PRIVILEGE_TEST_DATABASE;
+  assert.match(database,/^[A-Za-z0-9_]+_ci$/);
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const admin=await mysql.createConnection({host,port,user:process.env.MYSQL_TEST_ADMIN_USER,password:process.env.MYSQL_TEST_ADMIN_PASSWORD||''});
+  const runtime=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_RUNTIME_USER,password:process.env.MYSQL_PRIVILEGE_RUNTIME_PASSWORD});
+  const migration=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_MIGRATION_USER,password:process.env.MYSQL_PRIVILEGE_MIGRATION_PASSWORD});
+  try{
+    const [[runtimeIdentity]]=await runtime.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
+    const [[migrationIdentity]]=await migration.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
+    assert.equal(runtimeIdentity.account,'ustore_ci_runtime@127.0.0.1');
+    assert.equal(runtimeIdentity.schema_name,database);
+    assert.equal(migrationIdentity.account,'ustore_ci_migrate@127.0.0.1');
+    assert.equal(migrationIdentity.schema_name,database);
+    const grants=async user=>{
+      const [schemaRows]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[user,database]);
+      const [[globalRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'",[user]);
+      const [[otherSchemas]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>?",[user,database]);
+      const [[tableRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1'))",[user]);
+      const [[columnRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE('127.0.0.1'))",[user]);
+      const [[routineRows]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host='127.0.0.1'",[user]);
+      const [[roles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST='127.0.0.1'",[user]);
+      const [[proxy]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host='127.0.0.1'",[user]);
+      return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),proxy:Number(proxy.total)};
+    };
+    const runtimeGrants=await grants('ustore_ci_runtime');
+    const migrationGrants=await grants('ustore_ci_migrate');
+    assert.deepEqual(runtimeGrants,{schema:['DELETE','INSERT','SELECT','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,proxy:0});
+    assert.deepEqual(migrationGrants,{schema:['ALTER','CREATE','DELETE','INDEX','INSERT','REFERENCES','SELECT','TRIGGER','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,proxy:0});
+    await assert.rejects(runtime.query('CREATE TABLE runtime_ddl_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+    await migration.query('CREATE TABLE migration_ddl_probe(id INT PRIMARY KEY)');
+    await admin.query('DROP TABLE '+quoteIdentifier(database)+'.'+quoteIdentifier('migration_ddl_probe'));
+  }finally{
+    await Promise.all([admin.end(),runtime.end(),migration.end()]);
+  }
+});
+
+
+
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
