@@ -7,7 +7,7 @@ cd "$APP_DIR"
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 valid_user() { [[ "$1" =~ ^[A-Za-z0-9_]{1,32}$ ]]; }
 valid_password() { [[ "$1" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; }
-quote_id() { printf '`%s`' "${1//`/``}"; }
+quote_id() { printf '`%s`' "$1"; }
 
 DB_NAME="${MYSQL_TEST_DATABASE:-}"
 RESTORE_DB="${MYSQL_RESTORE_DATABASE:-}"
