@@ -66,6 +66,9 @@ test('production preflight reports privacy, Telegram inbox, and idempotency aggr
     "SELECT ''telegram_update_inbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows",
     "last_error NOT IN (''invalid_payload'',''payload_update_id_mismatch'',''handler_failed'')",
     "SELECT ''admin_action_idempotency'' AS table_name, COUNT(*) AS exact_rows",
+    "SELECT status, COUNT(*) AS exact_rows, COALESCE(SUM(OCTET_LENGTH(payload)),0) AS payload_bytes",
+    "SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows",
+    "last_error NOT IN (''invalid_payload'',''telegram_http_429'',''telegram_http_4xx'',''telegram_http_5xx'',''network_or_unknown'',''manually_requeued'',''legacy_error_redacted'",
     "SUM(privacy_consent_at IS NULL) AS missing_acceptance_timestamp_count",
     "PENDING_MIGRATION_002",
     "PENDING_OR_MISSING_TABLE"
