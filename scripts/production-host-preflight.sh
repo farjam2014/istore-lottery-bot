@@ -229,7 +229,7 @@ if [[ -n "$RUNNERS" ]]; then
 else
   info "runner_units=none_detected"
 fi
-RUNNER_UNIT_FILES="$(systemctl list-unit-files --type=service --no-legend 'actions.runner.*' 2>/dev/null | awk 'NF {print $1 " " $2}')"
+RUNNER_UNIT_FILES="$( { systemctl list-unit-files --type=service --no-legend 'actions.runner.*' 2>/dev/null || true; } | awk 'NF {print $1 " " $2}')"
 if [[ -n "$RUNNER_UNIT_FILES" ]]; then
   printf 'runner_unit_files:\n%s\n' "$RUNNER_UNIT_FILES"
   fail "A self-hosted GitHub Runner unit file remains installed on this host."
