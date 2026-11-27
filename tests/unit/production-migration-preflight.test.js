@@ -76,7 +76,7 @@ test('production preflight reports privacy, Telegram inbox, notification Outbox,
     assert.ok(preflight.includes(fragment),'preflight is missing aggregate impact check: '+fragment);
   }
   assert.doesNotMatch(preflight,/SELECT\s+(?:payload|last_error|\*)\s+FROM\s+telegram_update_inbox/i);
-  assert.doesNotMatch(preflight,/SELECT\\s+(?:payload|last_error|\\*)\\s+FROM\\s+telegram_notification_outbox/i);
+  assert.doesNotMatch(preflight,/SELECT\s+(?:payload|last_error|\*)\s+FROM\s+telegram_notification_outbox/i);
 });
 
 test('production preflight reports exact row counts for every replay-cleanup session table',()=>{
