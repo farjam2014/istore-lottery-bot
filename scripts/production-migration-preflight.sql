@@ -177,6 +177,34 @@ PREPARE preflight_session_stmt FROM @preflight_sql;
 EXECUTE preflight_session_stmt;
 DEALLOCATE PREPARE preflight_session_stmt;
 
+-- Outbox inventory is aggregate-only: never select chat IDs, payload text, file IDs,
+-- or callback data. Payload byte counts support a retention decision without disclosure.
+SET @preflight_outbox_table_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_notification_outbox'
+);
+SET @preflight_sql := IF(
+  @preflight_outbox_table_exists,
+  'SELECT status, COUNT(*) AS exact_rows, COALESCE(SUM(OCTET_LENGTH(payload)),0) AS payload_bytes, ''PRESENT'' AS check_status FROM telegram_notification_outbox GROUP BY status ORDER BY status',
+  'SELECT ''PENDING_OR_MISSING_TABLE'' AS check_status, NULL AS status, NULL AS exact_rows, NULL AS payload_bytes'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
+SET @preflight_outbox_error_column_exists := (
+  SELECT COUNT(*)=1 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_notification_outbox' AND COLUMN_NAME='last_error'
+);
+SET @preflight_sql := IF(
+  @preflight_outbox_error_column_exists,
+  'SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_notification_outbox WHERE last_error IS NOT NULL AND last_error NOT IN (''invalid_payload'',''telegram_http_429'',''telegram_http_4xx'',''telegram_http_5xx'',''network_or_unknown'',''manually_requeued'',''legacy_error_redacted'',''Delivery outcome unknown after worker lease expired'')',
+  'SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, NULL AS exact_rows, ''PENDING_OR_MISSING_COLUMN'' AS check_status'
+);
+PREPARE preflight_session_stmt FROM @preflight_sql;
+EXECUTE preflight_session_stmt;
+DEALLOCATE PREPARE preflight_session_stmt;
+
 -- Consent-state breakdown is aggregate-only and safe before migration 002.
 SET @preflight_privacy_columns_exist := (
   SELECT COUNT(*)=2 FROM information_schema.COLUMNS
