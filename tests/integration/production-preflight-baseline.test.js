@@ -52,6 +52,8 @@ test('read-only production preflight executes against the legacy base schema wit
     }
     const pendingDrawChecks=resultSets.filter(row=>row?.check_status==='PENDING_MIGRATION_003');
     assert.equal(pendingDrawChecks.length,2,'Both draw relational checks must report pending instead of querying migration-only columns.');
+    const pendingOutboxErrorChecks=resultSets.filter(row=>row?.metric==='telegram_notification_outbox_legacy_error_rows'&&row?.check_status==='PENDING_OR_MISSING_COLUMN');
+    assert.equal(pendingOutboxErrorChecks.length,1,'Legacy baseline must report the Outbox error column as pending without querying it.');
     const historyRows=resultSets.filter(row=>row?.migration_status==='MISSING');
     assert.equal(historyRows.length,28,'Preflight must report all 28 release migrations as pending on a legacy baseline.');
   }finally{
