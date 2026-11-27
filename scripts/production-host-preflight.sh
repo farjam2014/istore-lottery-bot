@@ -339,7 +339,7 @@ else
 fi
 
 if [[ "$MYSQL_READY" == 1 && -f "$BACKUP_CNF" && ! -L "$BACKUP_CNF" && -n "$APP_USER" && -n "${MIG_USER:-}" ]]; then
-  BACKUP_IDENTITY="$(mysql --defaults-extra-file="$BACKUP_CNF" --protocol=TCP --batch --skip-column-names -e 'SELECT CURRENT_USER(), DATABASE()' 2>/dev/null || true)"
+  BACKUP_IDENTITY="$(mysql --defaults-extra-file="$BACKUP_CNF" --protocol=TCP --database="$DB" --batch --skip-column-names -e 'SELECT CURRENT_USER(), DATABASE()' 2>/dev/null || true)"
   IFS=$'\t' read -r BACKUP_CURRENT_USER BACKUP_DB <<< "$BACKUP_IDENTITY"
   if [[ "$BACKUP_CURRENT_USER" =~ ^([A-Za-z0-9_]{1,32})@127\.0\.0\.1$ ]]; then
     BACKUP_USER="$(printf '%s' "$BACKUP_CURRENT_USER" | sed 's/@127\.0\.0\.1$//')"
