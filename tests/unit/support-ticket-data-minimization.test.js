@@ -17,3 +17,12 @@ test('support ticket detail does not query or disclose participant contact ident
 test('support ticket detail remains permission-gated through support.read',()=>{
   assert.match(source,/if\(data\.startsWith\('admin:support'\)\)return hasPermission\(id,'support\.read'\)/);
 });
+
+test('support priority actions reject stale buttons instead of overwriting a newer priority',()=>{
+  assert.match(source,/admin:support:priority:'\+id\+':high:'\+t\.priority/);
+  assert.match(source,/admin:support:priority:'\+id\+':urgent:'\+t\.priority/);
+  assert.match(source,/admin:support:priority:\\(\\d\+\\):\(low\|normal\|high\|urgent\):\(low\|normal\|high\|urgent\)/);
+  assert.match(source,/ticket\.priority!==expectedPriority/);
+  assert.match(source,/SELECT id,priority FROM support_tickets WHERE id=\? FOR UPDATE/);
+  assert.match(source,/bot\.action\(\/\^admin:support:priority:\\(\\d\+\\):\(low\|normal\|high\|urgent\)\$\//);
+});
