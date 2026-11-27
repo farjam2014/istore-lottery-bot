@@ -60,7 +60,7 @@ test('production migration preflight checks current privacy and replay schema ca
   }
 });
 
-test('production preflight reports privacy, Telegram inbox, and idempotency aggregates without exposing payloads',()=>{
+test('production preflight reports privacy, Telegram inbox, notification Outbox, and idempotency aggregates without exposing payloads',()=>{
   for(const fragment of [
     "SELECT ''telegram_update_inbox'' AS table_name, COUNT(*) AS exact_rows",
     "SELECT ''telegram_update_inbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows",
@@ -76,6 +76,7 @@ test('production preflight reports privacy, Telegram inbox, and idempotency aggr
     assert.ok(preflight.includes(fragment),'preflight is missing aggregate impact check: '+fragment);
   }
   assert.doesNotMatch(preflight,/SELECT\s+(?:payload|last_error|\*)\s+FROM\s+telegram_update_inbox/i);
+  assert.doesNotMatch(preflight,/SELECT\\s+(?:payload|last_error|\\*)\\s+FROM\\s+telegram_notification_outbox/i);
 });
 
 test('production preflight reports exact row counts for every replay-cleanup session table',()=>{
