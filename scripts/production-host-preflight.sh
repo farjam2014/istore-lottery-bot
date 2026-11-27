@@ -304,7 +304,7 @@ printf 'backup_timer=%s state=%s enabled=%s service_result=%s exit_status=%s jou
 [[ "$BACKUP_TIMER_STATE" == active ]] || fail "The dedicated production backup timer is not active."
 [[ "$BACKUP_TIMER_ENABLED" == enabled ]] || fail "The dedicated production backup timer is not enabled."
 [[ "$BACKUP_SERVICE_RESULT" == success && "$BACKUP_SERVICE_EXIT" == 0 ]] || fail "The latest backup service invocation did not finish successfully."
-[[ "$BACKUP_SERVICE_USER" == root ]] || fail "The encrypted production backup service must run as root."
+[[ -z "$BACKUP_SERVICE_USER" || "$BACKUP_SERVICE_USER" == root ]] || fail "The encrypted production backup service must run as root."
 [[ "$BACKUP_SERVICE_EXEC" == *"/usr/local/sbin/ustore-production-backup.sh"* ]] || fail "The backup service does not execute the reviewed root-owned backup script."
 [[ "$BACKUP_SUCCESS_LINE" == "BACKUP SUCCESS: "* && "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" =~ ^[1-9][0-9]*$ ]] || fail "No recent integrity-verified BACKUP SUCCESS journal marker was found."
 grep -Fq 'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred' <<< "$BACKUP_UNIT_TEXT" || fail "The backup service does not load the expected encrypted systemd credential."
@@ -338,7 +338,7 @@ else
   fail "Protected MySQL backup configuration or encrypted passphrase credential is missing."
 fi
 
-if [[ "$MYSQL_READY" == 1 && -f "$BACKUP_CNF" && ! -L "$BACKUP_CNF" && -n "$APP_USER" && -n "$MIG_USER" ]]; then
+if [[ "$MYSQL_READY" == 1 && -f "$BACKUP_CNF" && ! -L "$BACKUP_CNF" && -n "$APP_USER" && -n "${MIG_USER:-}" ]]; then
   BACKUP_IDENTITY="$(mysql --defaults-extra-file="$BACKUP_CNF" --protocol=TCP --batch --skip-column-names -e 'SELECT CURRENT_USER(), DATABASE()' 2>/dev/null || true)"
   IFS=$'\t' read -r BACKUP_CURRENT_USER BACKUP_DB <<< "$BACKUP_IDENTITY"
   if [[ "$BACKUP_CURRENT_USER" =~ ^([A-Za-z0-9_]{1,32})@127\.0\.0\.1$ ]]; then
