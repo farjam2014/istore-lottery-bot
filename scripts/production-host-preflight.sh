@@ -427,7 +427,7 @@ fi
 PLAINTEXT_DB_BACKUPS=0
 for directory in "${BACKUP_SCAN_DIRS[@]}"; do
   [[ -d "$directory" ]] || continue
-  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*.sql' -o -iname '*.sql.gz' -o -iname '*.sql.zst' -o -iname '*.sql.xz' -o -iname '*.sql.bz2' -o -iname '*.dump' -o -iname '*.dump.gz' -o -iname '*.dump.zst' -o -iname '*.dump.xz' -o -iname '*.dump.bz2' -o -iname '*backup*.tar' -o -iname '*backup*.tar.gz' -o -iname '*backup*.tar.zst' -o -iname '*backup*.zip' -o -iname '*before-reset*.tar' -o -iname '*before-reset*.tar.gz' \) -printf '.' | wc -c)"
+  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*backup*.sql' -o -iname '*backup*.sql.gz' -o -iname '*backup*.sql.zst' -o -iname '*backup*.sql.xz' -o -iname '*backup*.sql.bz2' -o -iname '*before-reset*.sql' -o -iname '*before-reset*.sql.gz' -o -iname '*dump*.sql' -o -iname '*dump*.sql.gz' -o -iname '*backup*.dump' -o -iname '*backup*.dump.gz' -o -iname '*backup*.tar' -o -iname '*backup*.tar.gz' -o -iname '*backup*.tar.zst' -o -iname '*backup*.zip' -o \( \( -path '*/ustore-backup*/*' -o -path '*/var/backups/*' -o -path '*/ustore-backups/*' \) -a \( -iname '*.sql' -o -iname '*.sql.gz' -o -iname '*.sql.zst' -o -iname '*.sql.xz' -o -iname '*.sql.bz2' -o -iname '*.dump' -o -iname '*.dump.gz' -o -iname '*.dump.zst' -o -iname '*.dump.xz' -o -iname '*.dump.bz2' \) \) -printf '.' | wc -c)"
   PLAINTEXT_DB_BACKUPS=$((PLAINTEXT_DB_BACKUPS+count))
 done
 printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
