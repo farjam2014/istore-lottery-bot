@@ -169,7 +169,7 @@ test('backup artifact scan includes historical root-level SQL dumps and unencryp
   assert.ok(source.includes("-iname '*.sql.gz'"));
   assert.ok(source.includes("-iname '*.sql.zst'"));
   assert.ok(source.includes("-iname '*.dump.gz'"));
-  assert.ok(source.includes("-path '*/ustore-backup*/*'"));
+  assert.ok(source.includes("-path '*/ustore-*backup*/*'"));
   assert.ok(source.includes("-path '*/var/backups/*'"));
   assert.ok(source.includes("-path '*/ustore-backups/*'"));
   assert.ok(source.includes("-iname '*before-reset*.sql'"));
