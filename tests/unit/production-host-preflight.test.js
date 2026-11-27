@@ -165,7 +165,10 @@ test('database privilege preflight rejects object-level column, routine and even
 
 test('backup artifact scan includes historical root-level SQL dumps and unencrypted full-backup archives',()=>{
   assert.ok(source.includes('BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)'));
-  assert.ok(source.includes("-iname '*backup*.sql'"));
+  assert.ok(source.includes("-iname '*.sql'"));
+  assert.ok(source.includes("-iname '*.sql.gz'"));
+  assert.ok(source.includes("-iname '*.sql.zst'"));
+  assert.ok(source.includes("-iname '*.dump.gz'"));
   assert.ok(source.includes("-iname '*before-reset*.sql'"));
   assert.ok(source.includes("-iname '*backup*.tar.gz'"));
   assert.ok(source.includes("-iname '*backup*.tar.gz.gpg'"));
