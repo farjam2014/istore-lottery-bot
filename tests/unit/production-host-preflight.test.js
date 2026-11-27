@@ -60,77 +60,62 @@ test('production host preflight requires a dedicated service identity and effect
 });
 
 
-test('backup preflight requires an enabled app-database timer and a recorded successful service run',()=>{
+test('backup preflight verifies the dedicated systemd timer, successful journal marker and hardened service',()=>{
   for(const value of [
-    'VERIFIED_BACKUP_TIMER_COUNT=0',
-    'systemctl is-active "$timer"',
-    'systemctl is-enabled "$timer"',
-    'systemctl show "$service" -p Result --value',
-    'systemctl show "$service" -p ExecMainStatus --value',
-    'systemctl show "$service" -p ExecMainExitTimestamp --value',
-    'service_result" == "success"',
-    'service_exit" == "0"',
-    'cron alone does not prove a successful run'
-  ]) assert.ok(source.includes(value), 'missing backup verification gate: '+value);
-  assert.ok(source.includes('tolower($(NF-1)) ~ /(ustore|mysql|mariadb|database).*backup|backup.*(ustore|mysql|mariadb|database)/'));
+    'BACKUP_TIMER=ustore-production-backup.timer',
+    'BACKUP_SERVICE=ustore-production-backup.service',
+    'systemctl is-active "$BACKUP_TIMER"',
+    'systemctl is-enabled "$BACKUP_TIMER"',
+    'systemctl show "$BACKUP_SERVICE" -p Result --value',
+    'systemctl show "$BACKUP_SERVICE" -p ExecMainStatus --value',
+    "journalctl -u \"$BACKUP_SERVICE\" --since '26 hours ago'",
+    "grep -E '^BACKUP SUCCESS: '",
+    'BACKUP SUCCESS: ',
+    'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred',
+    'ProtectSystem=strict',
+    'NoNewPrivileges=true',
+    'PrivateTmp=true',
+    'ReadWritePaths=/opt/ustore-backups'
+  ]) assert.ok(source.includes(value), 'missing systemd backup gate: '+value);
 });
-
-
 test('backup artifact scan accepts directly encrypted SQL dumps as well as compressed encrypted dumps',()=>{
   for(const extension of ["*.sql.gpg","*.sql.age","*.sql.enc","*.sql.gz.gpg","*.sql.gz.age","*.sql.gz.enc"]) assert.ok(source.includes("-iname '"+extension+"'"));
 });
-test('backup artifact must be fresh relative to the latest successful encrypted backup timer run',()=>{
+test('backup artifact must be fresh relative to the journal-confirmed successful encrypted backup run',()=>{
   assert.ok(source.includes('LATEST_VERIFIED_BACKUP_RUN_EPOCH=0'));
-  assert.ok(source.includes('date -d "$service_last_run" +%s'));
+  assert.ok(source.includes('date -d "$BACKUP_SUCCESS_TIME" +%s'));
   assert.ok(source.includes('LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0'));
   assert.ok(source.includes("stat -c '%Y' \"$artifact\""));
   assert.ok(source.includes('BACKUP_ARTIFACT_RUN_DELTA=$((LATEST_ENCRYPTED_DB_BACKUP_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))'));
   assert.ok(source.includes('BACKUP_ARTIFACT_RUN_DELTA" -lt -300 || "$BACKUP_ARTIFACT_RUN_DELTA" -gt 300'));
   assert.ok(source.includes('timestamp does not match the latest verified successful backup timer run within five minutes'));
 });
-test('backup timer service must directly expose a database dump command before it counts as verified',()=>{
-  assert.ok(source.includes('systemctl show "$service" -p ExecStart --value'));
-  assert.ok(source.includes('(mysqldump|mysqlpump|mariadb-dump)'));
-  assert.ok(source.includes('dump_command=database_dump_detected'));
-  assert.ok(source.includes('last_successful_process_exit=%s dump_command=%s'));
-  assert.ok(source.includes('"$dump_command" == "database_dump_detected"'));
-  assert.ok(source.includes('directly verifiable database dump command'));
-});
-
-test('backup preflight proves the protected backup EnvironmentFile and dedicated least-privilege database identity',()=>{
+test('backup preflight verifies protected MySQL option file and encrypted systemd credential',()=>{
   for(const value of [
-    'BACKUP_ENV_DIR=/etc/ustore-telegram-bot',
-    'BACKUP_ENV=$BACKUP_ENV_DIR/ustore-telegram-bot-backup.env',
-    'systemctl show "$VERIFIED_BACKUP_SERVICE" -p EnvironmentFiles --value',
-    'The verified backup service does not load the required protected backup EnvironmentFile.',
+    'BACKUP_CNF_DIR=/etc/ustore-telegram-bot',
+    'BACKUP_CNF=$BACKUP_CNF_DIR/backup.cnf',
+    'BACKUP_CREDENTIAL=/etc/credstore.encrypted/ustore-backup-passphrase.cred',
+    'LoadCredentialEncrypted=backup-passphrase:',
     'root:root:700',
     'root:root:600',
-    'MYSQL_BACKUP_USER',
-    'MYSQL_BACKUP_PASSWORD',
-    'BACKUP_TARGET_DATABASE',
+    'mysql --defaults-extra-file="$BACKUP_CNF" --protocol=TCP --database="$DB"',
+    'SELECT CURRENT_USER(), DATABASE()',
     "PRIVILEGE_TYPE IN ('SELECT','SHOW VIEW','TRIGGER')",
     'backup_schema_privilege_rows=%s expected=3',
     'backup_global_privileges=%s expected=0',
     'backup_other_schema_grants=%s expected=0',
     'backup_granted_roles=%s expected=0',
     'backup_alternate_host_accounts=%s expected=0',
-    'verify_mysql_identity "$ACTIVE" "$ACTIVE/.env" "$BACKUP_ENV" MYSQL_BACKUP_USER MYSQL_BACKUP_PASSWORD BACKUP_TARGET_DATABASE backup'
+    'backup_proxy_grants=%s expected=0',
+    'backup_column_grants=%s expected=0',
+    'backup_routine_object_grants=%s expected=0',
+    'backup_grant_option_rows=%s expected=0'
   ]) assert.ok(source.includes(value), 'missing protected backup identity gate: '+value);
   assert.ok(source.includes('BACKUP_USER" != "$APP_USER"'));
   assert.ok(source.includes('BACKUP_USER" != "$MIG_USER"'));
   assert.ok(source.includes('BACKUP_DB" == "$DB"'));
+  assert.ok(source.includes('Backup account is not proven least-privilege'));
 });
-
-test('backup timer must expose both database dump and encryption commands in its effective ExecStart',()=>{
-  assert.ok(source.includes('encryption_command=not_proven'));
-  assert.ok(source.includes('(gpg|age|openssl[[:space:]]+enc)'));
-  assert.ok(source.includes('encryption_command=backup_encryption_detected'));
-  assert.ok(source.includes('"$encryption_command" == "backup_encryption_detected"'));
-  assert.ok(source.includes('encryption_command=%s'));
-  assert.ok(source.includes('visible encryption command'));
-});
-
-
 test('database preflight authenticates runtime and migration credentials without putting passwords in argv or output',()=>{
   assert.ok(source.includes('verify_mysql_identity(){'));
   assert.ok(source.includes("const mysql=require('mysql2/promise');"));
@@ -179,16 +164,31 @@ test('backup artifact scan includes historical root-level SQL dumps and unencryp
 });
 
 
+test('backup service verifies encryption in its root-owned script rather than assuming ExecStart exposes commands',()=>{
+  for(const value of [
+    'BACKUP_SCRIPT=/usr/local/sbin/ustore-production-backup.sh',
+    'BACKUP_SERVICE_EXEC',
+    'mysqldump',
+    '--triggers',
+    '--cipher-algo AES256',
+    '--decrypt',
+    'gzip -t',
+    'BACKUP SUCCESS',
+    'CREDENTIALS_DIRECTORY',
+    'Backup script must be root:root mode 700',
+    'backup service does not execute the reviewed root-owned backup script'
+  ]) assert.ok(source.includes(value), 'missing backup script integrity check: '+value);
+  assert.ok(source.includes('encryption'));
+});
+
 test('production host preflight detects manually launched GitHub runner processes and searches common runner install roots',()=>{
-  assert.ok(source.includes('for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl pgrep tr sed; do'));
+  assert.ok(source.includes('for command in systemctl stat node mysql ss free df awk grep find wc sort date hostname readlink id sudo crontab curl pgrep tr sed journalctl; do'));
   assert.ok(source.includes("pgrep -f '[R]unner.Listener'"));
   assert.ok(source.includes("pgrep -f '[R]unner.Worker'"));
   assert.ok(source.includes('runner_process_ids='));
   assert.ok(source.includes('runner_processes=none_detected'));
   assert.ok(source.includes('find /home /opt /root /srv /var/lib /usr/local -maxdepth 6 -type f'));
 });
-
-
 test('production host preflight verifies binary-log trust before least-privilege audit-trigger migrations',()=>{
   assert.ok(source.includes("BINLOG_ENABLED=\"$(mysql_q 'SELECT @@GLOBAL.log_bin'"));
   assert.ok(source.includes("BINLOG_TRUSTED_CREATORS=\"$(mysql_q 'SELECT @@GLOBAL.log_bin_trust_function_creators'"));
