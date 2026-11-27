@@ -19,10 +19,10 @@ test('support ticket detail remains permission-gated through support.read',()=>{
 });
 
 test('support priority actions reject stale buttons instead of overwriting a newer priority',()=>{
-  assert.match(source,/admin:support:priority:'\+id\+':high:'\+t\.priority/);
-  assert.match(source,/admin:support:priority:'\+id\+':urgent:'\+t\.priority/);
-  assert.match(source,/admin:support:priority:\\(\\d\+\\):\(low\|normal\|high\|urgent\):\(low\|normal\|high\|urgent\)/);
-  assert.match(source,/ticket\.priority!==expectedPriority/);
-  assert.match(source,/SELECT id,priority FROM support_tickets WHERE id=\? FOR UPDATE/);
-  assert.match(source,/bot\.action\(\/\^admin:support:priority:\\(\\d\+\\):\(low\|normal\|high\|urgent\)\$\//);
+  assert.ok(source.includes("Markup.button.callback('اولویت: زیاد','admin:support:priority:'+id+':high:'+t.priority)"));
+  assert.ok(source.includes("Markup.button.callback('اولویت: فوری','admin:support:priority:'+id+':urgent:'+t.priority)"));
+  assert.ok(source.includes("bot.action(/^admin:support:priority:(\\d+):(low|normal|high|urgent):(low|normal|high|urgent)$/"));
+  assert.ok(source.includes("ticket.priority!==expectedPriority"));
+  assert.ok(source.includes("SELECT id,priority FROM support_tickets WHERE id=? FOR UPDATE"));
+  assert.ok(source.includes("bot.action(/^admin:support:priority:(\\d+):(low|normal|high|urgent)$/"));
 });
