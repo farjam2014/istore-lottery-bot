@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {classifyTelegramDeliveryError,safeTelegramDeliveryErrorLabel} from '../../src/modules/notifications/outbox.worker.js';
 
 test('outbox classifies Telegram errors without persisting or logging exception content',()=>{
