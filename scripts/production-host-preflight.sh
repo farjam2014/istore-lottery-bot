@@ -291,27 +291,56 @@ BACKUP_SERVICE_RESULT="$(systemctl show "$BACKUP_SERVICE" -p Result --value 2>/d
 BACKUP_SERVICE_EXIT="$(systemctl show "$BACKUP_SERVICE" -p ExecMainStatus --value 2>/dev/null || true)"
 BACKUP_SERVICE_USER="$(systemctl show "$BACKUP_SERVICE" -p User --value 2>/dev/null || true)"
 BACKUP_SERVICE_EXEC="$(systemctl show "$BACKUP_SERVICE" -p ExecStart --value 2>/dev/null || true)"
-BACKUP_UNIT_TEXT="$(systemctl cat "$BACKUP_SERVICE" 2>/dev/null || true)"
+BACKUP_FRAGMENT_PATH="$(systemctl show "$BACKUP_SERVICE" -p FragmentPath --value 2>/dev/null || true)"
+BACKUP_DROP_IN_PATHS="$(systemctl show "$BACKUP_SERVICE" -p DropInPaths --value 2>/dev/null || true)"
+BACKUP_PROTECT_SYSTEM="$(systemctl show "$BACKUP_SERVICE" -p ProtectSystem --value 2>/dev/null || true)"
+BACKUP_PROTECT_HOME="$(systemctl show "$BACKUP_SERVICE" -p ProtectHome --value 2>/dev/null || true)"
+BACKUP_NO_NEW_PRIVILEGES="$(systemctl show "$BACKUP_SERVICE" -p NoNewPrivileges --value 2>/dev/null || true)"
+BACKUP_PRIVATE_TMP="$(systemctl show "$BACKUP_SERVICE" -p PrivateTmp --value 2>/dev/null || true)"
+BACKUP_READ_WRITE_PATHS="$(systemctl show "$BACKUP_SERVICE" -p ReadWritePaths --value 2>/dev/null || true)"
+
+BACKUP_UNIT_CREDENTIAL_DIRECTIVE=""
+if [[ -n "$BACKUP_FRAGMENT_PATH" && -f "$BACKUP_FRAGMENT_PATH" && ! -L "$BACKUP_FRAGMENT_PATH" ]]; then
+  BACKUP_UNIT_CREDENTIAL_DIRECTIVE="$(
+    awk '
+      /^\[Service\][[:space:]]*$/ { in_service=1; next }
+      /^\[/ { in_service=0 }
+      in_service && /^[[:space:]]*#/ { next }
+      in_service && /^[[:space:]]*LoadCredentialEncrypted[[:space:]]*=/ {
+        sub(/^[[:space:]]*/, "")
+        sub(/[[:space:]]*$/, "")
+        print
+      }
+    ' "$BACKUP_FRAGMENT_PATH"
+  )"
+fi
+
 BACKUP_SUCCESS_LINE="$(journalctl -u "$BACKUP_SERVICE" --since '26 hours ago' --no-pager -o cat 2>/dev/null | grep -E '^BACKUP SUCCESS: ' | tail -n 1 || true)"
 BACKUP_SUCCESS_TIME="$(printf '%s' "$BACKUP_SUCCESS_LINE" | sed 's/^BACKUP SUCCESS: //')"
 LATEST_VERIFIED_BACKUP_RUN_EPOCH=0
 if [[ "$BACKUP_SUCCESS_TIME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ]]; then
   LATEST_VERIFIED_BACKUP_RUN_EPOCH="$(date -d "$BACKUP_SUCCESS_TIME" +%s 2>/dev/null || echo 0)"
 fi
+
 printf 'backup_timer=%s state=%s enabled=%s service_result=%s exit_status=%s journal_success=%s\n' \
   "$BACKUP_TIMER" "$BACKUP_TIMER_STATE" "$BACKUP_TIMER_ENABLED" "$BACKUP_SERVICE_RESULT" "$BACKUP_SERVICE_EXIT" \
   "$([[ -n "$BACKUP_SUCCESS_LINE" ]] && echo recorded || echo missing)"
+
 [[ "$BACKUP_TIMER_STATE" == active ]] || fail "The dedicated production backup timer is not active."
 [[ "$BACKUP_TIMER_ENABLED" == enabled ]] || fail "The dedicated production backup timer is not enabled."
 [[ "$BACKUP_SERVICE_RESULT" == success && "$BACKUP_SERVICE_EXIT" == 0 ]] || fail "The latest backup service invocation did not finish successfully."
-[[ -z "$BACKUP_SERVICE_USER" || "$BACKUP_SERVICE_USER" == root ]] || fail "The encrypted production backup service must run as root."
+[[ "$BACKUP_SERVICE_USER" == root ]] || fail "The encrypted production backup service must run explicitly as root."
 [[ "$BACKUP_SERVICE_EXEC" == *"/usr/local/sbin/ustore-production-backup.sh"* ]] || fail "The backup service does not execute the reviewed root-owned backup script."
+[[ -n "$BACKUP_FRAGMENT_PATH" && -f "$BACKUP_FRAGMENT_PATH" && ! -L "$BACKUP_FRAGMENT_PATH" ]] || fail "The active backup systemd unit fragment is missing or is a symlink."
+[[ -z "$BACKUP_DROP_IN_PATHS" ]] || fail "Backup service drop-in overrides exist and require separate review."
+[[ "$BACKUP_PROTECT_SYSTEM" == strict ]] || fail "Backup service must effectively use ProtectSystem=strict."
+[[ "$BACKUP_PROTECT_HOME" == yes ]] || fail "Backup service must effectively use ProtectHome=yes."
+[[ "$BACKUP_NO_NEW_PRIVILEGES" == yes ]] || fail "Backup service must effectively use NoNewPrivileges=yes."
+[[ "$BACKUP_PRIVATE_TMP" == yes ]] || fail "Backup service must effectively use PrivateTmp=yes."
+[[ "$BACKUP_READ_WRITE_PATHS" == /opt/ustore-backups ]] || fail "Backup service write access must be limited to /opt/ustore-backups."
+[[ "$BACKUP_UNIT_CREDENTIAL_DIRECTIVE" == 'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred' ]] || fail "The active Service section does not contain exactly the expected encrypted systemd credential directive."
 [[ "$BACKUP_SUCCESS_LINE" == "BACKUP SUCCESS: "* && "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" =~ ^[1-9][0-9]*$ ]] || fail "No recent integrity-verified BACKUP SUCCESS journal marker was found."
-grep -Fq 'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred' <<< "$BACKUP_UNIT_TEXT" || fail "The backup service does not load the expected encrypted systemd credential."
-grep -Fq 'ProtectSystem=strict' <<< "$BACKUP_UNIT_TEXT" || fail "Backup service must use ProtectSystem=strict."
-grep -Fq 'NoNewPrivileges=true' <<< "$BACKUP_UNIT_TEXT" || fail "Backup service must use NoNewPrivileges."
-grep -Fq 'PrivateTmp=true' <<< "$BACKUP_UNIT_TEXT" || fail "Backup service must use PrivateTmp."
-grep -Fq 'ReadWritePaths=/opt/ustore-backups' <<< "$BACKUP_UNIT_TEXT" || fail "Backup service write access must be limited to /opt/ustore-backups."
+
 
 BACKUP_SCRIPT=/usr/local/sbin/ustore-production-backup.sh
 BACKUP_CNF_DIR=/etc/ustore-telegram-bot

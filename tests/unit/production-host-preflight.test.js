@@ -60,7 +60,7 @@ test('production host preflight requires a dedicated service identity and effect
 });
 
 
-test('backup preflight verifies the dedicated systemd timer, successful journal marker and hardened service',()=>{
+test('backup preflight verifies effective systemd properties and the active unit credential directive',()=>{
   for(const value of [
     'BACKUP_TIMER=ustore-production-backup.timer',
     'BACKUP_SERVICE=ustore-production-backup.service',
@@ -68,16 +68,28 @@ test('backup preflight verifies the dedicated systemd timer, successful journal 
     'systemctl is-enabled "$BACKUP_TIMER"',
     'systemctl show "$BACKUP_SERVICE" -p Result --value',
     'systemctl show "$BACKUP_SERVICE" -p ExecMainStatus --value',
-    "journalctl -u \"$BACKUP_SERVICE\" --since '26 hours ago'",
+    'systemctl show "$BACKUP_SERVICE" -p FragmentPath --value',
+    'systemctl show "$BACKUP_SERVICE" -p DropInPaths --value',
+    'systemctl show "$BACKUP_SERVICE" -p ProtectSystem --value',
+    'systemctl show "$BACKUP_SERVICE" -p ProtectHome --value',
+    'systemctl show "$BACKUP_SERVICE" -p NoNewPrivileges --value',
+    'systemctl show "$BACKUP_SERVICE" -p PrivateTmp --value',
+    'systemctl show "$BACKUP_SERVICE" -p ReadWritePaths --value',
+    `journalctl -u "$BACKUP_SERVICE" --since '26 hours ago'`,
     "grep -E '^BACKUP SUCCESS: '",
     'BACKUP SUCCESS: ',
-    'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred',
+    'BACKUP_UNIT_CREDENTIAL_DIRECTIVE',
+    'in_service && /^[[:space:]]*#/ { next }',
+    'DropInPaths',
     'ProtectSystem=strict',
-    'NoNewPrivileges=true',
-    'PrivateTmp=true',
-    'ReadWritePaths=/opt/ustore-backups'
-  ]) assert.ok(source.includes(value), 'missing systemd backup gate: '+value);
+    'ProtectHome=yes',
+    'NoNewPrivileges=yes',
+    'PrivateTmp=yes',
+    '[[ "$BACKUP_READ_WRITE_PATHS" == /opt/ustore-backups ]] ',
+    'LoadCredentialEncrypted=backup-passphrase:/etc/credstore.encrypted/ustore-backup-passphrase.cred'
+  ]) assert.ok(source.includes(value), 'missing effective systemd backup gate: '+value);
 });
+
 test('backup artifact scan accepts directly encrypted SQL dumps as well as compressed encrypted dumps',()=>{
   for(const extension of ["*.sql.gpg","*.sql.age","*.sql.enc","*.sql.gz.gpg","*.sql.gz.age","*.sql.gz.enc"]) assert.ok(source.includes("-iname '"+extension+"'"));
 });
