@@ -37,7 +37,7 @@ Do not describe Instagram follow status or Instagram account ownership as verifi
 
 ## Retention controls currently present in code
 
-**Important implementation limit:** the retention cleanup worker is disabled by default (`RETENTION_CLEANUP_ENABLED=false`). Even when explicitly enabled, it does not delete raw `telegram_update_inbox` payloads. Do not promise a TTL or deletion period for inbox payloads until a separately reviewed deletion policy and implementation exist.
+**Important implementation limit:** the optional retention cleanup worker is disabled by default (`RETENTION_CLEANUP_ENABLED=false`). This does not disable the separate `updateInboxWorker` inbox TTL cleanup described below. The optional worker does not delete raw `telegram_update_inbox` payloads; it only redacts legacy error labels and handles other operational tables when explicitly enabled.
 
 | Data | Existing behavior |
 |---|---|
