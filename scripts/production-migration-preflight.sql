@@ -198,7 +198,7 @@ SET @preflight_outbox_error_column_exists := (
 );
 SET @preflight_sql := IF(
   @preflight_outbox_error_column_exists,
-  'SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_notification_outbox WHERE last_error IS NOT NULL AND last_error NOT IN (''invalid_payload'',''telegram_http_429'',''telegram_http_4xx'',''telegram_http_5xx'',''network_or_unknown'',''manually_requeued'',''legacy_error_redacted'',''Delivery outcome unknown after worker lease expired'')',
+  'SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, COUNT(*) AS exact_rows, ''PRESENT'' AS check_status FROM telegram_notification_outbox WHERE last_error IS NOT NULL AND last_error NOT IN (''invalid_payload'',''telegram_http_429'',''telegram_http_408_timeout'',''telegram_http_4xx'',''telegram_http_5xx'',''network_or_unknown'',''manually_requeued'',''legacy_error_redacted'',''Delivery outcome unknown after worker lease expired'')',
   'SELECT ''telegram_notification_outbox_legacy_error_rows'' AS metric, NULL AS exact_rows, ''PENDING_OR_MISSING_COLUMN'' AS check_status'
 );
 PREPARE preflight_session_stmt FROM @preflight_sql;
