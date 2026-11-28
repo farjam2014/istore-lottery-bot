@@ -7,7 +7,6 @@ const policy=readFileSync(fileURLToPath(new URL('../../docs/PRIVACY_AND_RETENTIO
 const retentionWorker=readFileSync(fileURLToPath(new URL('../../src/modules/privacy/retention-cleanup.worker.js',import.meta.url)),'utf8');
 const updateGuard=readFileSync(fileURLToPath(new URL('../../src/bot/middleware/update-guard.js',import.meta.url)),'utf8');
 const updateInboxWorker=readFileSync(fileURLToPath(new URL('../../src/bot/update-inbox.worker.js',import.meta.url)),'utf8');
-const retentionWorker=readFileSync(fileURLToPath(new URL('../../src/modules/privacy/retention-cleanup.worker.js',import.meta.url)),'utf8');
 
 test('privacy policy matches the actual inbox TTL cleanup implementation',()=>{
   assert.match(policy,/updateInboxWorker` deletes `completed` rows older than 3 days/);
