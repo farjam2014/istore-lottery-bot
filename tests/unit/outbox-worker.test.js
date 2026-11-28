@@ -125,6 +125,24 @@ test('Telegram 429 response is safely retried using retry_after',async()=>{
   assert.equal(database.jobs[0].lease_token,null);
 });
 
+test('Telegram HTTP 408 timeout is uncertain and never automatically resent',async()=>{
+  const database=fakeDatabase([job()]);
+  let sends=0;
+  const worker=createNotificationOutboxWorker({
+    database,log:logger,uuid:()=> 'lease-408',
+    deliver:async()=>{sends++;throw Object.assign(new Error('Request timeout'),{response:{error_code:408}});}
+  });
+  const first=await worker({});
+  assert.deepEqual(first,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
+  assert.equal(database.jobs[0].status,'uncertain');
+  assert.equal(database.jobs[0].last_error,'telegram_http_408_timeout');
+  assert.equal(database.jobs[0].lease_token,null);
+
+  const second=await worker({});
+  assert.deepEqual(second,{claimed:0,delivered:0,failed:0,retried:0,uncertain:0});
+  assert.equal(sends,1);
+});
+
 test('Telegram server error is uncertain rather than automatically retried',async()=>{
   const database=fakeDatabase([job()]);
   const worker=createNotificationOutboxWorker({
