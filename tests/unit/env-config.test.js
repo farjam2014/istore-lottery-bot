@@ -23,6 +23,17 @@ test('environment schema preserves production defaults under Zod 4', () => {
   assert.equal(result.data.BOT_ADMIN_IDS, '123456789');
 });
 
+test('retention cleanup is disabled by default and requires explicit true opt-in',()=>{
+  const disabled=parseEnvironment({...validEnvironment});
+  assert.equal(disabled.success,true);
+  assert.equal(disabled.data.RETENTION_CLEANUP_ENABLED,false);
+  const enabled=parseEnvironment({...validEnvironment,RETENTION_CLEANUP_ENABLED:'true'});
+  assert.equal(enabled.success,true);
+  assert.equal(enabled.data.RETENTION_CLEANUP_ENABLED,true);
+  const invalid=parseEnvironment({...validEnvironment,RETENTION_CLEANUP_ENABLED:'yes'});
+  assert.equal(invalid.success,false);
+});
+
 test('environment schema coerces a valid MySQL port and pool size', () => {
   const result = parseEnvironment({
     ...validEnvironment,
