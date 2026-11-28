@@ -15,7 +15,7 @@ const RETENTION_DELETE_STATEMENTS=[
 
 const RETENTION_REDACT_STATEMENTS=[
   ['telegram_update_inbox',"UPDATE telegram_update_inbox SET last_error='legacy_error_redacted' WHERE last_error IS NOT NULL AND last_error NOT IN ('handler_failed','invalid_payload','payload_update_id_mismatch','legacy_error_redacted') LIMIT 500"],
-  ['telegram_notification_outbox',"UPDATE telegram_notification_outbox SET last_error='legacy_error_redacted' WHERE last_error IS NOT NULL AND last_error NOT IN ('invalid_payload','telegram_http_429','telegram_http_4xx','telegram_http_5xx','network_or_unknown','manually_requeued','legacy_error_redacted') LIMIT 500"]
+  ['telegram_notification_outbox',"UPDATE telegram_notification_outbox SET last_error='legacy_error_redacted' WHERE last_error IS NOT NULL AND last_error NOT IN ('invalid_payload','telegram_http_429','telegram_http_4xx','telegram_http_5xx','telegram_http_408_timeout','network_or_unknown','manually_requeued','legacy_error_redacted') LIMIT 500"]
 ];
 
 export function createRetentionCleanupWorker({database=pool}={}){
