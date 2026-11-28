@@ -18,7 +18,7 @@ Requires Node.js 22+, MySQL 8+, and a Telegram bot token.
 
 - Polling startup detects and removes a stale Telegram webhook without discarding pending updates.
 - Telegram update IDs are claimed idempotently through a durable inbox; database-backed per-user rate limits are applied to text, callback and other updates.
-- Inbox payloads contain the Telegram Update needed for replay. Completed payloads are retained for three days; pending, failed and stale-processing payloads are purged after thirty days. This retention window requires an approved privacy policy.
+- After the current privacy notice is accepted, inbox payloads contain the Telegram Update needed for durable replay. Before acceptance, only the update ID is persisted; the current request is processed in memory and must be resent after consent if a crash prevents completion. Completed payloads are retained for three days; pending, failed and stale-processing payloads are purged after thirty days. These operational retention windows require business/legal approval.
 - Correlation IDs are carried through async logs, processed-update rows, payment events, audit records and queued notifications.
 - Notification delivery uses a leased outbox with bounded automatic retries. Failed and uncertain deliveries can be retried manually from the super-admin health screen; uncertain retries explicitly warn that duplicates are possible.
 - Bank-card details are snapshotted per order, and successful presentation to a participant is recorded in the payment event history using only the card's last four digits.
