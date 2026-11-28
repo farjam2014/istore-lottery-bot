@@ -40,7 +40,7 @@ sudo install -d -m 700 "$BACKUP_DIR"
 
 Obtain `MYSQL_DATABASE` from the protected environment without printing the rest of `.env`. Run a full consistent encrypted database backup at least once every 24 hours; the latest successful backup must be no older than 26 hours. Stream the approved consistent dump through compression and encryption into the protected backup directory; do not leave a plaintext or compression-only SQL dump on disk. Verify the encrypted archive and record its SHA-256. Keep an independently encrypted off-host copy. The read-only host preflight requires at least one encrypted database-backup artifact and `plaintext_database_backup_artifacts=0`; remove or re-encrypt legacy plaintext dumps before proceeding.
 
-Back up the exact draw-key configuration/key IDs independently in an access-controlled encrypted vault. Preserve the current `.env` as a root-only recovery artifact, encrypted before off-host storage. A database dump without the historical draw keys is not a complete draw recovery backup.
+Back up the active draw-key configuration independently in an access-controlled encrypted vault. Preserve the current `.env` as a root-only recovery artifact, encrypted before off-host storage. If prepared draws or encrypted seeds exist, the database dump is not a complete draw recovery backup without every referenced historical key. If the verified inventory shows zero draw rows and zero encrypted seeds, historical-key recovery is not applicable to this release; verify the active key backup fingerprint and retain any root-only legacy copies for deferred cleanup.
 
 Restore the backup into a separate disposable database and verify table counts and the prepared-draw/key decryption check before proceeding. Run `npm run verify:prepared-draw-keys` from the staged release with the restored database selected by the protected runtime environment and the independently restored keyring loaded; every prepared draw must report `verified`. The command prints draw IDs and key IDs only, never decrypted seeds or key material. A result of `no_prepared_draws` is informational and must be reconciled with the restore inventory.
 
@@ -93,29 +93,29 @@ Only after separate approval:
    ```bash
    set -Eeuo pipefail
    set +x
-   MYSQL_TRUST_RESTORE_VALUE=""
-restore_mysql_trust_setting() {
-  [[ -n "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 0
-  mysql --protocol=socket -e "SET GLOBAL log_bin_trust_function_creators=$MYSQL_TRUST_RESTORE_VALUE" || return 1
-  RESTORED_TRUST="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators' 2>/dev/null)" || return 1
-  [[ "$RESTORED_TRUST" == "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 1
-  printf 'mysql_trigger_creator_trust_restored=%s\\n' "$RESTORED_TRUST"
-  MYSQL_TRUST_RESTORE_VALUE=""
-}
-cleanup_migration_environment() {
-  local exit_status=$?
-  trap - EXIT
-  if ! restore_mysql_trust_setting; then
-    echo "CRITICAL: MySQL trigger-creator trust could not be restored; keep the service stopped and restore the original value manually." >&2
-    exit_status=1
-  fi
-  unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
-  exit "$exit_status"
-}
-trap cleanup_migration_environment EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
+      MYSQL_TRUST_RESTORE_VALUE=""
+   restore_mysql_trust_setting() {
+     [[ -n "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 0
+     mysql --protocol=socket -e "SET GLOBAL log_bin_trust_function_creators=$MYSQL_TRUST_RESTORE_VALUE" || return 1
+     RESTORED_TRUST="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators' 2>/dev/null)" || return 1
+     [[ "$RESTORED_TRUST" == "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 1
+     printf 'mysql_trigger_creator_trust_restored=%s\n' "$RESTORED_TRUST"
+     MYSQL_TRUST_RESTORE_VALUE=""
+   }
+   cleanup_migration_environment() {
+     local exit_status=$?
+     trap - EXIT
+     if ! restore_mysql_trust_setting; then
+       echo "CRITICAL: MySQL trigger-creator trust could not be restored; keep the service stopped and restore the original value manually." >&2
+       exit_status=1
+     fi
+     unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
+     exit "$exit_status"
+   }
+   trap cleanup_migration_environment EXIT
+   trap 'exit 129' HUP
+   trap 'exit 130' INT
+   trap 'exit 143' TERM
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
    SERVICE_USER="$(systemctl show ustore-telegram-bot.service -p User --value)"
    test -n "$ACTIVE" && test -n "$SERVICE_USER"
@@ -148,7 +148,7 @@ trap 'exit 143' TERM
    fi
    if [[ "$MYSQL_BINLOG_ENABLED" == 1 ]]; then
      if [[ "$MYSQL_TRUSTED_CREATORS" == 0 ]]; then
-       MYSQL_TRUST_RESTORE_VALUE=0
+       MYSQL_TRUST_RESTORE_VALUE="$MYSQL_TRUSTED_CREATORS"
        mysql --protocol=socket -e 'SET GLOBAL log_bin_trust_function_creators=1'
        MYSQL_TRUSTED_CREATORS="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators')"
      fi
