@@ -244,3 +244,47 @@ test('private-chat filter runs before durable inbox persistence',()=>{
   assert.ok(register.indexOf('bot.use(updateGuard())')>=0);
   assert.ok(register.indexOf('bot.use(privateChatOnly)')<register.indexOf('bot.use(updateGuard())'));
 });
+
+
+test('pre-consent updates persist only the update ID, never Telegram profile or message data',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,requiresConsent:async()=>true});
+  const ctx=context({id:990,userId:'998877'});
+  ctx.update={
+    update_id:990,
+    message:{
+      message_id:77,
+      date:1760000000,
+      from:{id:998877,is_bot:false,first_name:'Sensitive Name',last_name:'Private',username:'private_user'},
+      chat:{id:998877,type:'private'},
+      text:'my phone is +989121234567',
+      contact:{phone_number:'+989121234567',first_name:'Sensitive Name',user_id:998877}
+    }
+  };
+  await guard(ctx,async()=>{});
+  const persisted=JSON.parse(database.inbox.get(990).payload);
+  assert.deepEqual(persisted,{update_id:990});
+  assert.equal(JSON.stringify(persisted).includes('998877'),false);
+  assert.equal(JSON.stringify(persisted).includes('+989121234567'),false);
+  assert.equal(JSON.stringify(persisted).includes('Sensitive Name'),false);
+});
+
+test('pre-consent callback payloads are not retained for durable replay',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,requiresConsent:async()=>true});
+  const ctx=context({id:991,userId:'998877',callback:true});
+  ctx.update={
+    update_id:991,
+    callback_query:{
+      id:'sensitive-callback-id',
+      from:{id:998877,first_name:'Sensitive Name',username:'private_user'},
+      message:{message_id:78,chat:{id:998877,type:'private'}},
+      data:'pa:-1:privacy-v1'
+    }
+  };
+  await guard(ctx,async()=>{});
+  const persisted=JSON.parse(database.inbox.get(991).payload);
+  assert.deepEqual(persisted,{update_id:991});
+  assert.equal(JSON.stringify(persisted).includes('sensitive-callback-id'),false);
+  assert.equal(JSON.stringify(persisted).includes('privacy-v1'),false);
+});
