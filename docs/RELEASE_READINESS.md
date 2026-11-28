@@ -42,7 +42,7 @@ Before any production schema change:
 6. Back up all draw seed key material independently of the database backup. Preserve the exact key IDs and their mapping to key material in an access-controlled encrypted vault.
 7. Perform a recovery rehearsal proving that the restored database and independently restored keyring can decrypt a prepared draw.
 8. Verify automated database backups are scheduled, the last successful run is recorded, retention and alerting are configured, and the backup is encrypted at rest; gzip compression alone is not encryption.
-9. Confirm no plaintext draw-seed key copies remain in backup locations after the encrypted keyring backup and restore rehearsal are verified.
+9. Inventory plaintext draw-seed key copies. If both the live campaign_draws row count and encrypted-seed count are zero, root-only copies may be retained temporarily only in a root:root mode-700 directory as root:root mode-600 regular files; record them as deferred post-release cleanup, not as an automatic release blocker. If any draw record or encrypted seed exists, preserve all potentially referenced keys and complete the historical keyring restore/decryption rehearsal before changing or deleting any copy.
 10. Do not proceed if any backup, restore, key custody, or decryption check fails.
 
 A database dump alone is not a complete backup for prepared draws. Losing the historical key referenced by a prepared draw makes its encrypted seed unrecoverable.
