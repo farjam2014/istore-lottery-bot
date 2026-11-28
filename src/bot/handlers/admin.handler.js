@@ -26,7 +26,7 @@ import {archiveCampaign,closeCampaign,setCampaignStatus,createCampaignFromWizard
 import {isOlderAdminWizardReplay,isExpiredAdminWizardSession,isStaleAdminReplyUpdate,advanceAdminWizard} from '../../modules/admin/admin-wizard-replay.js';
 
 function safeOutboxErrorLabel(value){
-  const known=new Set(['invalid_payload','telegram_http_429','telegram_http_4xx','telegram_http_5xx','network_or_unknown','manually_requeued']);
+  const known=new Set(['invalid_payload','telegram_http_408_timeout','telegram_http_429','telegram_http_4xx','telegram_http_5xx','network_or_unknown','manually_requeued']);
   return known.has(String(value||''))?String(value):'legacy_error_redacted';
 }
 
