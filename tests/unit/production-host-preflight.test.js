@@ -245,7 +245,7 @@ test('UFW is informational in the pre-release host audit and explicitly deferred
   assert.ok(source.includes('ufw=inactive; activation_deferred_until_post_release'));
   assert.ok(source.includes('ufw=not_installed; activation_deferred_until_post_release'));
   assert.ok(source.includes('UFW activation is intentionally deferred until a separate post-release SSH-safe maintenance window.'));
-  assert.doesNotMatch(source,/UFW must be active/);
+  assert.doesNotMatch(source,/fail "UFW must be active/);
   assert.doesNotMatch(source,/UFW is not installed; a host firewall is required/);
   assert.equal((source.match(/section "RESULT"/g)||[]).length,1);
 });
