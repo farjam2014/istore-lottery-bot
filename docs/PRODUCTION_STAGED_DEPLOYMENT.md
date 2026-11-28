@@ -1,10 +1,10 @@
 # Production staged deployment runbook
 
-This procedure is for the existing release-directory production host. The operator-reported active release path at the time of this audit is:
+This procedure is for the existing release-directory production host. A read-only audit on 2026-11-27 observed the active release at:
 
-`/opt/ustore-releases/ed490912df9eacbd15e344f4ae00a785cda09646`
+`/opt/ustore-releases/e951f43d6957fffd3262a9e9d400d20e3d31c35e`
 
-That path and its running process have **not** been independently verified from the VPS in this audit. Re-confirm the actual systemd `WorkingDirectory` and `/proc/<MainPID>/cwd` read-only before using this procedure; do not assume the reported path is still active.
+This is an audit-time observation, not a permanent deployment target. Immediately before any maintenance window, independently re-confirm the systemd `WorkingDirectory`, `ExecStart`, and `/proc/<MainPID>/cwd` read-only. Never assume this path remains active.
 
 It is a **manual, approval-gated deployment plan**. It has not been executed. Use the exact reviewed and merged release commit SHA, never a floating branch.
 
