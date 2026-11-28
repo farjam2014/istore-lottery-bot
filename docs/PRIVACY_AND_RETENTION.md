@@ -9,7 +9,7 @@
 The application may process:
 
 - Telegram identifiers, usernames, display names, and message/update metadata.
-- Raw Telegram Update JSON stored in `telegram_update_inbox`; depending on update type this can include message text, callback data, contact name and phone number, photo file identifiers/captions, and other message metadata. The payload is stored in a MySQL JSON column and is not application-level encrypted by this code.
+- Raw Telegram Update JSON stored in `telegram_update_inbox` after the user has accepted the current privacy-notice version; depending on update type this can include message text, callback data, contact name and phone number, photo file identifiers/captions, and other message metadata. Before current consent, the inbox stores only the Telegram `update_id`; the full update is processed in memory for that request and is not durably retained. Persisted payloads are stored in a MySQL JSON column and are not application-level encrypted by this code.
 - Participant full name, phone number, and self-declared Instagram handle.
 - Campaign participation, entry status, generated codes, and draw eligibility evidence.
 - Payment order references, amounts, bank-card snapshots, Telegram receipt file identifiers, receipt notes, and review decisions.
