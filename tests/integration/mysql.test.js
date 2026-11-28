@@ -1,14 +1,179 @@
-import test from 'node:test';
+import {after,test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {readFile} from 'node:fs/promises';
+import mysql from 'mysql2/promise';
+// admin_audit_log is append-only after migration; unique fixture audit rows are intentionally retained.
 
 const enabled=process.env.RUN_MYSQL_TESTS==='1';
+const isForeignKeyReferenceError=error=>/foreign key constraint fails/i.test(String(error?.message||''));
+
+after(async()=>{
+  if(!enabled)return;
+  const {closeMigrationPool}=await import('../../src/database/migration-pool.js');
+  const {pool}=await import('../../src/database/pool.js');
+  await closeMigrationPool();
+  await pool.end();
+});
+const quoteIdentifier=value=>String.fromCharCode(96)+String(value).replaceAll(String.fromCharCode(96),String.fromCharCode(96)+String.fromCharCode(96))+String.fromCharCode(96);
+async function clearFixtureSchema(connection,database){
+  const [objects]=await connection.execute('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
+  await connection.query('SET FOREIGN_KEY_CHECKS=0');
+  try{
+    for(const object of objects){
+      const kind=object.TABLE_TYPE==='VIEW'?'VIEW':'TABLE';
+      await connection.query('DROP '+kind+' IF EXISTS '+quoteIdentifier(database)+'.'+quoteIdentifier(object.TABLE_NAME));
+    }
+  }finally{
+    await connection.query('SET FOREIGN_KEY_CHECKS=1');
+  }
+}
+async function assertFixtureSchemaEmpty(connection,database){
+  const [[row]]=await connection.execute('SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
+  assert.equal(Number(row.total),0,'Fixture schema '+database+' must be empty before the test.');
+}
+
+
+test('MySQL integration: production migration preflight runs against the baseline schema with a SELECT-only account',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
+  const reader=process.env.MYSQL_TEST_READONLY_USER;
+  const readerPassword=process.env.MYSQL_TEST_READONLY_PASSWORD||'';
+  const database=process.env.MYSQL_PREFLIGHT_DATABASE||'';
+  assert.ok(adminUser&&reader&&readerPassword,'Dedicated fixture-admin and read-only accounts are required.');
+  assert.match(database,/^ustore_preflight_[A-Za-z0-9_]+_ci$/,'A pre-provisioned preflight fixture schema is required.');
+  assert.notEqual(database,process.env.MYSQL_DATABASE,'Preflight fixture schema must differ from the application test schema.');
+  let admin,setup,readonly,fixtureStarted=false;
+  try{
+    admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
+    await assertFixtureSchemaEmpty(admin,database);
+    fixtureStarted=true;
+    setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
+    const schema=await readFile(new URL('../../src/database/schema.sql',import.meta.url),'utf8');
+    for(const statement of schema.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean))await setup.query(statement);
+    await setup.query('CREATE TABLE schema_migrations (version VARCHAR(120) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    await setup.end();setup=null;
+    readonly=await mysql.createConnection({host:'127.0.0.1',port,user:reader,password:readerPassword,database});
+    const [[readerIdentity]]=await readonly.query("SELECT SUBSTRING_INDEX(CURRENT_USER(),'@',-1) AS account_host");
+    const readerAccountHost=String(readerIdentity.account_host||'');
+    assert.ok(readerAccountHost,'Could not identify the read-only MySQL account host.');
+    const preflight=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+    const statements=preflight.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean);
+    const results=[];
+    for(const statement of statements)results.push(await readonly.query(statement));
+    const pending=results.flatMap(([rows])=>Array.isArray(rows)?rows:[]).filter(row=>row.check_status==='PENDING_MIGRATION_003');
+    assert.equal(pending.length,2,'Baseline schema must report both draw snapshot checks as pending instead of referencing absent columns.');
+    const rows=results.flatMap(([resultRows])=>Array.isArray(resultRows)?resultRows:[]);
+    const pendingTables=rows.filter(row=>row.check_status==='PENDING_OR_MISSING_TABLE');
+    assert.deepEqual([...new Set(pendingTables.map(row=>row.table_name).filter(Boolean))].sort(),['admin_action_idempotency','admin_role_sessions','admin_search_sessions','payment_admin_sessions','payment_card_admin_sessions','profile_change_sessions','support_sessions'],'Baseline preflight must report each migration-created session/idempotency table as pending.');
+    assert.ok(rows.some(row=>row.table_name==='telegram_update_inbox'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0),'Baseline schema already contains an empty Telegram inbox table.');
+    const pendingConsent=rows.filter(row=>row.check_status==='PENDING_MIGRATION_002');
+    assert.equal(pendingConsent.length,1,'Baseline preflight must report privacy consent columns as pending without querying absent columns.');
+    assert.ok(rows.every(row=>!Object.hasOwn(row,'payload')),'Read-only preflight must never return raw Telegram Update payloads.');
+    const [schemaPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[reader,readerAccountHost,database]);
+    const [globalPrivileges]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[reader,readerAccountHost]);
+    const [[tablePrivilegeCount]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[reader,readerAccountHost]);
+    const [otherSchemaPrivileges]=await admin.execute("SELECT TABLE_SCHEMA FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[reader,readerAccountHost,database]);
+    assert.deepEqual(schemaPrivileges.map(row=>row.PRIVILEGE_TYPE),['SELECT'],'Preflight fixture reader must have only SELECT on the target schema.');
+    assert.deepEqual(globalPrivileges,[],'Preflight fixture reader must have no global privileges.');
+    assert.equal(Number(tablePrivilegeCount.total),0,'Preflight fixture reader must have no table-specific grants.');
+    assert.deepEqual(otherSchemaPrivileges,[],'Preflight fixture reader must have no grants on other schemas.');
+  }finally{
+    if(readonly)await readonly.end().catch(()=>{});
+    if(setup)await setup.end().catch(()=>{});
+    if(admin){
+      if(fixtureStarted)await clearFixtureSchema(admin,database);
+      await admin.end().catch(()=>{});
+    }
+  }
+});
+
+
+
+test('MySQL integration: draw relational-integrity migration rejects legacy draw rows before any DDL, then proceeds after reconciliation',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  const adminUser=process.env.MYSQL_TEST_ADMIN_USER;
+  const adminPassword=process.env.MYSQL_TEST_ADMIN_PASSWORD||'';
+  const suffix=randomBytes(6).toString('hex');
+  const database=process.env.MYSQL_DRAW_GUARD_DATABASE||'';
+  assert.match(database,/^ustore_drawguard_[A-Za-z0-9_]+_ci$/,'A pre-provisioned draw-guard fixture schema is required.');
+  assert.notEqual(database,process.env.MYSQL_DATABASE,'Draw-guard fixture schema must differ from the application test schema.');
+  let admin,setup,fixtureStarted=false;
+  const runMigration=stopBefore=>{
+    const env={...process.env,NODE_ENV:'test',MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,MYSQL_USER:adminUser,MYSQL_PASSWORD:adminPassword,ALLOW_DATABASE_MIGRATIONS:'1',ALLOW_TEST_DATABASE_MIGRATIONS:'1'};
+    delete env.MYSQL_MIGRATION_USER;
+    delete env.MYSQL_MIGRATION_PASSWORD;
+    delete env.ALLOW_PRODUCTION_MIGRATIONS;
+    delete env.MIGRATION_TARGET_DATABASE;
+    const argument=stopBefore?'{stopBefore:'+JSON.stringify(stopBefore)+'}':'{}';
+    const source='import {migrate} from "./src/database/migrate.js";\nimport {pool} from "./src/database/pool.js";\ntry{await migrate('+argument+');}finally{await pool.end();}';
+    return spawnSync(process.execPath,['--input-type=module','-e',source],{cwd:process.cwd(),env,encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024});
+  };
+  try{
+    admin=await mysql.createConnection({host,port,user:adminUser,password:adminPassword});
+    await assertFixtureSchemaEmpty(admin,database);
+    fixtureStarted=true;
+    const beforeDrawIntegrity='20261117_006_draw_relational_integrity.sql';
+    const prepared=runMigration(beforeDrawIntegrity);
+    assert.equal(prepared.status,0,prepared.stderr||prepared.stdout);
+    setup=await mysql.createConnection({host,port,user:adminUser,password:adminPassword,database});
+    const telegramUserId=String(690000000000000000n+BigInt(parseInt(suffix,16)));
+    const code='MG'+suffix.toUpperCase();
+    const [participant]=await setup.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[telegramUserId,'Migration Guard Fixture','+989120000000','migration_guard_'+suffix]);
+    const [campaign]=await setup.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'closed','free',0,1)",['migration-guard-'+suffix,'Migration guard fixture']);
+    const [entry]=await setup.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('source','migration-guard'),'eligible')",[campaign.insertId,participant.insertId]);
+    const [campaignCode]=await setup.execute('INSERT INTO campaign_codes(campaign_entry_id,campaign_id,code) VALUES(?,?,?)',[entry.insertId,campaign.insertId,code]);
+    const [draw]=await setup.execute("INSERT INTO campaign_draws(campaign_id,status,algorithm,seed_hash,candidate_count,created_by) VALUES(?,'prepared','hmac-sha256-v1',?,1,123456)",[campaign.insertId,'a'.repeat(64)]);
+    const [candidate]=await setup.execute('INSERT INTO draw_candidates(draw_id,campaign_id,participant_id,campaign_code_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?)',[draw.insertId,campaign.insertId,participant.insertId,campaignCode.insertId,code,'b'.repeat(64)]);
+    await setup.execute('INSERT INTO draw_winners(draw_id,campaign_id,participant_id,candidate_id,campaign_code_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,1)',[draw.insertId,campaign.insertId,participant.insertId,candidate.insertId,campaignCode.insertId,code]);
+    const blocked=runMigration();
+    assert.notEqual(blocked.status,0,'The migration runner must refuse to infer historical draw identity.');
+    assert.match(blocked.stderr,/Draw relational-integrity migration requires empty legacy draw tables/);
+    const [[candidateCount]]=await setup.query('SELECT COUNT(*) AS total FROM draw_candidates');
+    const [[winnerCount]]=await setup.query('SELECT COUNT(*) AS total FROM draw_winners');
+    const [[candidateColumn]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='draw_candidates' AND column_name='campaign_entry_id'");
+    const [[entryIndex]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='campaign_entries' AND index_name='uq_entry_campaign_participant'");
+    const [[codeIndex]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='campaign_codes' AND index_name='uq_code_entry_campaign_value'");
+    const [[migrationRecord]]=await setup.execute('SELECT COUNT(*) AS total FROM schema_migrations WHERE version=?',[beforeDrawIntegrity]);
+    assert.equal(Number(candidateCount.total),1);
+    assert.equal(Number(winnerCount.total),1);
+    assert.equal(Number(candidateColumn.total),0,'No candidate backfill column may be added before legacy draw rows are reconciled.');
+    assert.equal(Number(entryIndex.total),0,'No migration DDL may run before the legacy draw precondition.');
+    assert.equal(Number(codeIndex.total),0,'No migration DDL may run before the legacy draw precondition.');
+    assert.equal(Number(migrationRecord.total),0,'The blocked migration must not be marked applied.');
+    await setup.execute('DELETE FROM draw_winners WHERE draw_id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM draw_candidates WHERE draw_id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM campaign_draws WHERE id=?',[draw.insertId]);
+    await setup.execute('DELETE FROM campaign_codes WHERE id=?',[campaignCode.insertId]);
+    await setup.execute('DELETE FROM campaign_entries WHERE id=?',[entry.insertId]);
+    await setup.execute('DELETE FROM campaigns WHERE id=?',[campaign.insertId]);
+    await setup.execute('DELETE FROM participants WHERE id=?',[participant.insertId]);
+    const clean=runMigration();
+    assert.equal(clean.status,0,clean.stderr||clean.stdout);
+    const [[applied]]=await setup.execute('SELECT COUNT(*) AS total FROM schema_migrations WHERE version=?',[beforeDrawIntegrity]);
+    const [[columnAfter]]=await setup.query("SELECT COUNT(*) AS total FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='draw_candidates' AND column_name='campaign_entry_id'");
+    assert.equal(Number(applied.total),1,'The same migration must proceed once legacy draw rows are reconciled.');
+    assert.equal(Number(columnAfter.total),1);
+  }finally{
+    if(setup)await setup.end().catch(()=>{});
+    if(admin){
+      if(fixtureStarted)await clearFixtureSchema(admin,database);
+      await admin.end().catch(()=>{});
+    }
+  }
+});
 
 
 test('MySQL integration: clean schema, unique profile, multiple campaigns, frozen snapshot and idempotent codes',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/,'Integration tests only run against a database ending in _ci or _test');
   const {pool}=await import('../../src/database/pool.js');
+  const {getMigrationPool}=await import('../../src/database/migration-pool.js');
+  const migrationPool=getMigrationPool();
   const {migrate}=await import('../../src/database/migrate.js');
   const {createProfile,findByTelegramId,updatePrivacyConsent,saveSession,getSession,clearSession}=await import('../../src/modules/participants/participant.repository.js');
   const {joinFreeCampaign}=await import('../../src/modules/entries/entry.service.js');
@@ -22,7 +187,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const {dirname,resolve}=await import('node:path');
     const schemaPath=resolve(dirname(fileURLToPath(import.meta.url)),'../../src/database/schema.sql');
     const baseSql=await readFile(schemaPath,'utf8');
-    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await pool.query(statement);
+    for(const statement of baseSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)) await migrationPool.query(statement);
     // Seed a pre-migration legacy record to prove sequence backfill preserves issuance history.
     const legacyUid=String(690000000000n+(BigInt(Date.now())%100000000000n));
     const [legacyP]=await pool.execute('INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)',[legacyUid,'Legacy Migration Tester','+989121234560','legacy_migration']);
@@ -36,12 +201,31 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     const [[recoveryIndex]]=await pool.execute(
       "SELECT COUNT(*) total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_entries' AND INDEX_NAME='uq_entry_id_campaign'"
     );
-    if(Number(recoveryIndex.total)===0) await pool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
+    if(Number(recoveryIndex.total)===0) await migrationPool.query('ALTER TABLE campaign_entries ADD UNIQUE KEY uq_entry_id_campaign(id,campaign_id)');
     const [[migrationHistoryTable]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migrations'");
     if(Number(migrationHistoryTable.total)>0){
       await pool.execute("DELETE FROM schema_migrations WHERE version=?",["20261117_001_campaign_code_sequence.sql"]);
     }
     await migrate();
+
+    // Execute the full preflight against the migrated schema on one connection:
+    // its prepared statements use session variables and must work after all 28 migrations.
+    const preflightSql=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
+    const preflightConnection=await pool.getConnection();
+    let preflightResults;
+    try{
+      preflightResults=[];
+      for(const statement of preflightSql.split(/;\s*(?:\n|$)/).map(x=>x.trim()).filter(Boolean)){
+        preflightResults.push(await preflightConnection.query(statement));
+      }
+    }finally{
+      preflightConnection.release();
+    }
+    const preflightRows=preflightResults.flatMap(([resultRows])=>Array.isArray(resultRows)?resultRows:[]);
+    assert.ok(preflightRows.some(row=>row.table_name==='telegram_update_inbox'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0));
+    assert.ok(preflightRows.some(row=>row.table_name==='admin_action_idempotency'&&row.check_status==='PRESENT'&&Number(row.exact_rows)===0));
+    assert.ok(preflightRows.some(row=>row.consent_version==='<NULL>'&&Number(row.participant_count)===1&&Number(row.missing_acceptance_timestamp_count)===1));
+    assert.ok(preflightRows.every(row=>!Object.hasOwn(row,'payload')),'Migrated preflight must never return raw Telegram Update payloads.');
 
     // Re-accepting the privacy notice must preserve the registration replay cursor.
     const replaySessionId=String(690000000000n+(BigInt(Date.now())%100000000000n)+2n);
@@ -85,6 +269,10 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     assert.ok(searchStep.COLUMN_TYPE.includes("'participant_results'"));
     const [[searchQueryColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_search_sessions' AND COLUMN_NAME='query_text'");
     assert.equal(Number(searchQueryColumn.total),1,'Participant search query must persist for result pagination.');
+    const [[adminRoleReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_role_sessions' AND COLUMN_NAME='last_update_id'");
+    const [[profileChangeReplayColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profile_change_sessions' AND COLUMN_NAME='last_update_id'");
+    assert.equal(Number(profileChangeReplayColumn.total),1,'Profile-change sessions must persist their start update cursor.');
+    assert.equal(Number(adminRoleReplayColumn.total),1,'Admin role assignment sessions must persist their start update cursor.');
     const [[requestedCodeCountColumn]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='requested_code_count'");
     const [[privacyConsentColumns]]=await pool.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='participants' AND COLUMN_NAME IN ('privacy_consent_version','privacy_consent_at')");
     assert.equal(Number(privacyConsentColumns.total),2,'Participant privacy consent fields must exist.');
@@ -112,8 +300,11 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
       '20261124_003_registration_session_replay.sql',
-      '20261124_003_registration_session_replay.sql',
-      '20261124_003_registration_session_replay.sql'
+      '20261124_004_admin_wizard_replay.sql',
+      '20261125_001_support_reply_replay.sql',
+      '20261125_002_admin_search_replay.sql',
+      '20261125_003_participant_session_replay.sql',
+      '20261125_004_admin_audit_append_only.sql'
     ]){
       const [[record]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(record?.checksum||'',/^[a-f0-9]{64}$/,'Missing migration history record: '+version);
@@ -127,6 +318,12 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261115_009_correlation_and_delivery_history.sql',
       '20261124_001_admin_action_idempotency.sql',
       '20261124_002_privacy_consent.sql',
+      '20261124_003_registration_session_replay.sql',
+      '20261124_004_admin_wizard_replay.sql',
+      '20261125_001_support_reply_replay.sql',
+      '20261125_002_admin_search_replay.sql',
+      '20261125_003_participant_session_replay.sql',
+      '20261125_004_admin_audit_append_only.sql',
       '20261117_002_admin_campaign_code_search.sql',
       '20261117_003_verifiable_campaign_draws.sql',
       '20261117_004_draw_commitment_publication.sql',
@@ -135,10 +332,44 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       '20261118_002_paid_code_quantity.sql',
       '20261119_001_campaign_edit_wizard_step.sql'
     ]){
+      let preCursorSessionUserId=null;
+      let preCursorRegistrationUserId=null;
+      let preCursorAdminUserId=null;
+      if(version==='20261124_003_registration_session_replay.sql'){
+        preCursorRegistrationUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
+        await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id) VALUES(?,'awaiting_name',JSON_OBJECT(),NULL)",[preCursorRegistrationUserId]);
+      }
+      if(version==='20261124_004_admin_wizard_replay.sql'){
+        preCursorAdminUserId=String(696000000000000000n+(BigInt(Date.now())%1000000000n));
+        await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id) VALUES(?,'title',?,NULL)",[preCursorAdminUserId,JSON.stringify({title:'stale'})]);
+        await pool.execute("INSERT INTO payment_card_admin_sessions(telegram_user_id,step,payload,last_update_id) VALUES(?,'bank_name',JSON_OBJECT(),NULL)",[preCursorAdminUserId]);
+        await pool.execute("INSERT INTO admin_role_sessions(telegram_user_id,role,last_update_id) VALUES(?,'support_agent',NULL)",[preCursorAdminUserId]);
+      }
+      if(version==='20261125_003_participant_session_replay.sql'){
+        preCursorSessionUserId=String(695000000000000000n+(BigInt(Date.now())%1000000000n));
+        await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category,last_update_id) VALUES(?,'new_message','technical',NULL)",[preCursorSessionUserId]);
+        await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id) VALUES(?,'full_name',900003)",[preCursorSessionUserId]);
+      }
       await pool.execute('DELETE FROM schema_migrations WHERE version=?',[version]);
       await migrate();
       const [[recovered]]=await pool.execute('SELECT checksum FROM schema_migrations WHERE version=?',[version]);
       assert.match(recovered?.checksum||'',/^[a-f0-9]{64}$/,'Replay guard failed for '+version);
+      if(preCursorRegistrationUserId){
+        const [[staleRegistrationSession]]=await pool.execute('SELECT COUNT(*) AS total FROM telegram_user_sessions WHERE telegram_user_id=?',[preCursorRegistrationUserId]);
+        assert.equal(Number(staleRegistrationSession.total),0,'Pre-cursor registration sessions must be cleared on migration replay.');
+      }
+      if(preCursorAdminUserId){
+        for(const table of ['admin_wizards','payment_card_admin_sessions','admin_role_sessions']){
+          const [[staleAdminSession]]=await pool.execute('SELECT COUNT(*) AS total FROM `'+table+'` WHERE telegram_user_id=?',[preCursorAdminUserId]);
+          assert.equal(Number(staleAdminSession.total),0,'Pre-cursor '+table+' rows must be cleared on migration replay.');
+        }
+      }
+      if(preCursorSessionUserId){
+        const [[staleSupportSession]]=await pool.execute('SELECT COUNT(*) AS total FROM support_sessions WHERE telegram_user_id=?',[preCursorSessionUserId]);
+        const [[staleProfileSession]]=await pool.execute('SELECT COUNT(*) AS total FROM profile_change_sessions WHERE telegram_user_id=?',[preCursorSessionUserId]);
+        assert.equal(Number(staleSupportSession.total),0,'Pre-cursor support sessions must be cleared on migration replay.');
+        assert.equal(Number(staleProfileSession.total),0,'Pre-cursor profile sessions must be cleared on migration replay.');
+      }
     }
 
     const [[recoveredMigration]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_001_campaign_code_sequence.sql'");
@@ -152,18 +383,30 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
     await migrate();
     const [[keyringRecovery]]=await pool.execute("SELECT checksum FROM schema_migrations WHERE version='20261117_005_draw_seed_keyring.sql'");
     assert.match(keyringRecovery.checksum,/^[a-f0-9]{64}$/);
+    const replaySessionUserId=String(690000000000000000n+(BigInt(Date.now())%1000000000n));
+    try{
+      await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category,last_update_id) VALUES(?,'new_message','technical',?)",[replaySessionUserId,900001]);
+      await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id) VALUES(?,'full_name',?)",[replaySessionUserId,900002]);
+      const [[storedSupportCursor]]=await pool.execute('SELECT last_update_id FROM support_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      const [[storedProfileCursor]]=await pool.execute('SELECT last_update_id FROM profile_change_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      assert.equal(Number(storedSupportCursor.last_update_id),900001,'Support sessions must persist the session-start update ID.');
+      assert.equal(Number(storedProfileCursor.last_update_id),900002,'Profile-change sessions must persist the session-start update ID.');
+    }finally{
+      await pool.execute('DELETE FROM support_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+      await pool.execute('DELETE FROM profile_change_sessions WHERE telegram_user_id=?',[replaySessionUserId]);
+    }
     const {issueCampaignCodes}=await import('../../src/modules/codes/code-issuance.service.js');
     const legacyConn=await pool.getConnection();let postMigrationCodes;try{await legacyConn.beginTransaction();postMigrationCodes=await issueCampaignCodes(legacyConn,legacyEntryId,legacyCampaignId,1);await legacyConn.commit();}catch(error){await legacyConn.rollback();throw error;}finally{legacyConn.release();}
     const [[nextLegacyCode]]=await pool.execute('SELECT sequence_number,format_version FROM campaign_codes WHERE campaign_entry_id=? AND code=?',[legacyEntryId,postMigrationCodes[0]]);
     assert.equal(Number(nextLegacyCode.sequence_number),2);assert.equal(Number(nextLegacyCode.format_version),2);
     telegramId=String(700000000000n+(BigInt(Date.now())%100000000000n));
-    const consentAcceptedAt=new Date(Math.floor(Date.now()/1000)*1000);
+    const consentAcceptedAt=new Date(Math.floor((Date.now()-60_000)/1000)*1000);
     await createProfile({telegramUserId:telegramId,username:'integration',fullName:'Integration Tester',phone:'+989121234567',instagramHandle:'integration_test',privacyConsentVersion:'ci-v1',privacyConsentAt:consentAcceptedAt});
     const profile=await findByTelegramId(telegramId);participantId=profile.id;
     assert.equal(profile.privacy_consent_version,'ci-v1');assert.equal(new Date(profile.privacy_consent_at).getTime(),consentAcceptedAt.getTime(),'Consent acceptance timestamp must match the recorded acceptance time.');
     await updatePrivacyConsent(telegramId,'ci-v2');
     const consentUpdated=await findByTelegramId(telegramId);
-    assert.equal(consentUpdated.privacy_consent_version,'ci-v2');
+    assert.equal(consentUpdated.privacy_consent_version,'ci-v2');assert.ok(new Date(consentUpdated.privacy_consent_at).getTime()>consentAcceptedAt.getTime(),'Changing the privacy notice version must record the new acceptance timestamp.');
     const firstAcceptance=consentUpdated.privacy_consent_at;
     await updatePrivacyConsent(telegramId,'ci-v2');
     const consentReplayed=await findByTelegramId(telegramId);
@@ -238,7 +481,7 @@ test('MySQL integration: clean schema, unique profile, multiple campaigns, froze
       await pool.execute('DELETE FROM participants WHERE id=?',[id]);
     }
     const allCampaignIds=[...campaignIds,...extraCampaignIds];
-    if(allCampaignIds.length){await pool.execute(`DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);await pool.execute(`DELETE FROM campaigns WHERE id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);}
+    if(allCampaignIds.length){await pool.execute(`DELETE FROM campaigns WHERE id IN (${allCampaignIds.map(()=>'?').join(',')})`,allCampaignIds);}
     if(copyIdempotencyKey)await pool.execute('DELETE FROM admin_action_idempotency WHERE idempotency_key=?',[copyIdempotencyKey]);
     if(campaignWizardId)await pool.execute('DELETE FROM admin_wizards WHERE telegram_user_id=?',[campaignWizardId]);
     if(legacyEntryId)await pool.execute('DELETE FROM campaign_codes WHERE campaign_entry_id=?',[legacyEntryId]);
@@ -272,7 +515,7 @@ test('MySQL integration: paid order receipt review is idempotent and codes issue
     const before=await pool.execute('SELECT COUNT(*) total FROM campaign_codes cc JOIN campaign_entries e ON e.id=cc.campaign_entry_id WHERE e.campaign_id=?',[campaignId]);
     assert.equal(Number(before[0][0].total),0);
     const repeated=await createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:2});assert.equal(repeated.order.id,orderId);assert.equal(repeated.order.card_number,'1234567812345678');await updatePaymentSettings({bankName:'Changed Bank',cardNumber:'8765432187654321',cardHolder:'Changed Holder',instructions:'changed',adminId:'1'});const [[cardSnapshot]]=await pool.execute('SELECT card_number FROM payment_orders WHERE id=?',[orderId]);assert.equal(cardSnapshot.card_number,'1234567812345678');previousOrderId=orderId;await pool.execute('UPDATE payment_orders SET expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE) WHERE id=?',[orderId]);const [expirationCount,renewed]=await Promise.all([expirePendingOrders(),createOrGetOrder({telegramUserId:telegramId,campaignId,requestedCodeCount:2})]);assert.ok(expirationCount===0||expirationCount===1);const [[expiredOrder]]=await pool.execute('SELECT status FROM payment_orders WHERE id=?',[previousOrderId]);assert.equal(expiredOrder.status,'expired');orderId=renewed.order.id;assert.notEqual(orderId,previousOrderId);assert.equal(renewed.order.status,'awaiting_receipt');assert.match(renewed.order.payment_reference,/^ISTPAY-/);assert.equal(renewed.order.card_number,'8765432187654321');
-    receiptId=(await submitReceipt({telegramUserId:telegramId,orderId,fileId:'file-test-1',fileUniqueId:'unique-test-'+telegramId,note:'test',adminIds:[financeAdminId]})).receiptId;const [[adminNotice]]=await pool.execute("SELECT payload FROM telegram_notification_outbox WHERE chat_id=? ORDER BY id DESC LIMIT 1",[financeAdminId]);const adminPayload=typeof adminNotice.payload==='string'?JSON.parse(adminNotice.payload):adminNotice.payload;assert.match(adminPayload.text,/رسید جدید برای سفارش/);assert.match(adminPayload.text,new RegExp(String(orderId)));assert.equal(adminPayload.photo,'file-test-1');assert.match(adminPayload.caption,/شناسه پرداخت:/);assert.match(adminPayload.caption,/کمپین:/);assert.match(adminPayload.caption,/موبایل:/);assert.match(adminPayload.caption,/اینستاگرام:/);assert.match(adminPayload.caption,/تعداد کد: 2/);assert.equal(adminPayload.options.reply_markup.inline_keyboard[0][0].callback_data,'payment:approve:'+receiptId);
+    receiptId=(await submitReceipt({telegramUserId:telegramId,orderId,fileId:'file-test-1',fileUniqueId:'unique-test-'+telegramId,note:'test',adminIds:[financeAdminId]})).receiptId;const [[adminNotice]]=await pool.execute("SELECT payload FROM telegram_notification_outbox WHERE chat_id=? ORDER BY id DESC LIMIT 1",[financeAdminId]);const adminPayload=typeof adminNotice.payload==='string'?JSON.parse(adminNotice.payload):adminNotice.payload;assert.match(adminPayload.text,/رسید جدید برای سفارش/);assert.match(adminPayload.text,new RegExp(String(orderId)));assert.equal(adminPayload.photo,'file-test-1');assert.match(adminPayload.caption,/شناسه پرداخت:/);assert.match(adminPayload.caption,/کمپین:/);assert.match(adminPayload.caption,/موبایل:/);assert.doesNotMatch(adminPayload.caption,/اینستاگرام:/);assert.match(adminPayload.caption,/تعداد کد: 2/);assert.equal(adminPayload.options.reply_markup.inline_keyboard[0][0].callback_data,'payment:approve:'+receiptId);
     await assert.rejects(submitReceipt({telegramUserId:telegramId,orderId,fileId:'file-test-2',fileUniqueId:'unique-test-'+telegramId}),/قبلاً/);
     await reviewReceipt({adminId:'1',receiptId,decision:'reject',reason:'رسید آزمایشی نامعتبر'});
     const [[rejectionNotice]]=await pool.execute("SELECT payload FROM telegram_notification_outbox WHERE chat_id=? ORDER BY id DESC LIMIT 1",[telegramId]);
@@ -361,6 +604,34 @@ test('MySQL integration: admin role tables and audit history schema exist',{skip
 });
 
 
+test('MySQL integration: admin audit evidence rejects runtime UPDATE and DELETE', {skip:!enabled}, async()=>{
+  const db=process.env.MYSQL_DATABASE||'';
+  assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const actor=String(700000000000n+(BigInt(Date.now())%100000000000n));
+  let auditId;
+  try{
+    await migrate();
+    const [insert]=await pool.execute(
+      "INSERT INTO admin_audit_log(admin_telegram_id,action,entity_type,entity_id,details) VALUES(?,'test.append_only','test_fixture',NULL,JSON_OBJECT('fixture',TRUE))",
+      [actor]
+    );
+    auditId=insert.insertId;
+    await assert.rejects(
+      pool.execute('UPDATE admin_audit_log SET action=? WHERE id=?',['tampered',auditId]),
+      error=>error.sqlState==='45000'||String(error.message).includes('append-only')
+    );
+    await assert.rejects(
+      pool.execute('DELETE FROM admin_audit_log WHERE id=?',[auditId]),
+      error=>error.sqlState==='45000'||String(error.message).includes('append-only')
+    );
+    const [[row]]=await pool.execute('SELECT action FROM admin_audit_log WHERE id=?',[auditId]);
+    assert.equal(row.action,'test.append_only');
+  }finally{}
+});
+
+
 test('MySQL integration: admin roles can be assigned changed and deactivated with audit events',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
@@ -398,6 +669,67 @@ test('MySQL integration: management report aggregates return complete dashboard 
   }finally{}
 });
 
+
+
+test('MySQL integration: receipt failure rolls back both receipt and upload-session consumption, then durable retry succeeds',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {submitReceipt,isRetryablePaymentReceiptError}=await import('../../src/modules/payments/payment.service.js');
+  const uid=String(880000000000n+(BigInt(Date.now())%100000000000n));
+  const fileUniqueId='receipt-atomic-'+uid;
+  const fileId='receipt-file-atomic-'+uid;
+  const expectedUpdateId=Number(Date.now())*100;
+  const incomingUpdateId=expectedUpdateId+1;
+  let participantId,campaignId,entryId,orderId;
+  try{
+    await migrate();
+    const [participant]=await pool.execute("INSERT INTO participants(telegram_user_id,full_name,phone,instagram_handle) VALUES(?,?,?,?)",[uid,'Atomic Receipt Test','+98912'+uid.slice(-7),'atomic_receipt_'+uid.slice(-8)]);
+    participantId=participant.insertId;
+    const [campaign]=await pool.execute("INSERT INTO campaigns(slug,title,status,participation_type,entry_price,codes_per_entry) VALUES(?,?,'open','paid',100000,1)",['receipt-atomic-'+uid,'Receipt Atomicity']);
+    campaignId=campaign.insertId;
+    const [entry]=await pool.execute("INSERT INTO campaign_entries(campaign_id,participant_id,profile_snapshot,status) VALUES(?,?,JSON_OBJECT('full_name','Atomic Receipt Test'),'pending_payment')",[campaignId,participantId]);
+    entryId=entry.insertId;
+    const [order]=await pool.execute("INSERT INTO payment_orders(campaign_entry_id,payment_reference,amount,requested_code_count,currency,status,expires_at) VALUES(?, ?,100000,1,'IRR','awaiting_receipt',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY))",[entryId,'ATOMIC-'+uid]);
+    orderId=order.insertId;
+    await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id) VALUES(?,'awaiting_payment_receipt',?,?)",[uid,JSON.stringify({orderId}),expectedUpdateId]);
+    let injected=false;
+    const failingDatabase={async getConnection(){
+      const connection=await pool.getConnection();
+      return new Proxy(connection,{get(target,key){
+        if(key==='execute')return async(sql,params)=>{
+          if(!injected&&sql.startsWith('INSERT INTO payment_events')){injected=true;const error=new Error('temporary injected transaction failure');error.code='ER_LOCK_DEADLOCK';throw error;}
+          return target.execute(sql,params);
+        };
+        const value=Reflect.get(target,key,target);
+        return typeof value==='function'?value.bind(target):value;
+      }});
+    }};
+    const input={telegramUserId:uid,orderId,fileId,fileUniqueId,note:'receipt retry test',sessionCursor:{expectedLastUpdateId:expectedUpdateId,updateId:incomingUpdateId}};
+    await assert.rejects(submitReceipt({...input,database:failingDatabase}),error=>error.code==='ER_LOCK_DEADLOCK'&&isRetryablePaymentReceiptError(error));
+    assert.equal(injected,true,'the injected failure must happen after the receipt insert inside the transaction');
+    const [[afterRollback]]=await pool.execute("SELECT o.status order_status,(SELECT COUNT(*) FROM payment_receipts WHERE order_id=o.id) receipt_count,(SELECT COUNT(*) FROM telegram_user_sessions WHERE telegram_user_id=?) session_count,(SELECT last_update_id FROM telegram_user_sessions WHERE telegram_user_id=?) session_cursor FROM payment_orders o WHERE o.id=?",[uid,uid,orderId]);
+    assert.equal(afterRollback.order_status,'awaiting_receipt');
+    assert.equal(Number(afterRollback.receipt_count),0);
+    assert.equal(Number(afterRollback.session_count),1);
+    assert.equal(Number(afterRollback.session_cursor),expectedUpdateId);
+    const result=await submitReceipt(input);
+    assert.ok(result.receiptId>0);
+    const [[afterCommit]]=await pool.execute("SELECT o.status order_status,(SELECT COUNT(*) FROM payment_receipts WHERE order_id=o.id) receipt_count,(SELECT COUNT(*) FROM telegram_user_sessions WHERE telegram_user_id=?) session_count FROM payment_orders o WHERE o.id=?",[uid,orderId]);
+    assert.equal(afterCommit.order_status,'under_review');
+    assert.equal(Number(afterCommit.receipt_count),1);
+    assert.equal(Number(afterCommit.session_count),0);
+    await assert.rejects(submitReceipt(input),error=>error.code==='PAYMENT_RECEIPT_SESSION_STALE');
+    const [[finalCount]]=await pool.execute('SELECT COUNT(*) total FROM payment_receipts WHERE order_id=?',[orderId]);
+    assert.equal(Number(finalCount.total),1,'replaying the same Telegram update must not create a second receipt');
+  }finally{
+    await pool.execute('DELETE FROM telegram_user_sessions WHERE telegram_user_id=?',[uid]);
+    if(orderId){await pool.execute('DELETE FROM telegram_notification_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,\'$.photo\'))=?',[fileId]);await pool.execute('DELETE FROM payment_events WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_receipts WHERE order_id=?',[orderId]);await pool.execute('DELETE FROM payment_orders WHERE id=?',[orderId]);}
+    if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
+    if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
+    if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
+  }
+});
 
 test('MySQL integration: payment operations search filters detail and export are consistent',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
@@ -633,8 +965,6 @@ test('MySQL integration: transactional outbox notifications roll back and commit
   }finally{await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);}
 });
 
-test.after(async()=>{if(enabled){const {pool}=await import('../../src/database/pool.js');await pool.end();}});
-
 
 test('MySQL integration: campaign scheduler transitions use database UTC time consistently',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
@@ -653,7 +983,7 @@ test('MySQL integration: campaign scheduler transitions use database UTC time co
     assert.equal(rows.find(x=>Number(x.id)===Number(ids[0])).status,'open');
     assert.equal(rows.find(x=>Number(x.id)===Number(ids[1])).status,'closed');
   }finally{
-    if(ids.length){await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id IN (?,?)",ids);await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
+    if(ids.length){await pool.execute('DELETE FROM campaigns WHERE id IN (?,?)',ids);}
   }
 });
 
@@ -671,6 +1001,223 @@ test('MySQL integration: outbox marks expired sending leases uncertain without d
     assert.equal(row.status,'uncertain');assert.equal(row.lease_token,null);assert.equal(row.locked_at,null);
   }finally{if(id)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[id]);}
 });
+
+
+
+test('MySQL integration: outbox stores safe delivery errors and audited manual retry requeues one uncertain notification',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createNotificationOutboxWorker}=await import('../../src/modules/notifications/outbox.worker.js');
+  const {retryOutboxNotification}=await import('../../src/modules/notifications/outbox-admin.service.js');
+  const chatId=String(870000000000n+(BigInt(Date.now())%100000000000n));
+  const secret='private phone +989121234567 receipt SECRET-OUTBOX';
+  let id;
+  const emitted=[];
+  try{
+    await migrate();
+    const [[pending]]=await pool.execute("SELECT COUNT(*) total FROM telegram_notification_outbox WHERE status='pending' AND available_at<=UTC_TIMESTAMP()");
+    assert.equal(Number(pending.total),0,'isolated integration DB must have no runnable outbox rows');
+    const [inserted]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,available_at) VALUES(?,JSON_OBJECT('text','sanitized integration fixture'),'pending',UTC_TIMESTAMP())",[chatId]);
+    id=inserted.insertId;
+    const worker=createNotificationOutboxWorker({
+      database:pool,
+      log:{warn:data=>emitted.push(data),error:data=>emitted.push(data)},
+      deliver:async()=>{throw new Error(secret);}
+    });
+    const result=await worker({}, {limit:1});
+    assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
+    const [[uncertain]]=await pool.execute('SELECT status,attempts,last_error,lease_token,locked_at FROM telegram_notification_outbox WHERE id=?',[id]);
+    assert.equal(uncertain.status,'uncertain');
+    assert.equal(Number(uncertain.attempts),1);
+    assert.equal(uncertain.last_error,'network_or_unknown');
+    assert.equal(uncertain.lease_token,null);
+    assert.equal(uncertain.locked_at,null);
+    assert.equal(JSON.stringify(emitted).includes(secret),false);
+    assert.equal(JSON.stringify(emitted).includes('989121234567'),false);
+    assert.equal(JSON.stringify(emitted).includes('SECRET-OUTBOX'),false);
+
+    await retryOutboxNotification({notificationId:id,adminId:'900000000001',expectedStatus:'uncertain',database:pool});
+    const [[requeued]]=await pool.execute('SELECT status,attempts,manual_retry_count,last_error FROM telegram_notification_outbox WHERE id=?',[id]);
+    assert.equal(requeued.status,'pending');
+    assert.equal(Number(requeued.attempts),0);
+    assert.equal(Number(requeued.manual_retry_count),1);
+    assert.equal(requeued.last_error,'manually_requeued');
+    const [[audit]]=await pool.execute("SELECT COUNT(*) total FROM admin_audit_log WHERE action='system.outbox_manual_retry' AND entity_type='notification_outbox' AND entity_id=?",[id]);
+    assert.equal(Number(audit.total),1);
+  }finally{if(id)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[id]);}
+});
+
+
+
+test('MySQL integration: Telegram inbox persists only a fixed error label when a handler exception contains private data',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateGuard}=await import('../../src/bot/middleware/update-guard.js');
+  const updateId=Number(Date.now())*1000+791;
+  const secret='participant phone +989121234567 receipt SECRET-INBOX-INTEGRATION';
+  try{
+    await migrate();
+    const guard=createUpdateGuard({
+      database:pool,
+      log:{error(){},warn(){}},
+      correlate:(_correlationId,run)=>run(),
+      uuid:()=> 'inbox-test-lease-token'
+    });
+    const ctx={update:{update_id:updateId,message:{text:secret}},state:{}};
+    await assert.rejects(guard(ctx,async()=>{throw new Error(secret);}),/participant phone/);
+    const [[row]]=await pool.execute('SELECT status,last_error,payload FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    assert.equal(row.status,'failed');
+    assert.equal(row.last_error,'handler_failed');
+    const payload=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;
+    assert.equal(payload.message.text,secret,'the inbox retains the original Telegram update payload under its separate retention policy');
+    assert.equal(row.last_error.includes('989121234567'),false);
+    assert.equal(row.last_error.includes('SECRET-INBOX-INTEGRATION'),false);
+  }finally{await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);}
+});
+
+
+
+test('MySQL integration: concurrent duplicate Telegram updates are claimed by only one handler',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateGuard}=await import('../../src/bot/middleware/update-guard.js');
+  const updateId=Number(Date.now())*1000+792;
+  let handled=0;
+  try{
+    await migrate();
+    const options={database:pool,log:{error(){},warn(){}},correlate:(_correlationId,run)=>run()};
+    const firstGuard=createUpdateGuard({...options,uuid:()=> 'duplicate-lease-first'});
+    const secondGuard=createUpdateGuard({...options,uuid:()=> 'duplicate-lease-second'});
+    const context=()=>({update:{update_id:updateId,message:{text:'duplicate integration fixture'}},state:{}});
+    await Promise.all([
+      firstGuard(context(),async()=>{handled++;await new Promise(resolve=>setTimeout(resolve,30));}),
+      secondGuard(context(),async()=>{handled++;})
+    ]);
+    const [[row]]=await pool.execute('SELECT status,attempts,completed_at FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    assert.equal(handled,1,'only the worker that wins the atomic inbox claim may run the handler');
+    assert.equal(row.status,'completed');
+    assert.equal(Number(row.attempts),1);
+    assert.ok(row.completed_at);
+  }finally{await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);}
+});
+
+
+
+test('MySQL integration: MySQL 8 privilege metadata sources required by production preflight exist',{skip:!enabled||!process.env.MYSQL_TEST_ADMIN_USER},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const connection=await mysql.createConnection({
+    host:process.env.MYSQL_HOST||'127.0.0.1',
+    port:Number(process.env.MYSQL_PORT)||3306,
+    user:process.env.MYSQL_TEST_ADMIN_USER,
+    password:process.env.MYSQL_TEST_ADMIN_PASSWORD,
+    database:db
+  });
+  try{
+    const [[views]]=await connection.execute("SELECT (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES) AS column_privilege_rows, (SELECT COUNT(*) FROM mysql.procs_priv) AS routine_privilege_rows");
+    assert.ok(views);
+    assert.ok(Object.hasOwn(views,'column_privilege_rows'));
+    assert.ok(Number(views.column_privilege_rows)>=0);
+    assert.ok(Object.hasOwn(views,'routine_privilege_rows'));
+    assert.ok(Number(views.routine_privilege_rows)>=0);
+  }finally{await connection.end();}
+});
+
+
+test('MySQL integration: retention worker redacts legacy inbox and outbox errors without deleting payloads',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createRetentionCleanupWorker}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
+  const updateId=Number(Date.now())*1000+792;
+  const chatId=Number(String(Date.now())+'792');
+  const secret='legacy error phone +989121234567 receipt SECRET-LEGACY';
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,last_error) VALUES(?,JSON_OBJECT('update_id',?,'message','keep-this-payload'),'failed',?)",[updateId,updateId,secret]);
+    await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,available_at,last_error) VALUES(?,JSON_OBJECT('text','keep-this-outbox-payload'),'failed',UTC_TIMESTAMP(),?)",[chatId,secret]);
+    const result=await createRetentionCleanupWorker({database:pool})();
+    assert.ok(result.redacted>=2);
+    const [[inbox]]=await pool.execute('SELECT last_error,payload FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    const [[outbox]]=await pool.execute('SELECT last_error,payload FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);
+    assert.equal(inbox.last_error,'legacy_error_redacted');
+    assert.equal(outbox.last_error,'legacy_error_redacted');
+    assert.equal(inbox.payload.message,'keep-this-payload','inbox payload must remain available under its separate retention policy');
+    const outboxPayload=typeof outbox.payload==='string'?JSON.parse(outbox.payload):outbox.payload;
+    assert.equal(outboxPayload.text,'keep-this-outbox-payload','outbox payload must not be deleted by error redaction');
+  }finally{
+    await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[updateId]);
+    await pool.execute('DELETE FROM telegram_notification_outbox WHERE chat_id=?',[chatId]);
+  }
+});
+
+
+test('MySQL integration: runtime and migration identities enforce separate schema-scoped grants',{skip:!enabled||!process.env.MYSQL_PRIVILEGE_TEST_DATABASE},async()=>{
+  const database=process.env.MYSQL_PRIVILEGE_TEST_DATABASE;
+  assert.match(database,/^[A-Za-z0-9_]+_ci$/);
+  const host=process.env.MYSQL_HOST||'127.0.0.1';
+  const port=Number(process.env.MYSQL_PORT||3306);
+  // The Actions MySQL service is reached across Docker networking, so CI uses a wildcard account host.
+  const accountHost='%';
+  const admin=await mysql.createConnection({host,port,user:process.env.MYSQL_TEST_ADMIN_USER,password:process.env.MYSQL_TEST_ADMIN_PASSWORD||''});
+  const runtime=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_RUNTIME_USER,password:process.env.MYSQL_PRIVILEGE_RUNTIME_PASSWORD});
+  const migration=await mysql.createConnection({host,port,database,user:process.env.MYSQL_PRIVILEGE_MIGRATION_USER,password:process.env.MYSQL_PRIVILEGE_MIGRATION_PASSWORD});
+  try{
+    const [[runtimeIdentity]]=await runtime.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
+    const [[migrationIdentity]]=await migration.query('SELECT CURRENT_USER() AS account,DATABASE() AS schema_name');
+    assert.equal(runtimeIdentity.account,'ustore_ci_runtime@%');
+    assert.equal(runtimeIdentity.schema_name,database);
+    assert.equal(migrationIdentity.account,'ustore_ci_priv_migrate@%');
+    assert.equal(migrationIdentity.schema_name,database);
+    const grants=async user=>{
+      const [schemaRows]=await admin.execute("SELECT PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA=? ORDER BY PRIVILEGE_TYPE",[user,accountHost,database]);
+      const [[globalRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND PRIVILEGE_TYPE<>'USAGE'",[user,accountHost]);
+      const [[otherSchemas]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?)) AND TABLE_SCHEMA<>?",[user,accountHost,database]);
+      const [[tableRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[user,accountHost]);
+      const [[columnRows]]=await admin.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE(?),'@',QUOTE(?))",[user,accountHost]);
+      const [[routineRows]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.procs_priv WHERE User=? AND Host=?",[user,accountHost]);
+      const [[roles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.role_edges WHERE TO_USER=? AND TO_HOST=?",[user,accountHost]);
+      const [[defaultRoles]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.default_roles WHERE USER=? AND HOST=?",[user,accountHost]);
+      const [[proxy]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.proxies_priv WHERE User=? AND Host=?",[user,accountHost]);
+      const [[alternateHosts]]=await admin.execute("SELECT COUNT(*) AS total FROM mysql.user WHERE User=? AND Host<>?",[user,accountHost]);
+      return {schema:schemaRows.map(row=>row.PRIVILEGE_TYPE),global:Number(globalRows.total),otherSchemas:Number(otherSchemas.total),tables:Number(tableRows.total),columns:Number(columnRows.total),routines:Number(routineRows.total),roles:Number(roles.total),defaultRoles:Number(defaultRoles.total),proxy:Number(proxy.total),alternateHosts:Number(alternateHosts.total)};
+    };
+    const runtimeGrants=await grants('ustore_ci_runtime');
+    const migrationGrants=await grants('ustore_ci_priv_migrate');
+    assert.deepEqual(runtimeGrants,{schema:['DELETE','INSERT','SELECT','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
+    assert.deepEqual(migrationGrants,{schema:['ALTER','CREATE','DELETE','INDEX','INSERT','REFERENCES','SELECT','TRIGGER','UPDATE'],global:0,otherSchemas:0,tables:0,columns:0,routines:0,roles:0,defaultRoles:0,proxy:0,alternateHosts:0});
+    await assert.rejects(runtime.query('CREATE TABLE runtime_ddl_probe(id INT PRIMARY KEY)'),error=>error.code==='ER_TABLEACCESS_DENIED_ERROR');
+    await migration.query('CREATE TABLE migration_ddl_probe(id INT PRIMARY KEY)');
+    await admin.query('DROP TABLE '+quoteIdentifier(database)+'.'+quoteIdentifier('migration_ddl_probe'));
+    const probeScript=`
+      import {pool} from './src/database/pool.js';
+      import {getMigrationPool,closeMigrationPool} from './src/database/migration-pool.js';
+      try{
+        const [[runtime]]=await pool.query('SELECT CURRENT_USER() AS account');
+        const [[migration]]=await getMigrationPool().query('SELECT CURRENT_USER() AS account');
+        process.stdout.write(JSON.stringify({runtime:runtime.account,migration:migration.account}));
+      }finally{
+        await closeMigrationPool();
+        await pool.end();
+      }
+    `;
+    const probe=spawnSync(process.execPath,['--input-type=module','-e',probeScript],{
+      cwd:process.cwd(),encoding:'utf8',
+      env:{
+        ...process.env,NODE_ENV:'production',BOT_TOKEN:process.env.BOT_TOKEN||'12345678901234567890:test_token_for_ci_only',
+        BOT_ADMIN_IDS:'123456789',PRIVACY_NOTICE_URL:'https://ustore.example.org/privacy',PRIVACY_NOTICE_VERSION:'ci-v1',
+        MYSQL_HOST:host,MYSQL_PORT:String(port),MYSQL_DATABASE:database,
+        MYSQL_USER:process.env.MYSQL_PRIVILEGE_RUNTIME_USER,MYSQL_PASSWORD:process.env.MYSQL_PRIVILEGE_RUNTIME_PASSWORD,
+        MYSQL_MIGRATION_USER:process.env.MYSQL_PRIVILEGE_MIGRATION_USER,MYSQL_MIGRATION_PASSWORD:process.env.MYSQL_PRIVILEGE_MIGRATION_PASSWORD,
+        MYSQL_POOL_SIZE:'2',LOG_LEVEL:'silent',MIGRATION_TARGET_DATABASE:database
+      }
+    });
+    assert.equal(probe.status,0,probe.stderr||'Application pool identity probe failed.');
+    assert.deepEqual(JSON.parse(probe.stdout),{runtime:'ustore_ci_runtime@%',migration:'ustore_ci_priv_migrate@%'},'runtime and migration pools must authenticate with their distinct configured identities');
+  }finally{
+    await Promise.all([admin.end(),runtime.end(),migration.end()]);
+  }
+});
+
 
 
 test('MySQL integration: bank cards support CRUD, a single active default, safe deactivation and order snapshot source',{skip:!enabled},async(t)=>{
@@ -773,7 +1320,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     const [[tamperTarget]]=await pool.execute('SELECT id,campaign_code_id,code_snapshot FROM draw_candidates WHERE draw_id=? ORDER BY id LIMIT 1',[drawId]);
     await assert.rejects(
       pool.execute("UPDATE draw_candidates SET code_snapshot='TAMPERED' WHERE id=?",[tamperTarget.id]),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     ); // The database now prevents mutation of the code snapshot itself.
     await pool.execute("UPDATE campaign_codes SET status='revoked' WHERE id=?",[tamperTarget.campaign_code_id]);
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/وضعیت یکی از کدها/);
@@ -809,7 +1356,7 @@ test('MySQL integration: verifiable campaign draw snapshots eligible codes and r
     const [[campaignState]]=await pool.execute('SELECT status FROM campaigns WHERE id=?',[campaignId]);assert.equal(campaignState.status,'drawn');
     await assert.rejects(completeCampaignDraw({drawId,completedBy:telegramIds[0]}),/فقط قرعه‌کشی آماده/);
   }finally{
-    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign_draw' AND entity_id=?",[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
+    if(drawId){await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM draw_candidates WHERE draw_id=?',[drawId]);await pool.execute('DELETE FROM campaign_draws WHERE id=?',[drawId]);}
     if(codeIds.length)await pool.execute('DELETE FROM campaign_codes WHERE id IN ('+codeIds.map(()=>'?').join(',')+')',codeIds);
     if(entryIds.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entryIds.map(()=>'?').join(',')+')',entryIds);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
@@ -968,7 +1515,7 @@ test('MySQL integration: draw preparation waits for first and repeat pending pay
   }
 });
 
-test('MySQL integration: production migration preflight contains only executable SELECT statements',{skip:!enabled},async()=>{
+test('MySQL integration: production migration preflight executes only read-only statements',{skip:!enabled},async()=>{
   const db=process.env.MYSQL_DATABASE||'';
   assert.match(db,/_ci$|_test$/);
   const {pool}=await import('../../src/database/pool.js');
@@ -977,10 +1524,16 @@ test('MySQL integration: production migration preflight contains only executable
   await migrate();
   const source=await readFile(new URL('../../scripts/production-migration-preflight.sql',import.meta.url),'utf8');
   const statements=source.split('\n').filter(line=>!line.trimStart().startsWith('--')).join('\n').split(';').map(statement=>statement.trim()).filter(Boolean);
-  assert.ok(statements.length>=8,'Preflight must contain the expected inventory and integrity queries.');
-  for(const statement of statements){
-    assert.match(statement,/^SELECT\b/i,'Production preflight must remain read-only.');
-    await pool.query(statement);
+  assert.ok(statements.length>=16,'Preflight must contain the expected inventory, capability guards, and integrity queries.');
+  const connection=await pool.getConnection();
+  try{
+    for(const statement of statements){
+      assert.match(statement,/^(?:SELECT|SET|PREPARE|EXECUTE|DEALLOCATE PREPARE)\b/i,'Production preflight may only read data and manage session-scoped prepared SELECT statements.');
+      await connection.query(statement);
+    }
+  }finally{
+    try{await connection.query('SET @preflight_sql=NULL,@has_candidate_campaign_id=NULL,@has_winner_campaign_id=NULL');}catch{}
+    connection.release();
   }
 });
 
@@ -1006,7 +1559,7 @@ test('MySQL integration: manually close campaigns without an end date for draw r
     await assert.rejects(closeCampaign({campaignId,actorId:'9001'}),/بستن دستی فقط/);
   }finally{
     if(campaignId){
-      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.closed_manually'",[campaignId]);
+      
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
@@ -1057,7 +1610,7 @@ test('MySQL integration: campaign archive requires eligible entries to be resolv
     if(entryId)await pool.execute('DELETE FROM campaign_entries WHERE id=?',[entryId]);
     if(participantId)await pool.execute('DELETE FROM participants WHERE id=?',[participantId]);
     if(campaignId){
-      await pool.execute("DELETE FROM admin_audit_log WHERE entity_type='campaign' AND entity_id=? AND action='campaign.archived'",[campaignId]);
+      
       await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     }
   }
@@ -1114,15 +1667,59 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
         'INSERT INTO draw_winners(draw_id,campaign_id,campaign_code_id,participant_id,candidate_id,campaign_entry_id,code_snapshot,rank_position) VALUES(?,?,?,?,?,?,?,1)',
         [drawId,campaignId,codes[0],participants[1],candidateId,entries[0],codeValues[0]]
       ),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     );
     await assert.rejects(
       pool.execute(
         'INSERT INTO draw_candidates(draw_id,campaign_id,campaign_code_id,campaign_entry_id,participant_id,code_snapshot,candidate_hash) VALUES(?,?,?,?,?,?,?)',
         [drawId,campaignId,codes[1],entries[1],participants[0],codeValues[1],'c'.repeat(64)]
       ),
-      error=>error.code==='ER_NO_REFERENCED_ROW_2'
+      isForeignKeyReferenceError
     );
+    const {cleanupExpiredRetentionRows}=await import('../../src/modules/privacy/retention-cleanup.worker.js');
+    const retentionUserId=String(697000000000000000n+(BigInt(Date.now())%1000000000n));
+    const retentionUpdateId=Number(Date.now())*100;
+    const retentionTables=['telegram_user_sessions','admin_wizards','payment_card_admin_sessions','payment_admin_sessions','admin_search_sessions','admin_role_sessions','support_sessions','profile_change_sessions','telegram_rate_limits'];
+    let outboxInsertId=null;
+    try{
+      await pool.execute("INSERT INTO telegram_user_sessions(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'awaiting_name',JSON_OBJECT('full_name','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO admin_wizards(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'title',JSON_OBJECT('title','expired'),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO payment_card_admin_sessions(telegram_user_id,step,payload,last_update_id,updated_at) VALUES(?,'bank_name',JSON_OBJECT(),?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO payment_admin_sessions(telegram_user_id,step,created_at) VALUES(?,'search_order',UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId]);
+      await pool.execute("INSERT INTO admin_search_sessions(telegram_user_id,step,query_text,last_update_id,created_at) VALUES(?,'participant','expired-private-search',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO admin_role_sessions(telegram_user_id,role,last_update_id,created_at) VALUES(?,'support_agent',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO support_sessions(telegram_user_id,step,category,last_update_id,updated_at) VALUES(?,'new_message','technical',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO profile_change_sessions(telegram_user_id,step,last_update_id,created_at) VALUES(?,'full_name',?,UTC_TIMESTAMP()-INTERVAL 2 DAY)",[retentionUserId,retentionUpdateId]);
+      await pool.execute("INSERT INTO processed_updates(update_id,processed_at) VALUES(?,UTC_TIMESTAMP()-INTERVAL 4 DAY)",[retentionUpdateId]);
+      await pool.execute("INSERT INTO telegram_rate_limits(telegram_user_id,bucket,window_started_at,request_count) VALUES(?,'retention_test',UTC_TIMESTAMP()-INTERVAL 2 DAY,1)",[retentionUserId]);
+      const inboxPayloadText='retain-inbox-payload-'+retentionUpdateId;
+      const outboxPayloadText='retain-outbox-payload-'+retentionUpdateId;
+      const rawLegacyError='legacy phone +989121234567 SECRET-RETENTION-'+retentionUpdateId;
+      await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,last_error) VALUES(?,JSON_OBJECT('update_id',?,'message',JSON_OBJECT('text',?)),'failed',?)",[retentionUpdateId,retentionUpdateId,inboxPayloadText,rawLegacyError]);
+      const [outboxInsert]=await pool.execute("INSERT INTO telegram_notification_outbox(chat_id,payload,status,last_error) VALUES(?,JSON_OBJECT('text',?),'failed',?)",[retentionUserId,outboxPayloadText,rawLegacyError]);
+      outboxInsertId=outboxInsert.insertId;
+      const result=await cleanupExpiredRetentionRows();
+      assert.ok(result.deleted>=10,'retention worker must delete all ten seeded expired rows');
+      assert.ok(result.redacted>=2,'retention worker must redact legacy inbox and Outbox errors');
+      const [[inboxLegacy]]=await pool.execute('SELECT last_error,payload FROM telegram_update_inbox WHERE update_id=?',[retentionUpdateId]);
+      assert.equal(inboxLegacy.last_error,'legacy_error_redacted');
+      assert.equal(inboxLegacy.payload.message.text,inboxPayloadText,'redaction must preserve the original Telegram update payload');
+      const [[outboxLegacy]]=await pool.execute('SELECT last_error,payload FROM telegram_notification_outbox WHERE id=?',[outboxInsert.insertId]);
+      assert.equal(outboxLegacy.last_error,'legacy_error_redacted');
+      assert.equal(outboxLegacy.payload.text,outboxPayloadText,'redaction must preserve the delivery payload for audited retry/diagnosis');
+      assert.equal(JSON.stringify([inboxLegacy.last_error,outboxLegacy.last_error]).includes('989121234567'),false);
+      for(const table of retentionTables){
+        const [[remaining]]=await pool.execute('SELECT COUNT(*) AS total FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
+        assert.equal(Number(remaining.total),0,'Expired session rows must be removed from '+table);
+      }
+      const [[remainingProcessed]]=await pool.execute('SELECT COUNT(*) AS total FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
+      assert.equal(Number(remainingProcessed.total),0,'Expired processed update metadata must be removed');
+    }finally{
+      for(const table of retentionTables)await pool.execute('DELETE FROM '+table+' WHERE telegram_user_id=?',[retentionUserId]);
+      await pool.execute('DELETE FROM processed_updates WHERE update_id=?',[retentionUpdateId]);
+      await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id=?',[retentionUpdateId]);
+      if(outboxInsertId)await pool.execute('DELETE FROM telegram_notification_outbox WHERE id=?',[outboxInsertId]);
+    }
   }finally{
     if(drawId){
       await pool.execute('DELETE FROM draw_winners WHERE draw_id=?',[drawId]);
@@ -1133,5 +1730,32 @@ test('MySQL integration: draw winner cannot reference a candidate with mismatche
     if(entries.length)await pool.execute('DELETE FROM campaign_entries WHERE id IN ('+entries.map(()=>'?').join(',')+')',entries);
     if(campaignId)await pool.execute('DELETE FROM campaigns WHERE id=?',[campaignId]);
     if(participants.length)await pool.execute('DELETE FROM participants WHERE id IN ('+participants.map(()=>'?').join(',')+')',participants);
+  }
+});
+
+
+
+test('MySQL integration: Telegram inbox enforces completed, pending/failed and stale-processing payload retention',{skip:!enabled},async()=>{
+  const db=process.env.MYSQL_DATABASE||'';assert.match(db,/_ci$|_test$/);
+  const {pool}=await import('../../src/database/pool.js');
+  const {migrate}=await import('../../src/database/migrate.js');
+  const {createUpdateInboxWorker}=await import('../../src/bot/update-inbox.worker.js');
+  const base=Number(Date.now())*1000+793;
+  const ids=[base,base+1,base+2,base+3];
+  try{
+    await migrate();
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,completed_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'completed',UTC_TIMESTAMP()-INTERVAL 4 DAY,UTC_TIMESTAMP())",[ids[0],ids[0]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,available_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'pending',UTC_TIMESTAMP(),UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[1],ids[1]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,available_at,created_at) VALUES(?,JSON_OBJECT('update_id',?),'failed',UTC_TIMESTAMP(),UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[2],ids[2]]);
+    await pool.execute("INSERT INTO telegram_update_inbox(update_id,payload,status,locked_at,lease_token,created_at) VALUES(?,JSON_OBJECT('update_id',?),'processing',UTC_TIMESTAMP()-INTERVAL 31 DAY,?,UTC_TIMESTAMP()-INTERVAL 31 DAY)",[ids[3],ids[3],'retention-fixture-lease']);
+    let handled=0;
+    const worker=createUpdateInboxWorker({database:pool,log:{error(){}}});
+    const result=await worker({async handleUpdate(){handled++;}},{limit:10});
+    assert.deepEqual(result,{scanned:0,replayed:0,failed:0,skipped:0});
+    assert.equal(handled,0,'expired inbox payloads must not be replayed');
+    const [[remaining]]=await pool.execute('SELECT COUNT(*) AS total FROM telegram_update_inbox WHERE update_id IN (?,?,?,?)',ids);
+    assert.equal(Number(remaining.total),0,'all payload states must be deleted at their documented retention boundary');
+  }finally{
+    await pool.execute('DELETE FROM telegram_update_inbox WHERE update_id IN (?,?,?,?)',ids);
   }
 });

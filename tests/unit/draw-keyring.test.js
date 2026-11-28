@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed} from '../../src/modules/draw/draw-keyring.js';
+import {createHash} from 'node:crypto';
+import {loadDrawKeyring,encryptDrawSeed,decryptDrawSeed,verifyPreparedDrawKeyRows} from '../../src/modules/draw/draw-keyring.js';
 
 const oldKey='11'.repeat(32);
 const newKey='22'.repeat(32);
@@ -53,4 +54,42 @@ test('authenticated encryption rejects tampered ciphertext',()=>{
   const encrypted=encryptDrawSeed('d'.repeat(64),keyring);
   const tampered={...row(encrypted),seed_ciphertext:Buffer.from('tampered').toString('base64')};
   assert.throws(()=>decryptDrawSeed(tampered,keyring),/decryption failed/);
+});
+
+
+test('prepared draw restore verifier checks decryption and commitment without returning seed material',()=>{
+  const keyring=loadDrawKeyring({
+    DRAW_SEED_ENCRYPTION_KEYS:JSON.stringify({'legacy-env':oldKey,'2026-11':newKey}),
+    DRAW_SEED_ACTIVE_KEY_ID:'2026-11'
+  });
+  const seed='f'.repeat(64);
+  const encrypted=encryptDrawSeed(seed,keyring);
+  const result=verifyPreparedDrawKeyRows([{
+    id:71,seed_key_id:encrypted.keyId,seed_ciphertext:encrypted.ciphertext,
+    seed_nonce:encrypted.nonce,seed_tag:encrypted.tag,
+    seed_hash:createHash('sha256').update(seed).digest('hex')
+  }],keyring);
+  assert.deepEqual(result,{status:'verified',checked:1,verified:1,failed:0,items:[{drawId:71,keyId:'2026-11',status:'verified',reason:null}]});
+  assert.equal(JSON.stringify(result).includes(seed),false,'verification output must never contain the decrypted seed');
+});
+
+test('prepared draw restore verifier fails closed for missing historical keys, tampered ciphertext and commitment mismatch',()=>{
+  const keyring=loadDrawKeyring({DRAW_SEED_ENCRYPTION_KEY:oldKey});
+  const seed='a'.repeat(64);
+  const encrypted=encryptDrawSeed(seed,keyring);
+  const base={
+    id:72,seed_key_id:encrypted.keyId,seed_ciphertext:encrypted.ciphertext,
+    seed_nonce:encrypted.nonce,seed_tag:encrypted.tag,
+    seed_hash:createHash('sha256').update(seed).digest('hex')
+  };
+  const missing=verifyPreparedDrawKeyRows([{...base,seed_key_id:'removed-key'}],keyring);
+  assert.equal(missing.items[0].reason,'key_unavailable');
+  const tampered=verifyPreparedDrawKeyRows([{...base,seed_ciphertext:Buffer.from('tampered').toString('base64')}],keyring);
+  assert.equal(tampered.items[0].reason,'decryption_failed');
+  const mismatch=verifyPreparedDrawKeyRows([{...base,seed_hash:'0'.repeat(64)}],keyring);
+  assert.equal(mismatch.items[0].reason,'commitment_mismatch');
+  const malformedSeed=encryptDrawSeed('not-a-seed',keyring);
+  const malformed=verifyPreparedDrawKeyRows([{...base,seed_ciphertext:malformedSeed.ciphertext,seed_nonce:malformedSeed.nonce,seed_tag:malformedSeed.tag}],keyring);
+  assert.equal(malformed.items[0].reason,'seed_format_invalid');
+  assert.equal(verifyPreparedDrawKeyRows([],keyring).status,'no_prepared_draws');
 });

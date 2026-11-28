@@ -15,3 +15,10 @@ test('keeps registration callbacks and commands available before profile creatio
   assert.equal(isRegistrationUpdateAllowed({callbackData:'registration:start'}),true);
   assert.equal(isRegistrationUpdateAllowed({command:'/start'}),true);
 });
+
+test('allows only version-bound privacy consent callbacks',()=>{
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'pa:-1:v1'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'pa:12345:notice_2026.11'}),true);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'pa:-1:'}),false);
+  assert.equal(isRegistrationUpdateAllowed({callbackData:'privacy:accept:-1'}),false);
+});

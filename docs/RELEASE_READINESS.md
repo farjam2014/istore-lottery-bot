@@ -2,7 +2,7 @@
 
 ## Release status
 
-This document is an operational checklist, not an authorization to deploy. A release is blocked until the production inventory, historical draw/key inventory, independent key backup, and restore rehearsal are verified. Do not merge, deploy, restart the service, or run production migrations without separate approval.
+This document is an operational checklist, not an authorization to deploy. A release is blocked until the production inventory, live draw/key counts, independent active-key backup, and isolated database restore are verified. Historical keyring recovery and draw-proof restoration are required when prepared draws or encrypted seeds exist. Do not merge, deploy, restart the service, or run production migrations without separate approval.
 
 Target runtime: Ubuntu 24.04, Node.js 22+, MySQL 8+, systemd service `ustore-telegram-bot.service`. The application directory and service configuration must be confirmed on the target host before use.
 
@@ -12,17 +12,23 @@ For the existing release-directory deployment, follow [`PRODUCTION_STAGED_DEPLOY
 
 - [ ] Confirm the exact GitHub PR head SHA and base SHA; confirm the latest CI run is successful on that exact head.
 - [ ] Review the full PR diff and migration files; do not rely on `mergeable=true` alone.
+- [ ] Confirm the full-history Gitleaks scan across all fetched Git refs passed on the exact PR head; the incremental Push/PR scan alone is not a historical secret audit.
 - [ ] Confirm the target host, application directory, systemd unit, Node version, MySQL version, and database name.
-- [ ] Confirm `MYSQL_DATABASE` and `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
+- [ ] Confirm `MYSQL_DATABASE` and runtime `MYSQL_USER` match the installer's accepted generated-name pattern. If the existing production database/user uses a legacy name, stop and design an explicit compatibility path; never rename or recreate it automatically.
+- [ ] Confirm the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the application database; DDL must use a separate migration account.
 - [ ] Confirm a clean, known code version is deployed and record its commit SHA.
 - [ ] Confirm `.env` is a regular file owned by the service account with mode `600`. Never print or upload it.
-- [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data.
+- [ ] Set `PRIVACY_NOTICE_URL` to the published HTTPS notice and `PRIVACY_NOTICE_VERSION` to its reviewed version; verify the URL is reachable and the bot records acceptance before collecting participant data. The read-only host preflight must confirm both values and HTTPS reachability before the maintenance window.
+- [ ] Obtain explicit business-owner/legal approval for the published privacy notice, lawful basis, purposes, retention/deletion schedule, and the limited pre-consent processing. Before the current notice version is accepted, `updateGuard` persists only the Telegram `update_id` (not the raw Update, message text, contact, user/chat IDs, or callback payload); the current request is still processed in memory, and a crash requires the user to resend after accepting. Treat this engineering minimization as a control, not as legal approval.
 - [ ] Confirm `BOT_TOKEN`, MySQL credentials, admin IDs, and keyring settings are valid without displaying their values.
 - [ ] Confirm the active key ID and every historical key ID referenced by prepared draws are present.
-- [ ] Confirm there are no prepared draws with missing ciphertext, nonce, tag, unknown key IDs, or unsupported algorithms.
+- [ ] Confirm every historical draw key ID is accounted for in the protected keyring backup; do not infer ciphertext decryptability from the baseline preflight alone.
 - [ ] Confirm no legacy campaign-code ownership mismatch and no campaign exceeds the 999999 sequence limit.
 - [ ] Confirm no old prepared draw requires manual recovery before applying the draw migrations.
 - [ ] Run `scripts/production-migration-preflight.sql` against the exact target database using a read-only MySQL account; retain its output with the release evidence.
+- [ ] Run `bash scripts/production-host-preflight.sh` as root from the staged release; retain its sanitized host/grant/runner/backup output privately and close every reported blocker.
+- [ ] Review exact row counts for all six replay-cleanup tables and both retained-but-cursorless search-session tables, plus the support-session step breakdown; approve any non-zero impact and the customer/support handling plan. Also review aggregate-only counts for raw Telegram inbox payloads, legacy unsanitized Inbox error rows, notification Outbox rows by status and total payload bytes, legacy Outbox error rows, and admin idempotency records, plus the participant privacy-consent version/timestamp breakdown; the preflight must never select raw payloads, notification text, chat IDs, file IDs, or participant identifiers.
+- [ ] Re-run the complete read-only SQL preflight after the service is stopped and immediately before the migration runner; compare it with the earlier baseline.
 
 ## 2. Backup requirements
 
@@ -34,14 +40,16 @@ Before any production schema change:
 4. Record backup timestamp, database name, file size, checksum, and retention location.
 5. Restore the backup into a separate disposable database and verify key application tables and row counts.
 6. Back up all draw seed key material independently of the database backup. Preserve the exact key IDs and their mapping to key material in an access-controlled encrypted vault.
-7. Perform a recovery rehearsal proving that the restored database and independently restored keyring can decrypt a prepared draw.
-8. Do not proceed if any backup, restore, key custody, or decryption check fails.
+7. If any prepared draw or encrypted seed exists, perform a recovery rehearsal proving that the restored database and independently restored keyring can decrypt a prepared draw. If both draw-row and encrypted-seed counts are zero, verify those counts remain zero in the restored database and verify the active key backup decrypts to the active-key fingerprint; draw-proof verification is not applicable until a draw exists.
+8. Verify automated database backups are scheduled, the last successful run is recorded, retention and alerting are configured, and the backup is encrypted at rest; gzip compression alone is not encryption.
+9. Inventory plaintext draw-seed key copies. If both the live campaign_draws row count and encrypted-seed count are zero, root-only copies may be retained temporarily only in a root:root mode-700 directory as root:root mode-600 regular files; record them as deferred post-release cleanup, not as an automatic release blocker. If any draw record or encrypted seed exists, preserve all potentially referenced keys and complete the historical keyring restore/decryption rehearsal before changing or deleting any copy.
+10. Do not proceed if any backup, restore, key custody, or decryption check fails.
 
 A database dump alone is not a complete backup for prepared draws. Losing the historical key referenced by a prepared draw makes its encrypted seed unrecoverable.
 
 ## 3. Migration order and behavior
 
-The migration runner sorts SQL files lexicographically by filename. The current source contains 23 migrations, applied in this order:
+The migration runner sorts SQL files lexicographically by filename. The current source contains 28 migrations, applied in this order:
 
 1. `20261114_001_payment_expiry_reference.sql` — removes the one-order-per-entry restriction, adds unique payment references, expiry metadata, and outbox delivery metadata.
 2. `20261114_002_campaign_details.sql` — adds campaign poster, prize, draw, terms, and payment-method fields and expands the campaign wizard.
@@ -65,9 +73,18 @@ The migration runner sorts SQL files lexicographically by filename. The current 
 20. `20261119_002_telegram_update_inbox.sql` — creates the durable Telegram update inbox with status, attempt, availability, lease, and error metadata.
 21. `20261124_001_admin_action_idempotency.sql` — adds durable idempotency records for replay-safe admin campaign-copy callbacks.
 22. `20261124_002_privacy_consent.sql` — adds participant privacy notice version and acceptance timestamp; existing profiles remain unconsented until they accept the published notice.
-23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact session, preventing duplicate step advancement on replay.
+23. `20261124_003_registration_session_replay.sql` — records the Telegram update ID that advanced a registration text/contact or payment-receipt session, prevents out-of-order cursor regression, and clears pre-cursor registration and pending receipt-upload sessions during the schema transition.
+24. `20261124_004_admin_wizard_replay.sql` — records Telegram update IDs for admin campaign, payment-card, and admin-role wizards, preventing stale message replays from being interpreted as input for a later step; clears all pre-cursor admin campaign, payment-card, and admin-role sessions during the schema transition.
+25. `20261125_001_support_reply_replay.sql` — clears pending admin support-reply text sessions and adds a Telegram update cursor to support sessions, preventing delayed messages from being consumed by a later reply flow.
+26. `20261125_002_admin_search_replay.sql` — adds Telegram update cursors to participant/campaign-code search and payment-order search sessions, rejecting delayed or duplicate search messages.
+27. `20261125_003_participant_session_replay.sql` — adds the profile-change session cursor and clears pre-cursor participant support/profile sessions so delayed inbox messages cannot be mistaken for input to a newly started flow.
+28. `20261125_004_admin_audit_append_only.sql` — installs database-level BEFORE UPDATE and BEFORE DELETE triggers so the runtime database account cannot alter or erase admin audit evidence.
 
 Important migration properties:
+
+- The application service uses `MYSQL_USER`/`MYSQL_PASSWORD`, restricted to DML on the application database. It must not have `CREATE`, `ALTER`, `INDEX`, or `REFERENCES` privileges. The admin audit table is protected by database triggers that reject UPDATE and DELETE, including attempts made by the runtime DML account.
+- Production migrations use `MYSQL_MIGRATION_USER`/`MYSQL_MIGRATION_PASSWORD` with the explicit `TRIGGER` privilege required by the append-only audit migration from `/etc/ustore-telegram-bot/ustore-telegram-bot-migration.env`, owned by root with directory mode `700` and file mode `600`. These credentials must never be copied into the release `.env` or the systemd service environment.
+- The migration runner refuses to use the runtime account in production. CI/test environments may reuse their disposable test database account.
 
 - MySQL DDL auto-commits; the migration batch is not transactionally reversible.
 - The runner has replay guards for selected partial-DDL states. A guard does not make every possible schema state safe to replay.
@@ -79,7 +96,7 @@ Important migration properties:
 - Assigning `legacy-env` does not create missing ciphertext. A legacy prepared draw without ciphertext/nonce/tag cannot be recovered from its seed hash.
 - Never automatically cancel, re-prepare, or replace a prepared draw to work around a missing key or unsupported algorithm.
 
-Run production migrations only after explicit approval, a verified backup, and a read-only inventory. The migration guard requires both `ALLOW_DATABASE_MIGRATIONS=1` and `ALLOW_PRODUCTION_MIGRATIONS=1`, with `MIGRATION_TARGET_DATABASE` exactly matching `MYSQL_DATABASE`.
+Run production migrations only after explicit approval, a verified backup, and a read-only inventory. The migration guard requires both `ALLOW_DATABASE_MIGRATIONS=1` and `ALLOW_PRODUCTION_MIGRATIONS=1`, with `MIGRATION_TARGET_DATABASE` exactly matching `MYSQL_DATABASE`. Run the migration process as root (or a dedicated deployment identity with read access to the protected migration file); never grant the migration credentials to `ustorebot`.
 
 ## 4. Deployment sequence
 
@@ -88,11 +105,13 @@ Run production migrations only after explicit approval, a verified backup, and a
 3. Verify the backup and independent key backup before proceeding.
 4. Update to the approved release commit using the reviewed deployment method. Do not use an unreviewed installer branch or a floating branch name as the release identity.
 5. Install production dependencies with the repository's supported Node.js version.
-6. Run the approved migration command once against the exact target database.
+6. Run the approved migration command once against the exact target database using the protected migration-only credential file; do not inject migration credentials into the service environment.
 7. If a migration fails, stop. Capture the error and inspect `schema_migrations` plus `information_schema`; do not blindly rerun or manually drop objects.
-8. Verify migration checksums and the expected schema before enabling application traffic.
-9. Start or restart the systemd service only after separate deployment approval.
-10. Observe logs and service health before re-enabling registration and payment workflows.
+8. Run `scripts/post-migration-integrity-check.sql` with a dedicated SELECT-only account after migrations. Confirm no missing/invalid prepared-draw metadata, unsupported algorithms, counter drift, or duplicate code sequences; compare reported key IDs with the protected keyring and restore rehearsal.
+9. Verify the runtime database account has only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the target schema, with no global or other-schema grants; keep DDL privileges on the separate protected migration account.
+10. Verify migration checksums and the expected schema before enabling application traffic.
+11. Start or restart the systemd service only after separate deployment approval.
+12. Observe logs and service health before re-enabling registration and payment workflows.
 
 The Ubuntu installer does not create a database backup. Its approval flags authorize schema/database changes; they do not replace backup verification or production approval.
 Before using the installer on an existing host, verify that its systemd unit already points to the installer's exact application directory. The installer must refuse mismatched service paths before stopping any service. This installer is not the production release deployment mechanism for the current host, whose active source is under `/opt/ustore-releases/`; use the reviewed staged-release procedure instead.
@@ -107,6 +126,7 @@ Perform these checks first in staging. Production write tests require separate a
 - [ ] `/start` and the participant profile flow work.
 - [ ] Duplicate registration is idempotent and does not return revoked/disqualified codes.
 - [ ] New code format, sequence boundaries, per-campaign counter isolation, and database uniqueness are correct.
+- [ ] Post-migration integrity SQL returns no missing/invalid draw encryption metadata, unsupported algorithms, code-counter drift, or duplicate sequence values.
 - [ ] Paid-order creation, receipt submission, approval/rejection, and code issuance work end-to-end.
 - [ ] Admin role and permission checks are enforced server-side.
 - [ ] Campaign editing opens the input prompt for every editable field (title, description, prize title/description, terms, start/end/draw dates, capacity, price, and codes per participant); invalid inputs are rejected without changing campaign data, and valid inputs persist and appear in campaign details.
@@ -179,3 +199,21 @@ Do not label the release READY until the latest-head CI, production read-only in
 - Before launch, publish a privacy notice and approve retention periods for participant contact data, receipts, payment/order records, support transcripts, and audit logs.
 - Verify least-privilege export permissions: participant export requires `participant.export`; campaign code export requires `campaign.read` and `participant.export`; payment export requires `payment.export`. Operational roles must not receive global participant-directory access unless explicitly approved.
 - Review Telegram update inbox retention: completed payloads are purged after three days; pending/failed and stale-processing payloads are purged after thirty days.
+
+
+## 10. External Production gates — not proven by CI
+
+The following items require independent host, account, business, or legal verification. A green GitHub Actions run does not close them.
+
+- [ ] Confirm Public repository visibility is intentional; complete a full-history secret scan and rotate any credential ever committed.
+- [ ] Enable branch protection on `main` and `release/ustore-unified`: required PR review, exact CI checks, up-to-date branches, resolved conversations, and no force-push/deletion.
+- [ ] Verify no Production self-hosted runner remains registered or online in GitHub repository Settings → Actions → Runners; remove the host-side runner service and any privileged service-management path it could invoke. Host-side checks cannot prove the remote registration list is empty.
+- [ ] Verify the Production runtime MySQL account has only DML privileges on the application schema and no global or other-schema grants; provision and protect a separate migration-only account.
+- [ ] Verify automated database backups are scheduled, encrypted at rest, access-controlled, retained under an approved schedule, and monitored. Do not treat `.sql.gz` compression as encryption; the host preflight must report `plaintext_database_backup_artifacts=0` and at least one encrypted backup artifact.
+- [ ] Verify draw-seed key backups are encrypted, mapped by key ID, independently recoverable, and have no unnecessary plaintext copies.
+- [ ] Restore an actual Production backup and the corresponding keyring to an isolated host; decrypt a prepared draw and compare the recovered seed hash to its stored commitment.
+- [ ] Publish the reviewed HTTPS privacy notice and set its version; approve retention periods for participants, payment receipts/orders, support messages, Telegram inbox payloads, audit logs, outbox records, exports, and backups.
+- [ ] Complete live Telegram private-chat and Telegram Business acceptance tests. If paid campaigns are enabled, test the manual bank-card/receipt review and code-issuance flow end to end; there is no payment gateway in this release.
+- [ ] Rehearse the full migration on a restored copy of Production data, including migration 006 legacy-draw guards, failure handling, and forward-fix/restore decision criteria.
+- [ ] Do not claim operator-independent randomness: the server operator controls the draw-seed key. The verifier checks the committed candidate set and deterministic selection, not completeness of eligibility or an external randomness beacon.
+- [ ] Treat proof artifacts as pseudonymous, not anonymous: they contain internal participant IDs. The verifier does not fetch or authenticate the publication URL. Do not publish raw proof artifacts broadly until privacy/legal approval or a pseudonymization design is in place.

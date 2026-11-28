@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createUpdateGuard} from '../../src/bot/middleware/update-guard.js';
 
 function fakeDatabase(){
@@ -119,15 +120,21 @@ test('rate limits are isolated by user and update category',async()=>{
   assert.equal(database.counters.get('11111:callback'),1);
 });
 
-test('handler failure preserves payload and enters bounded retry state',async()=>{
+test('handler failure preserves payload, enters bounded retry state and never logs raw exception text',async()=>{
   const database=fakeDatabase();
-  const guard=createUpdateGuard({database,log:logger,correlate:identity});
-  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error('handler failure');}),/handler failure/);
+  const emitted=[];
+  const log={warn(data,message){emitted.push({data,message});},error(data,message){emitted.push({data,message});}};
+  const guard=createUpdateGuard({database,log,correlate:identity});
+  const secretError='handler failure phone +989121234567 receipt SECRET-INBOX';
+  await assert.rejects(guard(context({id:300,userId:'33333'}),async()=>{throw new Error(secretError);}),/handler failure/);
   const row=database.inbox.get(300);
   assert.equal(row.status,'failed');
+  assert.equal(row.error,'handler_failed','raw handler exception text must never be persisted in the inbox');
   assert.ok(row.payload);
   assert.equal(row.lease,null);
   assert.ok(row.availableDelay>0);
+  assert.equal(JSON.stringify(emitted).includes(secretError),false,'raw handler exception must not be logged');
+  assert.deepEqual(emitted[0].data,{reason:'handler_failed',updateId:300});
 });
 
 test('callback and non-text buckets enforce independent limits',async()=>{
@@ -185,4 +192,99 @@ test('expired callback acknowledgement does not abort a fresh callback handler',
   await guard(ctx,async()=>{await ctx.answerCbQuery();calls++;});
   assert.equal(calls,1,'business handler should continue when only callback acknowledgement expired');
   assert.equal(database.inbox.get(902).status,'completed');
+});
+
+test('an existing inbox update is marked as durable replay on its first recovery claim',async()=>{
+  const database=fakeDatabase();
+  database.inbox.set(950,{payload:JSON.stringify({update_id:950}),status:'pending',attempts:0,lease:null});
+  const guard=createUpdateGuard({database,log:logger,correlate:identity});
+  const ctx=context({id:950,userId:'12345'});
+  let durableReplay=false;
+  await guard(ctx,async()=>{durableReplay=ctx.state.durableReplay;});
+  assert.equal(durableReplay,true);
+  assert.equal(database.inbox.get(950).status,'completed');
+});
+
+
+test('lease heartbeat and release failures log fixed labels without exception contents',async()=>{
+  const secretHeartbeat='heartbeat database error phone +989121234567 SECRET-HEARTBEAT';
+  const secretRelease='lease release database error receipt SECRET-RELEASE';
+  const emitted=[];
+  const log={warn(data,message){emitted.push({data,message});},error(data,message){emitted.push({data,message});}};
+
+  const heartbeatDatabase=fakeDatabase();
+  const heartbeatExecute=heartbeatDatabase.execute.bind(heartbeatDatabase);
+  heartbeatDatabase.execute=async(sql,params=[])=>{
+    if(sql.startsWith('UPDATE telegram_update_inbox SET locked_at=UTC_TIMESTAMP()'))throw new Error(secretHeartbeat);
+    return heartbeatExecute(sql,params);
+  };
+  const heartbeatGuard=createUpdateGuard({database:heartbeatDatabase,log,correlate:identity,heartbeatIntervalMs:1});
+  await heartbeatGuard(context({id:951,userId:'95100'}),async()=>new Promise(resolve=>setTimeout(resolve,15)));
+
+  const releaseDatabase=fakeDatabase();
+  const releaseExecute=releaseDatabase.execute.bind(releaseDatabase);
+  releaseDatabase.execute=async(sql,params=[])=>{
+    if(sql.startsWith("UPDATE telegram_update_inbox SET status='failed'"))throw new Error(secretRelease);
+    return releaseExecute(sql,params);
+  };
+  const releaseGuard=createUpdateGuard({database:releaseDatabase,log,correlate:identity});
+  await assert.rejects(releaseGuard(context({id:952,userId:'95200'}),async()=>{throw new Error('business handler failure');}),/business handler failure/);
+
+  const serialized=JSON.stringify(emitted);
+  assert.equal(serialized.includes(secretHeartbeat),false);
+  assert.equal(serialized.includes(secretRelease),false);
+  assert.ok(emitted.some(entry=>entry.data.reason==='lease_heartbeat_failed'));
+  assert.ok(emitted.some(entry=>entry.data.reason==='handler_failed'));
+  assert.ok(emitted.some(entry=>entry.data.reason==='lease_release_failed'));
+});
+
+test('private-chat filter runs before durable inbox persistence',()=>{
+  const register=readFileSync(new URL('../../src/bot/register.js',import.meta.url),'utf8');
+  assert.ok(register.indexOf('bot.use(privateChatOnly)')>=0);
+  assert.ok(register.indexOf('bot.use(updateGuard())')>=0);
+  assert.ok(register.indexOf('bot.use(privateChatOnly)')<register.indexOf('bot.use(updateGuard())'));
+});
+
+
+test('pre-consent updates persist only the update ID, never Telegram profile or message data',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,requiresConsent:async()=>true});
+  const ctx=context({id:990,userId:'998877'});
+  ctx.update={
+    update_id:990,
+    message:{
+      message_id:77,
+      date:1760000000,
+      from:{id:998877,is_bot:false,first_name:'Sensitive Name',last_name:'Private',username:'private_user'},
+      chat:{id:998877,type:'private'},
+      text:'my phone is +989121234567',
+      contact:{phone_number:'+989121234567',first_name:'Sensitive Name',user_id:998877}
+    }
+  };
+  await guard(ctx,async()=>{});
+  const persisted=JSON.parse(database.inbox.get(990).payload);
+  assert.deepEqual(persisted,{update_id:990});
+  assert.equal(JSON.stringify(persisted).includes('998877'),false);
+  assert.equal(JSON.stringify(persisted).includes('+989121234567'),false);
+  assert.equal(JSON.stringify(persisted).includes('Sensitive Name'),false);
+});
+
+test('pre-consent callback payloads are not retained for durable replay',async()=>{
+  const database=fakeDatabase();
+  const guard=createUpdateGuard({database,log:logger,correlate:identity,requiresConsent:async()=>true});
+  const ctx=context({id:991,userId:'998877',callback:true});
+  ctx.update={
+    update_id:991,
+    callback_query:{
+      id:'sensitive-callback-id',
+      from:{id:998877,first_name:'Sensitive Name',username:'private_user'},
+      message:{message_id:78,chat:{id:998877,type:'private'}},
+      data:'pa:-1:privacy-v1'
+    }
+  };
+  await guard(ctx,async()=>{});
+  const persisted=JSON.parse(database.inbox.get(991).payload);
+  assert.deepEqual(persisted,{update_id:991});
+  assert.equal(JSON.stringify(persisted).includes('sensitive-callback-id'),false);
+  assert.equal(JSON.stringify(persisted).includes('privacy-v1'),false);
 });

@@ -6,7 +6,6 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-# UX refactor branch validation: run syntax and regression checks after each navigation fix; latest receipt-resume recovery and draw-cancellation navigation update.
 on:
   push:
     branches:
@@ -35,6 +34,7 @@ jobs:
     services:
       mysql:
         image: mysql:8.0
+        command: --log-bin-trust-function-creators=1
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: istore_lottery_ci
@@ -51,26 +51,105 @@ jobs:
       MYSQL_HOST: 127.0.0.1
       MYSQL_PORT: 3306
       MYSQL_DATABASE: istore_lottery_ci
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
+      MYSQL_USER: ustore_ci_testapp
       MYSQL_TEST_ADMIN_USER: root
       MYSQL_TEST_ADMIN_PASSWORD: root
+      MYSQL_BACKUP_USER: ustore_ci_backup
+      MYSQL_RESTORE_USER: ustore_ci_restore
+      MYSQL_RESTORE_RUNTIME_USER: ustore_ci_restore_runtime
+      MYSQL_TEST_READONLY_USER: ustore_ci_readonly
+      MYSQL_PRIVILEGE_TEST_DATABASE: ustore_privilege_ci
+      MYSQL_PRIVILEGE_RUNTIME_USER: ustore_ci_runtime
+      MYSQL_PRIVILEGE_MIGRATION_USER: ustore_ci_priv_migrate
+      MYSQL_MIGRATION_USER: ustore_ci_migrate
+      MYSQL_TEST_DATABASE: istore_lottery_ci
+      MYSQL_RESTORE_DATABASE: draw_restore_fixture_ci
+      MYSQL_PREFLIGHT_DATABASE: ustore_preflight_fixture_ci
+      MYSQL_DRAW_GUARD_DATABASE: ustore_drawguard_fixture_ci
       MYSQL_POOL_SIZE: 5
       BOT_ADMIN_IDS: 123456789
       RUN_MYSQL_TESTS: '1'
       ALLOW_DATABASE_MIGRATIONS: '1'
       ALLOW_TEST_DATABASE_MIGRATIONS: '1'
-      DRAW_SEED_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       PRIVACY_NOTICE_URL: https://example.com/privacy
       PRIVACY_NOTICE_VERSION: ci-v1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan full Git history for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+      - name: Scan all Git refs and full history for secrets
+        run: gitleaks git --redact --verbose --exit-code 2 .
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+      - name: Generate ephemeral MySQL and draw test credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          MYSQL_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_TEST_READONLY_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_PRIVILEGE_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_MIGRATION_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_PRIVILEGE_MIGRATION_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_BACKUP_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_RESTORE_PASSWORD="$(openssl rand -hex 32)"
+          MYSQL_RESTORE_RUNTIME_PASSWORD="$(openssl rand -hex 32)"
+          DRAW_SEED_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          for value in "$MYSQL_PASSWORD" "$MYSQL_TEST_READONLY_PASSWORD" "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" "$MYSQL_MIGRATION_PASSWORD" "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" "$MYSQL_BACKUP_PASSWORD" "$MYSQL_RESTORE_PASSWORD" "$MYSQL_RESTORE_RUNTIME_PASSWORD" "$DRAW_SEED_ENCRYPTION_KEY"; do
+            [[ "$value" =~ ^[a-f0-9]{64}$ ]]
+            echo "::add-mask::$value"
+          done
+          {
+            printf 'MYSQL_PASSWORD=%s\n' "$MYSQL_PASSWORD"
+            printf 'MYSQL_TEST_READONLY_PASSWORD=%s\n' "$MYSQL_TEST_READONLY_PASSWORD"
+            printf 'MYSQL_PRIVILEGE_RUNTIME_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD"
+            printf 'MYSQL_PRIVILEGE_MIGRATION_PASSWORD=%s\n' "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD"
+            printf 'MYSQL_MIGRATION_PASSWORD=%s\n' "$MYSQL_MIGRATION_PASSWORD"
+            printf 'MYSQL_BACKUP_PASSWORD=%s\n' "$MYSQL_BACKUP_PASSWORD"
+            printf 'MYSQL_RESTORE_PASSWORD=%s\n' "$MYSQL_RESTORE_PASSWORD"
+            printf 'MYSQL_RESTORE_RUNTIME_PASSWORD=%s\n' "$MYSQL_RESTORE_RUNTIME_PASSWORD"
+            printf 'DRAW_SEED_ENCRYPTION_KEY=%s\n' "$DRAW_SEED_ENCRYPTION_KEY"
+          } >> "$GITHUB_ENV"
+      - name: Provision isolated MySQL test identities and schemas
+        run: |
+          set -Eeuo pipefail
+          [[ "$MYSQL_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_TEST_READONLY_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_PRIVILEGE_MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_BACKUP_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_RESTORE_PASSWORD" =~ ^[a-f0-9]{64}$ && "$MYSQL_RESTORE_RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+          mysql --host 127.0.0.1 --user root --password=root <<SQL
+          CREATE DATABASE IF NOT EXISTS istore_lottery_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS draw_restore_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_preflight_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_drawguard_fixture_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE DATABASE IF NOT EXISTS ustore_privilege_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE USER 'ustore_ci_testapp'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
+          CREATE USER 'ustore_ci_readonly'@'%' IDENTIFIED BY '$MYSQL_TEST_READONLY_PASSWORD';
+          CREATE USER 'ustore_ci_runtime'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_RUNTIME_PASSWORD';
+          CREATE USER 'ustore_ci_migrate'@'%' IDENTIFIED BY '$MYSQL_MIGRATION_PASSWORD';
+          CREATE USER 'ustore_ci_priv_migrate'@'%' IDENTIFIED BY '$MYSQL_PRIVILEGE_MIGRATION_PASSWORD';
+          CREATE USER 'ustore_ci_backup'@'%' IDENTIFIED BY '$MYSQL_BACKUP_PASSWORD';
+          CREATE USER 'ustore_ci_restore'@'%' IDENTIFIED BY '$MYSQL_RESTORE_PASSWORD';
+          CREATE USER 'ustore_ci_restore_runtime'@'%' IDENTIFIED BY '$MYSQL_RESTORE_RUNTIME_PASSWORD';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON istore_lottery_ci.* TO 'ustore_ci_testapp'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_migrate'@'%';
+          GRANT SELECT ON ustore_preflight_fixture_ci.* TO 'ustore_ci_readonly'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ustore_privilege_ci.* TO 'ustore_ci_runtime'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON ustore_privilege_ci.* TO 'ustore_ci_priv_migrate'@'%';
+          GRANT SELECT, SHOW VIEW, TRIGGER ON istore_lottery_ci.* TO 'ustore_ci_backup'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE ON draw_restore_fixture_ci.* TO 'ustore_ci_restore_runtime'@'%';
+          -- Restored audit triggers retain the migration account as DEFINER.
+          -- Give that definer only TRIGGER on the isolated restore schema so runtime DML can execute them.
+          GRANT TRIGGER ON draw_restore_fixture_ci.* TO 'ustore_ci_migrate'@'%';
+          GRANT ALL PRIVILEGES ON draw_restore_fixture_ci.* TO 'ustore_ci_restore'@'%';
+          GRANT SET_USER_ID ON *.* TO 'ustore_ci_restore'@'%';
+          SQL
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
-      - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: find src tests scripts -name '*.js' -print0 | xargs -0 -n1 node --check
       - run: node --check src/index.js
-      - run: bash -n install.sh scripts/prepare-integration-db.sh scripts/run-integration-tests.sh
+      - run: bash -n install.sh scripts/prepare-integration-db.sh scripts/run-integration-tests.sh scripts/production-host-preflight.sh

@@ -67,7 +67,7 @@ test('admin campaign edit cancellation callback is registered with numeric ID',(
   registerAdminHandlers(bot);
   const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('admin:campaign:edit:cancel'));
   assert.ok(cancel);
-  assert.ok(cancel.test('admin:campaign:edit:cancel:42'));
+  assert.ok(cancel.test('admin:campaign:edit:cancel:42:123456'));
 });
 
 test('participant block callback enforces participant.manage permission',()=>{
@@ -86,17 +86,20 @@ test('payment receipt replay cursor rejects equal and older updates but allows n
   assert.equal(isStalePaymentReceiptUpdate(100,100),true);
   assert.equal(isStalePaymentReceiptUpdate(99,100),true);
   assert.equal(isStalePaymentReceiptUpdate(101,100),false);
-  assert.equal(isStalePaymentReceiptUpdate(101,null),false);
+  assert.equal(isStalePaymentReceiptUpdate(101,null),true);
   assert.equal(isStalePaymentReceiptUpdate('invalid',null),true);
   assert.equal(isStalePaymentReceiptUpdate(101,'invalid'),true);
 });
 
-test('payment receipt sessions persist the callback update cursor and claim photo updates atomically',()=>{
+test('payment receipt upload session is consumed atomically with receipt persistence',()=>{
   const source=readFileSync(new URL('../../src/bot/handlers/payment.handler.js',import.meta.url),'utf8');
+  const service=readFileSync(new URL('../../src/modules/payments/payment.service.js',import.meta.url),'utf8');
   assert.ok((source.match(/last_update_id\) VALUES\(\?,'awaiting_payment_receipt'/g)||[]).length>=2);
-  assert.equal((source.match(/payload=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),VALUES\(payload\),payload\)/g)||[]).length,2);
-  assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt'/);
-  assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt' AND JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
+  assert.ok((source.match(/payload=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),VALUES\(payload\),payload\)/g)||[]).length>=2);
+  assert.doesNotMatch(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt'/);
+  assert.match(source,/sessionCursor:\{expectedLastUpdateId:session\.last_update_id,updateId\}/);
+  assert.match(service,/SELECT step,payload,last_update_id FROM telegram_user_sessions WHERE telegram_user_id=\? FOR UPDATE/);
+  assert.match(service,/DELETE FROM telegram_user_sessions WHERE telegram_user_id=\?.*last_update_id=\?/);
   assert.match(source,/JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
 });
 
@@ -106,6 +109,9 @@ test('payment cancellation is bound to the order shown on its button',()=>{
   registerPaymentHandlers(bot);
   const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('payment:cancel'));
   assert.ok(cancel);
-  assert.ok(cancel.test('payment:cancel:123'));
+  assert.ok(cancel.test('payment:cancel:123:456'));
+  assert.ok(!cancel.test('payment:cancel:123'));
   assert.ok(!cancel.test('payment:cancel:456x'));
+  const source=readFileSync(new URL('../../src/bot/handlers/payment.handler.js',import.meta.url),'utf8');
+  assert.match(source,/JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\? AND last_update_id=\?/);
 });

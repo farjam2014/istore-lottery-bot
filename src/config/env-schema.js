@@ -9,8 +9,12 @@ export const envSchema = z.object({
   MYSQL_DATABASE: z.string().regex(/^[A-Za-z0-9_]+$/),
   MYSQL_USER: z.string().min(1),
   MYSQL_PASSWORD: z.string(),
+  MYSQL_MIGRATION_USER: z.string().min(1).optional(),
+  MYSQL_MIGRATION_PASSWORD: z.string().min(1).optional(),
   MYSQL_POOL_SIZE: z.coerce.number().int().min(1).max(50).default(10),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // Destructive retention cleanup stays disabled until the business/legal policy is approved.
+  RETENTION_CLEANUP_ENABLED: z.enum(['true','false']).default('false').transform(value=>value==='true'),
   DRAW_SEED_ENCRYPTION_KEYS: z.string().optional(),
   DRAW_SEED_ENCRYPTION_KEY: z.string().optional(),
   DRAW_SEED_ACTIVE_KEY_ID: z.string().optional(),

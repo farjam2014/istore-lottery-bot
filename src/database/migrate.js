@@ -1,4 +1,4 @@
-import {pool} from './pool.js';
+import {getMigrationPool} from './migration-pool.js';
 import {config} from '../config/env.js';
 import {assertMigrationAllowed} from './migration-guard.js';
 import {readFile,readdir} from 'node:fs/promises';
@@ -59,6 +59,18 @@ async function hasTable(connection,table){
   );
   return Number(row.total)>0;
 }
+async function hasAppendOnlyAuditTrigger(connection,trigger,event){
+  const [[row]]=await connection.execute(
+    'SELECT EVENT_OBJECT_TABLE,EVENT_MANIPULATION,ACTION_TIMING,ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?',
+    [trigger]
+  );
+  if(!row)return false;
+  const statement=String(row.ACTION_STATEMENT||'').replace(/\s+/g,' ').toUpperCase();
+  if(row.EVENT_OBJECT_TABLE!=='admin_audit_log'||row.EVENT_MANIPULATION!==event||row.ACTION_TIMING!=='BEFORE'||statement!=="SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ADMIN_AUDIT_LOG IS APPEND-ONLY'"){
+    throw new Error('Incompatible existing audit trigger '+trigger+'. Inspect before migration recovery.');
+  }
+  return true;
+}
 
 // These guards make replay safe if MySQL committed DDL but the process stopped
 // before schema_migrations could record the completed migration.
@@ -81,8 +93,39 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
   if(file==='20261124_003_registration_session_replay.sql'){
-    if(index!==0)throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
-    return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
+    if(index===0)return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
+    if(index===1)return false; // Clear pre-cursor registration sessions after adding the replay cursor.
+    throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
+  }
+  if(file==='20261124_004_admin_wizard_replay.sql'){
+    if(index===0)return hasNullableBigintColumn(connection,'admin_wizards','last_update_id');
+    if(index===1)return hasNullableBigintColumn(connection,'payment_card_admin_sessions','last_update_id');
+    if(index===2)return hasNullableBigintColumn(connection,'admin_role_sessions','last_update_id');
+    if(index===3)return false; // Clear pre-cursor campaign admin wizards.
+    if(index===4)return false; // Clear pre-cursor payment-card admin sessions.
+    if(index===5)return false; // Clear pre-cursor one-shot role sessions.
+    throw new Error('Unexpected statement index in 20261124_004_admin_wizard_replay.sql.');
+  }
+  if(file==='20261125_001_support_reply_replay.sql'){
+    if(index===0)return false;
+    if(index===1)return hasNullableBigintColumn(connection,'support_sessions','last_update_id');
+    throw new Error('Unexpected statement index in 20261125_001_support_reply_replay.sql.');
+  }
+  if(file==='20261125_002_admin_search_replay.sql'){
+    if(index===0)return hasNullableBigintColumn(connection,'admin_search_sessions','last_update_id');
+    if(index===1)return hasNullableBigintColumn(connection,'payment_admin_sessions','last_update_id');
+    throw new Error('Unexpected statement index in 20261125_002_admin_search_replay.sql.');
+  }
+  if(file==='20261125_003_participant_session_replay.sql'){
+    if(index===0)return false; // Clear pre-cursor participant support sessions; they cannot be safely replay-guarded.
+    if(index===1)return hasNullableBigintColumn(connection,'profile_change_sessions','last_update_id');
+    if(index===2)return false; // Clear pre-cursor profile sessions after adding the cursor.
+    throw new Error('Unexpected statement index in 20261125_003_participant_session_replay.sql.');
+  }
+  if(file==='20261125_004_admin_audit_append_only.sql'){
+    if(index===0)return hasAppendOnlyAuditTrigger(connection,'trg_admin_audit_log_no_update','UPDATE');
+    if(index===1)return hasAppendOnlyAuditTrigger(connection,'trg_admin_audit_log_no_delete','DELETE');
+    throw new Error('Unexpected statement index in 20261125_004_admin_audit_append_only.sql.');
   }
   if(file==='20261124_002_privacy_consent.sql'&&index===0){
     return allSchemaChecks(connection,[
@@ -274,7 +317,11 @@ async function migrationStatementAlreadyApplied(connection,file,index){
     }
   }
   if(file==='20261117_006_draw_relational_integrity.sql'){
-    if(index===0) return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
+    if(index===0){
+      const [[legacy]]=await connection.execute('SELECT (SELECT COUNT(*) FROM draw_candidates)+(SELECT COUNT(*) FROM draw_winners) AS total');
+      if(Number(legacy.total)>0) throw new Error('Draw relational-integrity migration requires empty legacy draw tables. Existing draw evidence must be reviewed and reconciled explicitly; no historical candidate snapshot will be inferred.');
+      return hasIndex(connection,'campaign_entries','uq_entry_campaign_participant');
+    }
     if(index===1) return hasIndex(connection,'campaign_codes','uq_code_entry_campaign_value');
     if(index===2){
       const [[legacy]]=await connection.execute('SELECT (SELECT COUNT(*) FROM draw_candidates)+(SELECT COUNT(*) FROM draw_winners) AS total');
@@ -366,10 +413,10 @@ async function migrationStatementAlreadyApplied(connection,file,index){
   return false;
 }
 
-export async function migrate(){
+export async function migrate({stopBefore}={}){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
-  const c=await pool.getConnection();
+  const c=await getMigrationPool().getConnection();
   let lockAcquisitionResolved=false,lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
@@ -387,6 +434,10 @@ export async function migrate(){
 
     const dir=path.join(here,'migrations');
     const files=(await readdir(dir)).filter(x=>x.endsWith('.sql')).sort();
+    if(stopBefore!==undefined){
+      if(config.NODE_ENV!=='test')throw new Error('Migration stopBefore is available only in test environments.');
+      if(typeof stopBefore!=='string'||!files.includes(stopBefore))throw new Error('Unknown migration stopBefore target.');
+    }
     const [appliedRows]=await c.execute('SELECT version FROM schema_migrations ORDER BY version');
     assertMigrationHistoryIntegrity(appliedRows.map(row=>row.version),files);
 
@@ -394,6 +445,7 @@ export async function migrate(){
     // references migration files that are absent from this release source.
     for(const statement of splitSql(base))await c.query(statement);
     for(const file of files){
+      if(file===stopBefore)break;
       const sql=await readFile(path.join(dir,file),'utf8');
       const checksum=createHash('sha256').update(sql).digest('hex');
       const [[existing]]=await c.execute('SELECT checksum FROM schema_migrations WHERE version=?',[file]);

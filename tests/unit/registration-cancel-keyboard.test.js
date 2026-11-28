@@ -19,6 +19,7 @@ test('phone step sends a single prompt with the combined keyboard',()=>{
 
 test('phone-step cancellation clears the session and presents a restart button',()=>{
   assert.ok(handler.includes("if(s.step==='awaiting_phone'&&value==='❌ انصراف از ثبت‌نام')"));
-  assert.ok(handler.includes('clearSession(ctx.from.id)'));
+  assert.ok(handler.includes('clearSessionIfNewer(ctx.from.id,ctx.update.update_id)'));
+  assert.ok(handler.includes('registration:cancel:(-1|[0-9]{1,16})'));
   assert.ok(handler.includes('registrationStartKeyboard()'));
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {setAdminActive} from '../../src/modules/admin/admin-access.service.js';
+import {setAdminActive,assignAdminRoleFromSession} from '../../src/modules/admin/admin-access.service.js';
 
 function fakeDatabase(target,activeSuperAdmins=[target]){
   const state={target:{...target},events:[],updates:[],commits:0,rollbacks:0};
@@ -52,5 +52,73 @@ test('admin deactivation writes state and audit event in one transaction',async(
   assert.equal(result.changed,true);
   assert.equal(db.state.target.is_active,0);
   assert.equal(db.state.events.length,1);
+  assert.equal(db.state.commits,1);
+});
+
+
+function fakeAssignDatabase({target=null,role='campaign_manager',activeSuperAdmins=[],createdAt=new Date(),lastUpdateId=100}={}){
+  const state={target:target?{...target}:null,session:{role,created_at:createdAt,last_update_id:lastUpdateId},activeSuperAdmins:activeSuperAdmins.map(x=>({...x})),events:[],commits:0,rollbacks:0,inserts:[]};
+  const connection={
+    async beginTransaction(){},
+    async commit(){state.commits++;},
+    async rollback(){state.rollbacks++;},
+    release(){},
+    async execute(sql,params=[]){
+      if(sql.startsWith('SELECT role,created_at,last_update_id FROM admin_role_sessions'))return [[state.session?{...state.session}:undefined].filter(Boolean),[]];
+      if(sql.startsWith('SELECT role,is_active FROM admin_users'))return [[state.target?{role:state.target.role,is_active:state.target.is_active}:undefined].filter(Boolean),[]];
+      if(sql.startsWith("SELECT telegram_user_id FROM admin_users WHERE role='super_admin'"))return [state.activeSuperAdmins,[]];
+      if(sql.startsWith('UPDATE admin_users SET role=')){state.target.role=params[0];return [{affectedRows:1},[]];}
+      if(sql.startsWith('INSERT INTO admin_users')){state.target={telegram_user_id:params[0],role:params[1],is_active:params[2],added_by:params[3]};state.inserts.push(params);return [{insertId:1},[]];}
+      if(sql.startsWith('INSERT INTO admin_role_events')){state.events.push(params);return [{insertId:1},[]];}
+      if(sql.startsWith('DELETE FROM admin_role_sessions')){if(state.session&&(params.length===1||state.session.role===params[1])){state.session=null;return [{affectedRows:1},[]];}return [{affectedRows:0},[]];}
+      throw new Error('Unexpected SQL: '+sql);
+    }
+  };
+  return {state,async getConnection(){return connection;}};
+}
+
+test('assigning a role cannot demote the last active super admin',async()=>{
+  const admin={telegram_user_id:'12345',role:'super_admin',is_active:1};
+  const db=fakeAssignDatabase({target:admin,activeSuperAdmins:[admin]});
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db}),/آخرین مدیر کل فعال/);
+  assert.equal(db.state.target.role,'super_admin');
+  assert.ok(db.state.session);
+  assert.equal(db.state.rollbacks,1);
+});
+
+test('assigning a role preserves an existing inactive admin state',async()=>{
+  const db=fakeAssignDatabase({target:{telegram_user_id:'12345',role:'support_agent',is_active:0}});
+  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
+  assert.equal(result.changed,true);
+  assert.equal(db.state.target.role,'campaign_manager');
+  assert.equal(db.state.target.is_active,0);
+  assert.equal(result.isActive,0);
+  assert.equal(db.state.session,null);
+  assert.equal(db.state.commits,1);
+});
+
+test('admin role assignment rejects updates at or before the session-start cursor',async()=>{
+  const db=fakeAssignDatabase({lastUpdateId:200});
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:200,database:db}),/پیش از شروع نشست فعلی/);
+  assert.equal(db.state.target,null);
+  assert.ok(db.state.session);
+  assert.equal(db.state.rollbacks,1);
+});
+
+test('admin role assignment consumes its wizard session exactly once',async()=>{
+  const db=fakeAssignDatabase();
+  await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
+  await assert.rejects(assignAdminRoleFromSession({actorId:'99999',targetId:'67890',updateId:102,database:db}),/نشست افزودن مدیر منقضی شده/);
+  assert.equal(db.state.target.telegram_user_id,'12345');
+  assert.equal(db.state.inserts.length,1);
+});
+
+test('expired admin role assignment session is consumed without granting access',async()=>{
+  const db=fakeAssignDatabase({createdAt:new Date(Date.now()-25*60*60*1000)});
+  const result=await assignAdminRoleFromSession({actorId:'99999',targetId:'12345',updateId:101,database:db});
+  assert.equal(result.expired,true);
+  assert.equal(db.state.session,null);
+  assert.equal(db.state.target,null);
+  assert.equal(db.state.inserts.length,0);
   assert.equal(db.state.commits,1);
 });

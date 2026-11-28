@@ -12,12 +12,52 @@ test('structured logs redact Telegram IDs, phone numbers, Instagram handles, and
     telegram_user_id:'222222',
     adminTelegramId:'555555',
     phone:'09125550000',
+    card_holder:'Private Cardholder',
+    payment_instructions:'private bank transfer instructions',
+    receipt_note:'private receipt note',
+    review_note:'private review note',
+    telegram_file_id:'file-secret-id',
+    telegram_file_unique_id:'file-unique-secret',
     instagram_handle:'private_handle',
     from:{id:'333333'},
     nested:{chatId:'444444',adminTelegramId:'666666',full_name:'Private Person'}
   },'redaction test');
   assert.match(output,/\[REDACTED\]/);
-  for(const secret of ['111111','222222','555555','666666','09125550000','09125550001','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name']){
+  for(const secret of ['111111','222222','555555','666666','09125550000','09125550001','private_handle','333333','444444','Private Person','private_telegram_name','Private First','Private Last','nested_private_name','Private Cardholder','private bank transfer instructions','private receipt note','private review note','file-secret-id','file-unique-secret']){
     assert.equal(output.includes(secret),false,'sensitive value leaked: '+secret);
+  }
+});
+
+
+test('structured error logs redact raw database and nested error messages and stacks',()=>{
+  let output='';
+  const destination={write(chunk){output+=String(chunk);}};
+  const log=pino({level:'error',redact:{paths:logRedactPaths,censor:'[REDACTED]'}},destination);
+  const duplicate=new Error("Duplicate entry '09125550000' for key 'participants.phone'");
+  duplicate.code='ER_DUP_ENTRY';
+  const remote=new Error('Telegram request failed for @private_handle and 998877665544');
+  log.error({err:duplicate,nested:{err:remote}},'sensitive error test');
+  assert.match(output,/ER_DUP_ENTRY/);
+  for(const secret of ['09125550000','private_handle','998877665544','Duplicate entry','Telegram request failed'])assert.equal(output.includes(secret),false,'sensitive error content leaked: '+secret);
+});
+
+
+test('structured database error logs redact SQL text, SQL messages and bound parameters while retaining safe error codes',()=>{
+  let output='';
+  const destination={write(chunk){output+=String(chunk);}};
+  const log=pino({level:'error',redact:{paths:logRedactPaths,censor:'[REDACTED]'}},destination);
+  const phone='091255509876';
+  const sql="INSERT INTO participants(phone) VALUES ('"+phone+"')";
+  const databaseError=Object.assign(new Error("Duplicate entry '"+phone+"' for key 'participants.phone'"),{
+    code:'ER_DUP_ENTRY',
+    sqlMessage:"Duplicate entry '"+phone+"' for key 'participants.phone'",
+    sql,
+    parameters:[phone],
+    params:{phone}
+  });
+  log.error({err:databaseError,sql,sqlMessage:databaseError.sqlMessage,parameters:[phone],nested:{err:databaseError}},'database error redaction test');
+  assert.match(output,/ER_DUP_ENTRY/,'safe database error codes should remain available for diagnosis');
+  for(const secret of [phone,'Duplicate entry','INSERT INTO participants','participants.phone']){
+    assert.equal(output.includes(secret),false,'database error detail leaked: '+secret);
   }
 });

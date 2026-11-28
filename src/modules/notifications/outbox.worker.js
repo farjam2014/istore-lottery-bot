@@ -6,15 +6,33 @@ import {deliverTelegramNotification} from './telegram-delivery.js';
 const MAX_ATTEMPTS=8;
 const LEASE_MINUTES=5;
 
-export function classifyTelegramDeliveryError(error,attempts=1){
+function telegramErrorCode(error){
   const rawCode=error?.response?.error_code??error?.response?.data?.error_code??error?.error_code??(typeof error?.code==='number'?error.code:null);
   const code=Number(rawCode);
+  return Number.isInteger(code)&&code>=100&&code<=599?code:null;
+}
+
+export function safeTelegramDeliveryErrorLabel(error){
+  const code=telegramErrorCode(error);
+  if(code===429)return 'telegram_http_429';
+  if(code===408)return 'telegram_http_408_timeout';
+  if(code!==null&&code>=500)return 'telegram_http_5xx';
+  if(code!==null&&code>=400)return 'telegram_http_4xx';
+  return 'network_or_unknown';
+}
+
+export function classifyTelegramDeliveryError(error,attempts=1){
+  const code=telegramErrorCode(error);
   const retryDelay=Math.min(3600,Math.max(1,Number(error?.response?.parameters?.retry_after??error?.parameters?.retry_after)||Math.min(3600,Math.pow(2,Math.min(attempts,10))*15)));
-  if(code===429)return {status:'pending',delaySeconds:retryDelay};
-  if(Number.isFinite(code)&&code>=400&&code<500)return {status:'failed',delaySeconds:0};
+  if(code===429)return {status:'pending',delaySeconds:retryDelay,errorLabel:'telegram_http_429'};
+  // HTTP 408 is a timeout, not proof that Telegram rejected the message. The
+  // request may have been accepted before the timeout response was produced.
+  // Keep it uncertain and require an explicit, audited operator decision.
+  if(code===408)return {status:'uncertain',delaySeconds:0,errorLabel:'telegram_http_408_timeout'};
+  if(code!==null&&code>=400&&code<500)return {status:'failed',delaySeconds:0,errorLabel:'telegram_http_4xx'};
   // Network failures and server errors are ambiguous: Telegram may have accepted
   // the message before the response was lost. Never automatically resend them.
-  return {status:'uncertain',delaySeconds:0};
+  return {status:'uncertain',delaySeconds:0,errorLabel:code!==null&&code>=500?'telegram_http_5xx':'network_or_unknown'};
 }
 
 export function createNotificationOutboxWorker({
@@ -46,7 +64,7 @@ export function createNotificationOutboxWorker({
       await c.commit();
     }catch(error){await c.rollback();throw error;}finally{c.release();}
 
-    let delivered=0,failed=0,uncertain=0;
+    let delivered=0,failed=0,retried=0,uncertain=0;
     for(const job of jobs){
       let payload;
       try{
@@ -57,9 +75,9 @@ export function createNotificationOutboxWorker({
       }catch(error){
         await database.execute(
           "UPDATE telegram_notification_outbox SET status='failed',locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
-          [String(error.message||error).slice(0,500),job.id,job.leaseToken]
+          ['invalid_payload',job.id,job.leaseToken]
         );
-        log.error({err:error,notificationId:job.id,correlationId:job.correlation_id},'Notification payload rejected');
+        log.error({reason:'invalid_payload',notificationId:job.id,correlationId:job.correlation_id},'Notification payload rejected');
         failed++;continue;
       }
 
@@ -73,10 +91,10 @@ export function createNotificationOutboxWorker({
         const delay=status==='pending'?outcome.delaySeconds:0;
         await database.execute(
           "UPDATE telegram_notification_outbox SET status=?,available_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? SECOND),locked_at=NULL,lease_token=NULL,last_error=? WHERE id=? AND lease_token=? AND status='sending'",
-          [status,delay,String(error?.message||'Telegram delivery failed').slice(0,500),job.id,job.leaseToken]
+          [status,delay,outcome.errorLabel,job.id,job.leaseToken]
         );
-        log.warn({err:error,notificationId:job.id,correlationId:job.correlation_id,attempts,outcome:status,willRetry:status==='pending'},'Telegram notification delivery failed');
-        if(status==='uncertain')uncertain++;else failed++;
+        log.warn({errorClass:outcome.errorLabel,notificationId:job.id,correlationId:job.correlation_id,attempts,outcome:status,willRetry:status==='pending'},'Telegram notification delivery failed');
+        if(status==='uncertain')uncertain++;else if(status==='pending')retried++;else failed++;
         continue;
       }
 
@@ -88,7 +106,7 @@ export function createNotificationOutboxWorker({
       );
       if(updated.affectedRows){delivered++;}else{uncertain++;}
     }
-    return {claimed:jobs.length,delivered,failed,uncertain};
+    return {claimed:jobs.length,delivered,failed,retried,uncertain};
   };
 }
 

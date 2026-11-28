@@ -23,6 +23,17 @@ test('environment schema preserves production defaults under Zod 4', () => {
   assert.equal(result.data.BOT_ADMIN_IDS, '123456789');
 });
 
+test('retention cleanup is disabled by default and requires explicit true opt-in',()=>{
+  const disabled=parseEnvironment({...validEnvironment});
+  assert.equal(disabled.success,true);
+  assert.equal(disabled.data.RETENTION_CLEANUP_ENABLED,false);
+  const enabled=parseEnvironment({...validEnvironment,RETENTION_CLEANUP_ENABLED:'true'});
+  assert.equal(enabled.success,true);
+  assert.equal(enabled.data.RETENTION_CLEANUP_ENABLED,true);
+  const invalid=parseEnvironment({...validEnvironment,RETENTION_CLEANUP_ENABLED:'yes'});
+  assert.equal(invalid.success,false);
+});
+
 test('environment schema coerces a valid MySQL port and pool size', () => {
   const result = parseEnvironment({
     ...validEnvironment,
@@ -66,4 +77,18 @@ test('production requires at least one valid admin ID and a non-empty MySQL pass
   const missingPassword=parseEnvironment({...validEnvironment,MYSQL_PASSWORD:''});
   assert.equal(missingPassword.success,false);
   assert.ok(missingPassword.error.flatten().fieldErrors.MYSQL_PASSWORD);
+});
+
+
+test('runtime environment accepts absent migration-only credentials',()=>{
+  const result=parseEnvironment({...validEnvironment});
+  assert.equal(result.success,true);
+  assert.equal(result.data.MYSQL_MIGRATION_USER,undefined);
+  assert.equal(result.data.MYSQL_MIGRATION_PASSWORD,undefined);
+});
+
+test('migration-only credentials are parsed when supplied to an approved migration process',()=>{
+  const result=parseEnvironment({...validEnvironment,MYSQL_MIGRATION_USER:'ustore_migrate_abcdef123456',MYSQL_MIGRATION_PASSWORD:'m'.repeat(64)});
+  assert.equal(result.success,true);
+  assert.equal(result.data.MYSQL_MIGRATION_USER,'ustore_migrate_abcdef123456');
 });

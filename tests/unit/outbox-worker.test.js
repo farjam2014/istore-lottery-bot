@@ -75,22 +75,28 @@ test('outbox worker sends a valid notification and marks it sent',async()=>{
     deliver:async(_telegram,chatId,payload)=>sent.push({chatId,payload})
   });
   const result=await worker({}, {limit:10});
-  assert.deepEqual(result,{claimed:1,delivered:1,failed:0,uncertain:0});
+  assert.deepEqual(result,{claimed:1,delivered:1,failed:0,retried:0,uncertain:0});
   assert.equal(database.jobs[0].status,'sent');
   assert.deepEqual(sent,[{chatId:'12345',payload:{text:'hello'}}]);
 });
 
-test('ambiguous network failure becomes uncertain and is never automatically retried',async()=>{
+test('ambiguous network failure becomes uncertain and stores/logs no raw exception text',async()=>{
   const database=fakeDatabase([job()]);
+  const emitted=[];
+  const log={warn:(data)=>emitted.push(data),error:(data)=>emitted.push(data)};
+  const secret='temporary Telegram failure phone +989121234567 receipt SECRET-123';
   const worker=createNotificationOutboxWorker({
-    database,log:logger,uuid:()=> 'lease-2',
-    deliver:async()=>{throw new Error('temporary Telegram failure');}
+    database,log,uuid:()=> 'lease-2',
+    deliver:async()=>{throw new Error(secret);}
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,uncertain:1});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
   assert.equal(database.jobs[0].status,'uncertain');
   assert.equal(database.jobs[0].lease_token,null);
-  assert.match(database.jobs[0].last_error,/temporary Telegram failure/);
+  assert.equal(database.jobs[0].last_error,'network_or_unknown');
+  assert.equal(JSON.stringify(emitted).includes(secret),false);
+  assert.equal(JSON.stringify(emitted).includes('989121234567'),false);
+  assert.equal(JSON.stringify(emitted).includes('SECRET-123'),false);
 });
 
 test('notification reaches terminal failed state at the maximum attempt',async()=>{
@@ -113,10 +119,28 @@ test('Telegram 429 response is safely retried using retry_after',async()=>{
     deliver:async()=>{throw Object.assign(new Error('Too Many Requests'),{response:{error_code:429,parameters:{retry_after:12}}});}
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:1,uncertain:0});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:1,uncertain:0});
   assert.equal(database.jobs[0].status,'pending');
   assert.equal(database.jobs[0].retry_delay,12);
   assert.equal(database.jobs[0].lease_token,null);
+});
+
+test('Telegram HTTP 408 timeout is uncertain and never automatically resent',async()=>{
+  const database=fakeDatabase([job()]);
+  let sends=0;
+  const worker=createNotificationOutboxWorker({
+    database,log:logger,uuid:()=> 'lease-408',
+    deliver:async()=>{sends++;throw Object.assign(new Error('Request timeout'),{response:{error_code:408}});}
+  });
+  const first=await worker({});
+  assert.deepEqual(first,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
+  assert.equal(database.jobs[0].status,'uncertain');
+  assert.equal(database.jobs[0].last_error,'telegram_http_408_timeout');
+  assert.equal(database.jobs[0].lease_token,null);
+
+  const second=await worker({});
+  assert.deepEqual(second,{claimed:0,delivered:0,failed:0,retried:0,uncertain:0});
+  assert.equal(sends,1);
 });
 
 test('Telegram server error is uncertain rather than automatically retried',async()=>{
@@ -126,7 +150,7 @@ test('Telegram server error is uncertain rather than automatically retried',asyn
     deliver:async()=>{throw Object.assign(new Error('Telegram server error'),{response:{error_code:500}});}
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,uncertain:1});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
   assert.equal(database.jobs[0].status,'uncertain');
 });
 
@@ -137,7 +161,7 @@ test('permanent Telegram 4xx response is terminal failed',async()=>{
     deliver:async()=>{throw Object.assign(new Error('Bad Request'),{response:{error_code:400}});}
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:1,uncertain:0});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:1,retried:0,uncertain:0});
   assert.equal(database.jobs[0].status,'failed');
 });
 
@@ -152,7 +176,7 @@ test('invalid notification payload is rejected without calling Telegram',async()
   assert.equal(sends,0);
   assert.equal(result.failed,1);
   assert.equal(database.jobs[0].status,'failed');
-  assert.match(database.jobs[0].last_error,/Invalid notification payload/);
+  assert.equal(database.jobs[0].last_error,'invalid_payload');
 });
 
 test('expired sending lease becomes uncertain and is never automatically resent',async()=>{
@@ -164,7 +188,7 @@ test('expired sending lease becomes uncertain and is never automatically resent'
   });
   const result=await worker({});
   assert.equal(sends,0);
-  assert.deepEqual(result,{claimed:0,delivered:0,failed:0,uncertain:0});
+  assert.deepEqual(result,{claimed:0,delivered:0,failed:0,retried:0,uncertain:0});
   assert.equal(database.jobs[0].status,'uncertain');
   assert.equal(database.jobs[0].lease_token,null);
 });
@@ -179,6 +203,6 @@ test('lost lease after successful Telegram delivery is reported as uncertain',as
     }
   });
   const result=await worker({});
-  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,uncertain:1});
+  assert.deepEqual(result,{claimed:1,delivered:0,failed:0,retried:0,uncertain:1});
   assert.equal(database.jobs[0].status,'uncertain');
 });

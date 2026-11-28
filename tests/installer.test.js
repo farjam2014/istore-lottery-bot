@@ -15,6 +15,14 @@ test('Ubuntu installer has valid Bash syntax',()=>{
 test('installer preserves existing application state and requires production authorization',()=>{
   const script=readFileSync(installerPath,'utf8');
   assert.match(script,/git -C .*status --porcelain --untracked-files=all/);
+  assert.match(script,/USTORE_RELEASE_COMMIT/);
+  assert.match(script,/Set USTORE_RELEASE_COMMIT to the exact reviewed 40-character release commit SHA/);
+  assert.match(script,/git clone --no-checkout --depth 1/);
+  assert.match(script,/git -C "\$APP_DIR" fetch --depth 1 origin "\$RELEASE_COMMIT"/);
+  assert.match(script,/checkout --detach "\$RELEASE_COMMIT"/);
+  assert.match(script,/checked_out_commit.*RELEASE_COMMIT/);
+  assert.doesNotMatch(script,/BRANCH="install\//,'Installer must not deploy from a floating branch.');
+  assert.ok(script.indexOf('checkout --detach "$RELEASE_COMMIT"')<script.indexOf('Application source is incomplete after the pinned checkout.'),'Source files must be validated only after the exact commit is checked out.');
   assert.match(script,/Tracked or untracked files are present in the checkout/);
   assert.doesNotMatch(script,/unexpected origin remote: \$remote/,'Installer must not print a remote URL that could contain embedded credentials.');
   assert.match(script,/Existing \.env found; preserving it/);
@@ -51,4 +59,46 @@ test('production migration preflight includes campaign-edit wizard migration and
   assert.ok(preflight.includes("table_name='admin_wizards' AND column_name='step'"));
   assert.ok(readiness.includes('20261119_001_campaign_edit_wizard_step.sql'));
   assert.ok(readiness.includes('Campaign editing opens the input prompt'));
+});
+
+
+test('fresh installation requires and writes a published privacy notice',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/Published HTTPS privacy notice URL/);
+  assert.match(script,/PRIVACY_NOTICE_URL=\$PRIVACY_NOTICE_URL/);
+  assert.match(script,/PRIVACY_NOTICE_VERSION=\$PRIVACY_NOTICE_VERSION/);
+  assert.match(script,/PRIVACY_NOTICE_URL must be a published, non-placeholder HTTPS URL/);
+  assert.match(script,/PRIVACY_NOTICE_VERSION in \.env is missing or invalid/);
+});
+
+test('installer keeps DDL privileges on a separate root-protected migration account',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE ON \$DB_NAME\.\* TO '\$DB_USER'@'127\.0\.0\.1'/);
+  assert.doesNotMatch(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON \$DB_NAME\.\* TO '\$DB_USER'/);
+  assert.ok(script.includes("SET DEFAULT ROLE NONE TO '$DB_USER'@'127.0.0.1';"));
+  assert.ok(script.includes("SET DEFAULT ROLE NONE TO '$MIGRATION_DB_USER'@'127.0.0.1';"));
+  assert.match(script,/GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, TRIGGER ON \$DB_NAME\.\* TO '\$MIGRATION_DB_USER'/);
+  assert.match(script,/MIGRATION_ENV_DIR="\/etc\/ustore-telegram-bot"/);
+  assert.match(script,/stat -c '%U:%G:%a' "\$MIGRATION_ENV_FILE"\)" == "root:root:600"/);
+  assert.match(script,/MYSQL_MIGRATION_PASSWORD=\$MIGRATION_DB_PASSWORD/);
+  assert.ok(script.includes('admin_ids_csv="${ADMIN_ID//[[:space:]]/}"'));
+  assert.ok(script.includes('[[ "$admin_ids_csv" =~ ^[0-9]{5,20}(,[0-9]{5,20})*$ ]]'));
+});
+
+
+test('installer refuses migration credentials in the service-readable runtime env',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.match(script,/read_env MYSQL_MIGRATION_USER/);
+  assert.match(script,/read_env MYSQL_MIGRATION_PASSWORD/);
+  assert.match(script,/Migration credentials must not be stored in the service-readable runtime \.env/);
+});
+
+
+test('systemd service runs with a read-only filesystem namespace and no writable release path',()=>{
+  const script=readFileSync(installerPath,'utf8');
+  assert.ok(script.includes('ProtectSystem=strict'));
+  assert.ok(script.includes('ProtectHome=true'));
+  assert.ok(script.includes('NoNewPrivileges=true'));
+  assert.ok(script.includes('PrivateTmp=true'));
+  assert.ok(!script.includes('ReadWritePaths=$APP_DIR'));
 });
