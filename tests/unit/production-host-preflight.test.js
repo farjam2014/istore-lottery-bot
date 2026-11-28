@@ -40,6 +40,13 @@ test('runner sudo inspection treats the expected no-sudo response as safe and fa
   assert.ok(source.includes('Could not reliably inspect ghrunner sudo policy.'));
 });
 
+test('production host preflight blocks explicitly enabled retention cleanup until written approval',()=>{
+  assert.ok(source.includes('RETENTION_CLEANUP_ENABLED="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" RETENTION_CLEANUP_ENABLED)"'));
+  assert.ok(source.includes('""|false) info "retention_cleanup=disabled"'));
+  assert.ok(source.includes('true) fail "RETENTION_CLEANUP_ENABLED=true but no written business/legal retention approval is recorded."'));
+  assert.ok(source.includes('RETENTION_CLEANUP_ENABLED must be absent or exactly false'));
+});
+
 test('production host preflight requires a dedicated service identity and effective systemd sandbox controls',()=>{
   for(const value of [
     'SERVICE_USER="$(systemctl show "$SERVICE" -p User --value',
