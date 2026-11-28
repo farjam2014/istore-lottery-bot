@@ -17,6 +17,7 @@ test('retention worker purges expired participant, admin, support, and operation
   assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_update_inbox SET last_error=')&&sql.includes('legacy_error_redacted')));
   assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_notification_outbox SET last_error=')&&sql.includes('legacy_error_redacted')));
   assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_notification_outbox SET last_error=')&&sql.includes("'telegram_http_408_timeout'")),'HTTP 408 classification must survive retention redaction');
+  assert.ok(statements.some(sql=>sql.startsWith('UPDATE telegram_notification_outbox SET last_error=')&&sql.includes("'Delivery outcome unknown after worker lease expired'")),'expired-lease uncertainty label must survive retention redaction');
   assert.ok(statements.some(sql=>sql.includes('admin_search_sessions')&&sql.includes('INTERVAL 24 HOUR')));
   assert.ok(statements.some(sql=>sql.includes('telegram_user_sessions')&&sql.includes('INTERVAL 24 HOUR')));
   assert.ok(statements.some(sql=>sql.includes('processed_updates')&&sql.includes('INTERVAL 3 DAY')));
