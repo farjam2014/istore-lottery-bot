@@ -29,4 +29,5 @@ test('unknown and malformed Telegram errors map to a fixed safe label',()=>{
 test('admin outbox presentation preserves the safe HTTP 408 uncertainty label',()=>{
   const admin=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
   assert.match(admin,/telegram_http_408_timeout/);
+  assert.match(admin,/Delivery outcome unknown after worker lease expired/);
 });
