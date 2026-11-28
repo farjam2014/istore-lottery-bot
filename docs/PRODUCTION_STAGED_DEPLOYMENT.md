@@ -93,7 +93,29 @@ Only after separate approval:
    ```bash
    set -Eeuo pipefail
    set +x
-   trap 'unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE' EXIT
+   MYSQL_TRUST_RESTORE_VALUE=""
+restore_mysql_trust_setting() {
+  [[ -n "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 0
+  mysql --protocol=socket -e "SET GLOBAL log_bin_trust_function_creators=$MYSQL_TRUST_RESTORE_VALUE" || return 1
+  RESTORED_TRUST="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators' 2>/dev/null)" || return 1
+  [[ "$RESTORED_TRUST" == "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 1
+  printf 'mysql_trigger_creator_trust_restored=%s\\n' "$RESTORED_TRUST"
+  MYSQL_TRUST_RESTORE_VALUE=""
+}
+cleanup_migration_environment() {
+  local exit_status=$?
+  trap - EXIT
+  if ! restore_mysql_trust_setting; then
+    echo "CRITICAL: MySQL trigger-creator trust could not be restored; keep the service stopped and restore the original value manually." >&2
+    exit_status=1
+  fi
+  unset MYSQL_DATABASE MYSQL_MIGRATION_USER MYSQL_MIGRATION_PASSWORD MIGRATION_TARGET_DATABASE
+  exit "$exit_status"
+}
+trap cleanup_migration_environment EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
    ACTIVE="$(systemctl show ustore-telegram-bot.service -p WorkingDirectory --value)"
    SERVICE_USER="$(systemctl show ustore-telegram-bot.service -p User --value)"
    test -n "$ACTIVE" && test -n "$SERVICE_USER"
@@ -120,7 +142,18 @@ Only after separate approval:
    MIGRATION_SCHEMA_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(DISTINCT PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$MYSQL_DATABASE' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE','CREATE','ALTER','INDEX','REFERENCES','TRIGGER')")"
    MYSQL_BINLOG_ENABLED="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin')"
    MYSQL_TRUSTED_CREATORS="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators')"
-   if [[ "$MYSQL_BINLOG_ENABLED" == 1 ]]; then test "$MYSQL_TRUSTED_CREATORS" = 1; fi
+   if [[ "$MYSQL_BINLOG_ENABLED" != 0 && "$MYSQL_BINLOG_ENABLED" != 1 ]]; then
+     echo "Could not reliably inspect MySQL binary logging; stop." >&2
+     exit 1
+   fi
+   if [[ "$MYSQL_BINLOG_ENABLED" == 1 ]]; then
+     if [[ "$MYSQL_TRUSTED_CREATORS" == 0 ]]; then
+       MYSQL_TRUST_RESTORE_VALUE=0
+       mysql --protocol=socket -e 'SET GLOBAL log_bin_trust_function_creators=1'
+       MYSQL_TRUSTED_CREATORS="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators')"
+     fi
+     test "$MYSQL_TRUSTED_CREATORS" = 1
+   fi
    MIGRATION_SCHEMA_PRIVILEGE_ROWS="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$MYSQL_DATABASE'")"
    MIGRATION_GLOBAL_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
    MIGRATION_OTHER_SCHEMA_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$MYSQL_DATABASE'")"
@@ -133,6 +166,7 @@ Only after separate approval:
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
    AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') AND EVENT_OBJECT_TABLE='admin_audit_log' AND ACTION_TIMING='BEFORE' AND ((TRIGGER_NAME='trg_admin_audit_log_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='trg_admin_audit_log_no_delete' AND EVENT_MANIPULATION='DELETE')) AND UPPER(REGEXP_REPLACE(TRIM(ACTION_STATEMENT), '[[:space:]]+', ' '))=CONCAT('SIGNAL SQLSTATE ',CHAR(39),'45000',CHAR(39),' SET MESSAGE_TEXT = ',CHAR(39),'ADMIN_AUDIT_LOG IS APPEND-ONLY',CHAR(39))")"
    test "$AUDIT_TRIGGER_COUNT" = 2
+   restore_mysql_trust_setting
    ```
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
@@ -188,6 +222,6 @@ The scheduled database dump must use a dedicated account, distinct from runtime 
 
 A restore uses a separate, temporary identity with full privileges only on the isolated, empty restore schema. MySQL 8.0 requires `SET_USER_ID` (or deprecated `SUPER`) to recreate stored objects that carry a different `DEFINER`; grant only `SET_USER_ID` globally to the temporary restore identity for the restore window, never to runtime, backup, or migration users. Verify restored audit triggers execute correctly, preserve their intended definer account, and have only the minimum required DML on the restored schema. Revoke `SET_USER_ID` and drop the temporary restore identity immediately after the rehearsal. Never grant `SUPER` for this purpose.
 
-## Host firewall gate
+## Post-release firewall hardening
 
-The production host preflight requires UFW active, default-deny inbound and default-allow outbound policy, explicit rules for the effective SSH port, and no other inbound allow rules for this Telegram long-polling service. Provider-level firewall rules must be checked independently. Do not enable UFW remotely until the SSH port has been explicitly allowed and access is confirmed.
+UFW installation and activation are intentionally deferred until after the initial release to avoid an SSH lockout during cutover; this is not a pre-release host-preflight gate. In a separate approved post-release maintenance window, inspect the provider firewall and all listening services, identify the effective SSH port and any intentionally public nginx listeners, add the required allow rules before enabling UFW, and verify access from a second SSH session. Only then apply the intended default-deny inbound policy. Do not assume an SSH-only policy is correct until every required public listener has been reviewed. Keep the existing SSH session open until the second session is confirmed. Provider-level firewall status remains a separate check.
