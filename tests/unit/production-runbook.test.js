@@ -15,8 +15,8 @@ test('production migration runbook shell block is valid Bash',()=>{
 
 test('production migration runbook enforces root-only credentials and least privilege',()=>{
   assert.match(section,/test -d "\$MIGRATION_ENV_DIR" && test ! -L "\$MIGRATION_ENV_DIR"/);
-  assert.match(section,/test "\$\(stat -c '%U' "\$MIGRATION_ENV"\)" = root/);
-  assert.match(section,/test "\$\(stat -c '%a' "\$MIGRATION_ENV"\)" = 600/);
+  assert.match(section,/stat -c '%U:%G:%a' "\$MIGRATION_ENV_DIR"\) = root:root:700/);
+  assert.match(section,/stat -c '%U:%G:%a' "\$MIGRATION_ENV"\) = root:root:600/);
   assert.match(section,/MIGRATION_SCHEMA_PRIVILEGES/);
   assert.match(section,/MIGRATION_GLOBAL_PRIVILEGES/);
   assert.match(section,/MIGRATION_OTHER_SCHEMA_PRIVILEGES/);
