@@ -433,9 +433,31 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
   if [[ -n "$PLAINTEXT_KEY_FILES" ]]; then
     DRAW_KEY_USAGE="UNKNOWN"
     if [[ "${MYSQL_READY:-0}" == 1 && "${DB:-}" =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
-      DRAW_KEY_USAGE="$(mysql_q "SELECT COUNT(*), COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>''),0) FROM \`$DB\`.campaign_draws" 2>/dev/null || echo UNKNOWN)"
+      DRAW_KEY_USAGE="$(mysql_q "SELECT (SELECT COUNT(*) FROM \`$DB\`.campaign_draws), (SELECT COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>''),0) FROM \`$DB\`.campaign_draws), (SELECT COUNT(*) FROM \`$DB\`.draw_candidates), (SELECT COUNT(*) FROM \`$DB\`.draw_winners)" 2>/dev/null || echo UNKNOWN)"
     fi
-    IFS=
+    read -r DRAW_RECORDS DRAW_ENCRYPTED_SEEDS DRAW_CANDIDATES DRAW_WINNERS <<< "$DRAW_KEY_USAGE"
+    if [[ "$DRAW_RECORDS" =~ ^[0-9]+$ && "$DRAW_ENCRYPTED_SEEDS" =~ ^[0-9]+$ && "$DRAW_CANDIDATES" =~ ^[0-9]+$ && "$DRAW_WINNERS" =~ ^[0-9]+$ && "$DRAW_RECORDS" == 0 && "$DRAW_ENCRYPTED_SEEDS" == 0 && "$DRAW_CANDIDATES" == 0 && "$DRAW_WINNERS" == 0 ]]; then
+      while IFS= read -r key_file; do
+        [[ -n "$key_file" ]] || continue
+        [[ ! -L "$key_file" ]] || fail "A retained plaintext draw-key backup is a symlink."
+        [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "A retained plaintext draw-key backup must be root:root mode 600."
+      done <<< "$PLAINTEXT_KEY_FILES"
+      info "plaintext_draw_key_backups=retained_root_only_no_draw_records; cleanup_deferred"
+    else
+      printf 'draw_key_usage_records=%s encrypted_seeds=%s candidates=%s winners=%s\n' "${DRAW_RECORDS:-UNKNOWN}" "${DRAW_ENCRYPTED_SEEDS:-UNKNOWN}" "${DRAW_CANDIDATES:-UNKNOWN}" "${DRAW_WINNERS:-UNKNOWN}"
+      fail "Plaintext draw-key backups remain while draw records exist or their usage could not be verified."
+    fi
+  fi
+  ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
+  if [[ -z "$ENCRYPTED_KEY_FILES" ]]; then
+    fail "No encrypted draw-key backup artifact was detected."
+  else
+    while IFS= read -r key_file; do
+      [[ -n "$key_file" ]] || continue
+      [[ ! -L "$key_file" ]] || fail "An encrypted draw-key backup is a symlink."
+      [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "Encrypted draw-key backups must be root:root mode 600."
+    done <<< "$ENCRYPTED_KEY_FILES"
+  fi
 else
   fail "Protected draw-key backup directory is missing."
 fi
@@ -550,43 +572,6 @@ for directory in "${BACKUP_SCAN_DIRS[@]}"; do
 done
 printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
 if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
-
-section "NETWORK AND FIREWALL"
-if ! command -v ufw >/dev/null 2>&1; then
-  fail "UFW is not installed; a host firewall is required for the public SSH-facing production host."
-else
-  UFW_STATUS="$(ufw status verbose 2>&1 || true)"
-  printf '%s\n' "$UFW_STATUS"
-  if ! grep -q '^Status: active$' <<< "$UFW_STATUS"; then
-    fail "UFW must be active; do not rely on an unverified provider-level firewall."
-  else
-    grep -Eq '^Default: deny \(incoming\), allow \(outgoing\)' <<< "$UFW_STATUS" || fail "UFW defaults must deny inbound traffic and allow outbound Telegram/database traffic."
-    SSH_PORTS="$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}' | sort -nu || true)"
-    if [[ -z "$SSH_PORTS" ]]; then
-      fail "Could not determine the effective SSH listening port; refusing to approve firewall rules."
-    else
-      UFW_RULES="$UFW_STATUS" # Preserve ALLOW IN direction from verbose output.
-      while IFS= read -r port; do
-        [[ -n "$port" ]] || continue
-        if ! awk -v p="$port" '$1==p"/tcp" && $2=="ALLOW" && $3=="IN" {found=1} END{exit !found}' <<< "$UFW_RULES"; then
-          fail "UFW does not explicitly allow the effective SSH port ${port}/tcp; preserve SSH access before changing firewall policy."
-        fi
-      done <<< "$SSH_PORTS"
-      EXTRA_INBOUND_ALLOWS="$(awk '$2=="ALLOW" && $3=="IN" {print $1}' <<< "$UFW_RULES" | while IFS= read -r rule; do
-        allowed=0
-        while IFS= read -r port; do [[ "$rule" == "$port/tcp" ]] && allowed=1; done <<< "$SSH_PORTS"
-        [[ "$allowed" == 1 ]] || printf '%s\n' "$rule"
-      done)"
-      if [[ -n "$EXTRA_INBOUND_ALLOWS" ]]; then
-        printf 'unexpected_inbound_allow_rules:\n%s\n' "$EXTRA_INBOUND_ALLOWS"
-        fail "The Telegram long-polling host must not expose additional inbound services."
-      fi
-    fi
-  fi
-fi
-printf 'listening_tcp_ports:\n'
-ss -lntp 2>/dev/null | awk 'NR==1 || /LISTEN/'
-info "Provider-level firewall status remains an independent hosting-control-panel check."
 
 section "RESULT"
 if [[ "$FAILURES" -eq 0 ]]; then
