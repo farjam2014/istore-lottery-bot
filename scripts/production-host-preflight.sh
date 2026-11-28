@@ -149,8 +149,12 @@ if [[ -n "$ACTIVE" && -f "$ACTIVE/.env" ]]; then
       printf 'mysql_binary_logging=%s log_bin_trust_function_creators=%s\n' "$BINLOG_ENABLED" "$BINLOG_TRUSTED_CREATORS"
       if [[ "$BINLOG_ENABLED" != 0 && "$BINLOG_ENABLED" != 1 ]]; then
         fail "Could not reliably inspect MySQL binary logging and trigger-creator trust settings."
+      elif [[ "$BINLOG_ENABLED" == 1 && "$BINLOG_TRUSTED_CREATORS" == 0 ]]; then
+        info "mysql_trigger_creator_trust=OFF; the approved migration runbook must enable it temporarily only during trigger migration and restore OFF immediately afterward."
       elif [[ "$BINLOG_ENABLED" == 1 && "$BINLOG_TRUSTED_CREATORS" != 1 ]]; then
-        fail "MySQL binary logging is enabled but log_bin_trust_function_creators is OFF; append-only audit trigger migrations would require broader privileges."
+        fail "Could not reliably inspect MySQL trigger-creator trust setting."
+      else
+        info "mysql_trigger_creator_trust=not_required_or_enabled"
       fi
       R1="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB'")"
       R2="$(mysql_q "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$APP_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$DB' AND PRIVILEGE_TYPE IN ('SELECT','INSERT','UPDATE','DELETE')")"
@@ -427,11 +431,90 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
   find "$KEY_BACKUP_DIR" -maxdepth 1 -type f -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %f\n' | sort
   PLAINTEXT_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print)"
   if [[ -n "$PLAINTEXT_KEY_FILES" ]]; then
-    fail "A plaintext draw-key backup file exists; keep only protected encrypted key backups and rehearse restoration."
+    DRAW_KEY_USAGE="UNKNOWN"
+    if [[ "${MYSQL_READY:-0}" == 1 && "${DB:-}" =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
+      DRAW_KEY_USAGE="$(mysql_q "SELECT COUNT(*), COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>''),0) FROM \`$DB\`.campaign_draws" 2>/dev/null || echo UNKNOWN)"
+    fi
+    IFS=
+else
+  fail "Protected draw-key backup directory is missing."
+fi
+BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)
+ENCRYPTED_DB_BACKUPS=0
+LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0
+LATEST_ENCRYPTED_DB_BACKUP_PATH=
+for directory in "${BACKUP_SCAN_DIRS[@]}"; do
+  [[ -d "$directory" ]] || continue
+  while IFS= read -r -d '' artifact; do
+    ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+1))
+    artifact_epoch="$(stat -c '%Y' "$artifact" 2>/dev/null || echo 0)"
+    if [[ "$artifact_epoch" =~ ^[0-9]+$ && "$artifact_epoch" -gt "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" ]]; then
+      LATEST_ENCRYPTED_DB_BACKUP_EPOCH="$artifact_epoch"
+      LATEST_ENCRYPTED_DB_BACKUP_PATH="$artifact"
+    fi
+  done < <(find "$directory" -maxdepth 5 -type f \( -iname '*.sql.gpg' -o -iname '*.sql.age' -o -iname '*.sql.enc' -o -iname '*.sql.gz.gpg' -o -iname '*.sql.gz.age' -o -iname '*.sql.gz.enc' -o -iname '*.sql.zst.gpg' -o -iname '*.sql.zst.age' -o -iname '*.sql.zst.enc' -o -iname '*backup*.tar.gpg' -o -iname '*backup*.tar.age' -o -iname '*backup*.tar.enc' -o -iname '*backup*.tar.gz.gpg' -o -iname '*backup*.tar.gz.age' -o -iname '*backup*.tar.gz.enc' -o -iname '*backup*.tar.zst.gpg' -o -iname '*backup*.tar.zst.age' -o -iname '*backup*.tar.zst.enc' -o -iname '*backup*.zip.gpg' -o -iname '*backup*.zip.age' -o -iname '*backup*.zip.enc' -o -iname '*.dump.gpg' -o -iname '*.dump.age' -o -iname '*.dump.enc' \) -print0)
+done
+printf 'encrypted_database_backup_artifacts=%s latest_artifact_epoch=%s latest_artifact_path=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS" "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" "${LATEST_ENCRYPTED_DB_BACKUP_PATH:-not_found}"
+if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
+BACKUP_ARTIFACT_RUN_DELTA=$((LATEST_ENCRYPTED_DB_BACKUP_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))
+printf 'encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\n' "$BACKUP_ARTIFACT_RUN_DELTA"
+if [[ "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" -eq 0 || "$BACKUP_ARTIFACT_RUN_DELTA" -lt -300 || "$BACKUP_ARTIFACT_RUN_DELTA" -gt 300 ]]; then
+  fail "The latest encrypted database backup artifact timestamp does not match the latest verified successful backup timer run within five minutes."
+fi
+
+PLAINTEXT_DB_BACKUPS=0
+for directory in "${BACKUP_SCAN_DIRS[@]}"; do
+  [[ -d "$directory" ]] || continue
+  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*backup*.sql' -o -iname '*backup*.sql.gz' -o -iname '*backup*.sql.zst' -o -iname '*backup*.sql.xz' -o -iname '*backup*.sql.bz2' -o -iname '*before-reset*.sql' -o -iname '*before-reset*.sql.gz' -o -iname '*dump*.sql' -o -iname '*dump*.sql.gz' -o -iname '*backup*.dump' -o -iname '*backup*.dump.gz' -o -iname '*backup*.tar' -o -iname '*backup*.tar.gz' -o -iname '*backup*.tar.zst' -o -iname '*backup*.zip' -o \( \( -path '*/ustore-*backup*/*' -o -path '*/var/backups/*' -o -path '*/ustore-backups/*' \) -a \( -iname '*.sql' -o -iname '*.sql.gz' -o -iname '*.sql.zst' -o -iname '*.sql.xz' -o -iname '*.sql.bz2' -o -iname '*.dump' -o -iname '*.dump.gz' -o -iname '*.dump.zst' -o -iname '*.dump.xz' -o -iname '*.dump.bz2' \) \) \) -printf '.' | wc -c)"
+  PLAINTEXT_DB_BACKUPS=$((PLAINTEXT_DB_BACKUPS+count))
+done
+printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
+if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
+
+section "NETWORK AND FIREWALL"
+if command -v ufw >/dev/null 2>&1; then
+  UFW_STATUS="$(ufw status verbose 2>&1 || true)"
+  if grep -q '^Status: active$' <<< "$UFW_STATUS"; then
+    info "ufw=active"
+  else
+    info "ufw=inactive; activation_deferred_until_post_release"
+  fi
+else
+  info "ufw=not_installed; activation_deferred_until_post_release"
+fi
+printf 'listening_tcp_ports:\n'
+ss -lntp 2>/dev/null | awk 'NR==1 || /LISTEN/'
+info "UFW activation is intentionally deferred until a separate post-release SSH-safe maintenance window."
+info "Verify provider-level firewall rules independently; this preflight does not claim that an external firewall is active."
+section "RESULT"
+if [[ "$FAILURES" -eq 0 ]]; then
+  info "HOST_CHECKS=PASS (does not replace staging, restore, privacy/legal, or load-test approval)"
+else
+  printf 'HOST_CHECKS=BLOCKED failures=%s\n' "$FAILURES"
+  exit 1
+fi
+\t' read -r DRAW_RECORDS DRAW_ENCRYPTED_SEEDS <<< "$DRAW_KEY_USAGE"
+    if [[ "$DRAW_RECORDS" =~ ^[0-9]+$ && "$DRAW_ENCRYPTED_SEEDS" =~ ^[0-9]+$ && "$DRAW_RECORDS" == 0 && "$DRAW_ENCRYPTED_SEEDS" == 0 ]]; then
+      while IFS= read -r key_file; do
+        [[ -n "$key_file" ]] || continue
+        [[ ! -L "$key_file" ]] || fail "A retained plaintext draw-key backup is a symlink."
+        [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "A retained plaintext draw-key backup must be root:root mode 600."
+      done <<< "$PLAINTEXT_KEY_FILES"
+      info "plaintext_draw_key_backups=retained_root_only_no_draw_records; cleanup_deferred"
+    else
+      printf 'draw_key_usage_records=%s encrypted_seeds=%s\n' "${DRAW_RECORDS:-UNKNOWN}" "${DRAW_ENCRYPTED_SEEDS:-UNKNOWN}"
+      fail "Plaintext draw-key backups remain while draw records exist or their usage could not be verified."
+    fi
   fi
   ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
   if [[ -z "$ENCRYPTED_KEY_FILES" ]]; then
     fail "No encrypted draw-key backup artifact was detected."
+  else
+    while IFS= read -r key_file; do
+      [[ -n "$key_file" ]] || continue
+      [[ ! -L "$key_file" ]] || fail "An encrypted draw-key backup is a symlink."
+      [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "Encrypted draw-key backups must be root:root mode 600."
+    done <<< "$ENCRYPTED_KEY_FILES"
   fi
 else
   fail "Protected draw-key backup directory is missing."
