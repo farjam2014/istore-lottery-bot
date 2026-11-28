@@ -93,7 +93,7 @@ Only after separate approval:
    ```bash
    set -Eeuo pipefail
    set +x
-      MYSQL_TRUST_RESTORE_VALUE=""
+   MYSQL_TRUST_RESTORE_VALUE=""
    restore_mysql_trust_setting() {
      [[ -n "$MYSQL_TRUST_RESTORE_VALUE" ]] || return 0
      mysql --protocol=socket -e "SET GLOBAL log_bin_trust_function_creators=$MYSQL_TRUST_RESTORE_VALUE" || return 1
@@ -146,14 +146,7 @@ Only after separate approval:
      echo "Could not reliably inspect MySQL binary logging; stop." >&2
      exit 1
    fi
-   if [[ "$MYSQL_BINLOG_ENABLED" == 1 ]]; then
-     if [[ "$MYSQL_TRUSTED_CREATORS" == 0 ]]; then
-       MYSQL_TRUST_RESTORE_VALUE="$MYSQL_TRUSTED_CREATORS"
-       mysql --protocol=socket -e 'SET GLOBAL log_bin_trust_function_creators=1'
-       MYSQL_TRUSTED_CREATORS="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators')"
-     fi
-     test "$MYSQL_TRUSTED_CREATORS" = 1
-   fi
+   printf 'mysql_trigger_creator_trust_original=%s\n' "$MYSQL_TRUSTED_CREATORS"
    MIGRATION_SCHEMA_PRIVILEGE_ROWS="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA='$MYSQL_DATABASE'")"
    MIGRATION_GLOBAL_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND PRIVILEGE_TYPE<>'USAGE'")"
    MIGRATION_OTHER_SCHEMA_PRIVILEGES="$(mysql --protocol=socket -NBe "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(QUOTE('$MYSQL_MIGRATION_USER'),'@',QUOTE('127.0.0.1')) AND TABLE_SCHEMA<>'$MYSQL_DATABASE'")"
@@ -163,11 +156,22 @@ Only after separate approval:
    test "$MIGRATION_GLOBAL_PRIVILEGES" = 0
    test "$MIGRATION_OTHER_SCHEMA_PRIVILEGES" = 0
    test "$MIGRATION_TABLE_PRIVILEGES" = 0
+   if [[ "$MYSQL_BINLOG_ENABLED" == 1 ]]; then
+     if [[ "$MYSQL_TRUSTED_CREATORS" == 0 ]]; then
+       MYSQL_TRUST_RESTORE_VALUE="$MYSQL_TRUSTED_CREATORS"
+       mysql --protocol=socket -e 'SET GLOBAL log_bin_trust_function_creators=1'
+       MYSQL_TRUSTED_CREATORS="$(mysql --protocol=socket -NBe 'SELECT @@GLOBAL.log_bin_trust_function_creators')"
+       printf 'mysql_trigger_creator_trust_temporary=%s\n' "$MYSQL_TRUSTED_CREATORS"
+     fi
+     test "$MYSQL_TRUSTED_CREATORS" = 1
+   fi
    ALLOW_DATABASE_MIGRATIONS=1 ALLOW_PRODUCTION_MIGRATIONS=1 npm run db:migrate
    AUDIT_TRIGGER_COUNT="$(mysql --protocol=socket --database="$MYSQL_DATABASE" -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME IN ('trg_admin_audit_log_no_update','trg_admin_audit_log_no_delete') AND EVENT_OBJECT_TABLE='admin_audit_log' AND ACTION_TIMING='BEFORE' AND ((TRIGGER_NAME='trg_admin_audit_log_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='trg_admin_audit_log_no_delete' AND EVENT_MANIPULATION='DELETE')) AND UPPER(REGEXP_REPLACE(TRIM(ACTION_STATEMENT), '[[:space:]]+', ' '))=CONCAT('SIGNAL SQLSTATE ',CHAR(39),'45000',CHAR(39),' SET MESSAGE_TEXT = ',CHAR(39),'ADMIN_AUDIT_LOG IS APPEND-ONLY',CHAR(39))")"
    test "$AUDIT_TRIGGER_COUNT" = 2
    restore_mysql_trust_setting
    ```
+
+   If the process is forcibly killed (for example, SIGKILL or power loss) before the EXIT trap runs, keep the service stopped, inspect `@@GLOBAL.log_bin_trust_function_creators`, and restore the recorded original value manually before continuing.
 
    Run this only as root, from the staged release, after the separately approved maintenance and backup gates. The protected file must set `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD`, and `MIGRATION_TARGET_DATABASE`; the migration guard compares the latter to `MYSQL_DATABASE` loaded from the runtime `.env`. Never run the command with `set -x`.
 5. If a migration fails, keep the service stopped and follow the failure/restore decision tree. Never automatically restore a backup after new writes have occurred.
