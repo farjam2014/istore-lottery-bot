@@ -201,11 +201,20 @@ test('production host preflight detects manually launched GitHub runner processe
   assert.ok(source.includes('runner_processes=none_detected'));
   assert.ok(source.includes('find /home /opt /root /srv /var/lib /usr/local -maxdepth 6 -type f'));
 });
-test('production host preflight verifies binary-log trust before least-privilege audit-trigger migrations',()=>{
+
+test('root-only plaintext draw-key backups are non-blocking only when live draw and encrypted-seed counts are both zero',()=>{
+  assert.ok(source.includes('SELECT COUNT(*), COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>'));
+  assert.ok(source.includes('plaintext_draw_key_backups=retained_root_only_no_draw_records; cleanup_deferred'));
+  assert.ok(source.includes('root:root:600'));
+  assert.ok(source.includes('Plaintext draw-key backups remain while draw records exist or their usage could not be verified.'));
+});
+
+test('production host preflight reports temporary trigger-creator trust without blocking the read-only inventory',()=>{
   assert.ok(source.includes("BINLOG_ENABLED=\"$(mysql_q 'SELECT @@GLOBAL.log_bin'"));
   assert.ok(source.includes("BINLOG_TRUSTED_CREATORS=\"$(mysql_q 'SELECT @@GLOBAL.log_bin_trust_function_creators'"));
-  assert.ok(source.includes('MySQL binary logging is enabled but log_bin_trust_function_creators is OFF'));
-  assert.ok(source.includes('append-only audit trigger migrations would require broader privileges.'));
+  assert.ok(source.includes('mysql_trigger_creator_trust=OFF; the approved migration runbook must enable it temporarily'));
+  assert.ok(source.includes('Could not reliably inspect MySQL trigger-creator trust setting.'));
+  assert.doesNotMatch(source,/fail "MySQL binary logging is enabled but log_bin_trust_function_creators is OFF/);
 });
 
 
@@ -232,28 +241,11 @@ test('production host preflight prints backup age and artifact delta as separate
 });
 
 
-test('production host preflight requires active default-deny UFW and explicit SSH-only inbound access',()=>{
-  for(const value of [
-    'UFW is not installed; a host firewall is required',
-    "grep -q '^Status: active$'",
-    "^Default: deny \\(incoming\\), allow \\(outgoing\\)",
-    'sshd -T 2>/dev/null',
-    'UFW does not explicitly allow the effective SSH port',
-    'EXTRA_INBOUND_ALLOWS=',
-    'The Telegram long-polling host must not expose additional inbound services.'
-  ]) assert.ok(source.includes(value), 'missing firewall gate: '+value);
-  assert.ok(source.includes(String.raw`$1==p"/tcp" && $2=="ALLOW" && $3=="IN"`));
-});
-
-
-test('production host preflight parses inbound UFW rules from verbose status including direction',()=>{
-  assert.ok(source.includes('UFW_RULES="$UFW_STATUS"'));
-  assert.ok(source.includes(String.raw`$2=="ALLOW" && $3=="IN"`));
-  assert.ok(!source.includes('UFW_RULES="$(ufw status 2>/dev/null || true)"'));
-});
-
-
-test('production host preflight keeps the UFW active check on one valid shell line and has one result section',()=>{
-  assert.ok(source.includes(String.raw`if ! grep -q '^Status: active$' <<< "$UFW_STATUS"; then`));
+test('UFW is informational in the pre-release host audit and explicitly deferred until post-release',()=>{
+  assert.ok(source.includes('ufw=inactive; activation_deferred_until_post_release'));
+  assert.ok(source.includes('ufw=not_installed; activation_deferred_until_post_release'));
+  assert.ok(source.includes('UFW activation is intentionally deferred until a separate post-release SSH-safe maintenance window.'));
+  assert.doesNotMatch(source,/UFW must be active/);
+  assert.doesNotMatch(source,/UFW is not installed; a host firewall is required/);
   assert.equal((source.match(/section "RESULT"/g)||[]).length,1);
 });
