@@ -11,6 +11,7 @@ const LOCK_NAME='ustore_telegram_bot_schema_migrations';
 const splitSql=sql=>sql.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(Boolean);
 
 import {assertMigrationHistoryIntegrity} from './migration-integrity.js';
+import {releaseMigrationConnection} from './migration-lock.js';
 
 async function hasIndex(connection,table,index){
   const [[row]]=await connection.execute(
@@ -25,6 +26,17 @@ async function hasColumn(connection,table,column){
     [table,column]
   );
   return Number(row.total)>0;
+}
+async function hasNullableBigintColumn(connection,table,column){
+  const [[row]]=await connection.execute(
+    'SELECT COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',
+    [table,column]
+  );
+  if(!row)return false;
+  if(String(row.COLUMN_TYPE).toLowerCase()!=='bigint'||row.IS_NULLABLE!=='YES'){
+    throw new Error(`Incompatible existing schema for ${table}.${column}; expected nullable BIGINT. Inspect before migration recovery.`);
+  }
+  return true;
 }
 async function hasForeignKey(connection,table,constraint){
   const [[row]]=await connection.execute(
@@ -68,6 +80,108 @@ export async function assertPaidCodeQuantityBackfillSafe(connection){
   if(missingCodes)throw new Error('Approved legacy payment order '+missingCodes.id+' has no issued codes; reconcile it before paid code quantity migration.');
 }
 async function migrationStatementAlreadyApplied(connection,file,index){
+  if(file==='20261124_003_registration_session_replay.sql'){
+    if(index!==0)throw new Error('Unexpected statement index in 20261124_003_registration_session_replay.sql.');
+    return hasNullableBigintColumn(connection,'telegram_user_sessions','last_update_id');
+  }
+  if(file==='20261124_002_privacy_consent.sql'&&index===0){
+    return allSchemaChecks(connection,[
+      hasColumn(connection,'participants','privacy_consent_version'),
+      hasColumn(connection,'participants','privacy_consent_at'),
+      hasIndex(connection,'participants','idx_participant_privacy_consent')
+    ],'Partial DDL detected in 20261124_002_privacy_consent.sql. Inspect participants before repair.');
+  }
+  if(file==='20261124_001_admin_action_idempotency.sql'&&index===0){
+    if(!await hasTable(connection,'admin_action_idempotency'))return false;
+    return allSchemaChecks(connection,[
+      hasColumn(connection,'admin_action_idempotency','idempotency_key'),
+      hasColumn(connection,'admin_action_idempotency','action_type'),
+      hasColumn(connection,'admin_action_idempotency','actor_telegram_id'),
+      hasColumn(connection,'admin_action_idempotency','entity_id'),
+      hasColumn(connection,'admin_action_idempotency','created_at'),
+      hasIndex(connection,'admin_action_idempotency','PRIMARY'),
+      hasIndex(connection,'admin_action_idempotency','idx_admin_action_idempotency_created')
+    ],'An incompatible admin_action_idempotency table already exists. Inspect its schema before migration recovery.');
+  }
+  if(file==='20261114_001_payment_expiry_reference.sql'){
+    if(index===0){
+      const [[status]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='status'");
+      const [oldIndex,newIndex,referenceColumn,referenceUnique]=await Promise.all([
+        hasIndex(connection,'payment_orders','campaign_entry_id'),
+        hasIndex(connection,'payment_orders','idx_order_entry'),
+        hasColumn(connection,'payment_orders','payment_reference'),
+        hasIndex(connection,'payment_orders','uq_payment_reference')
+      ]);
+      const expiredStatus=String(status?.COLUMN_TYPE||'').includes("'expired'");
+      if(!oldIndex&&newIndex&&referenceColumn&&referenceUnique&&expiredStatus)return true;
+      if(oldIndex&&!newIndex&&!referenceColumn&&!referenceUnique&&!expiredStatus)return false;
+      throw new Error('Partial or incompatible DDL detected in 20261114_001_payment_expiry_reference.sql statement 1. Inspect payment_orders before repair.');
+    }
+    if(index===1)return false; // Deterministic payment-reference backfill is safe to replay.
+    if(index===2){
+      const [[column]]=await connection.execute("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payment_orders' AND COLUMN_NAME='payment_reference'");
+      return column?.IS_NULLABLE==='NO';
+    }
+    if(index===3)return hasIndex(connection,'payment_orders','idx_payment_expiry');
+    if(index===4)return allSchemaChecks(connection,[
+      hasColumn(connection,'telegram_notification_outbox','last_error'),
+      hasColumn(connection,'telegram_notification_outbox','locked_at'),
+      hasColumn(connection,'telegram_notification_outbox','updated_at')
+    ],'Partial DDL detected in 20261114_001_payment_expiry_reference.sql statement 5. Inspect telegram_notification_outbox before repair.');
+  }
+  if(file==='20261114_002_campaign_details.sql'){
+    if(index===0)return allSchemaChecks(connection,[
+      hasColumn(connection,'campaigns','poster_file_id'),
+      hasColumn(connection,'campaigns','prize_title'),
+      hasColumn(connection,'campaigns','prize_description'),
+      hasColumn(connection,'campaigns','prize_value'),
+      hasColumn(connection,'campaigns','draw_at'),
+      hasColumn(connection,'campaigns','terms'),
+      hasColumn(connection,'campaigns','payment_methods')
+    ],'Partial DDL detected in 20261114_002_campaign_details.sql statement 1. Inspect campaigns before repair.');
+    if(index===1){
+      const [[step]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='admin_wizards' AND COLUMN_NAME='step'");
+      const type=String(step?.COLUMN_TYPE||'');
+      const expanded=['poster','prize_title','prize_description','prize_value','starts_at','ends_at','draw_at','terms','payment_methods'];
+      const present=expanded.filter(value=>type.includes("'"+value+"'"));
+      if(present.length===expanded.length)return true;
+      if(present.length)throw new Error('Partial DDL detected in 20261114_002_campaign_details.sql admin_wizards enum. Inspect admin_wizards.step before repair.');
+      return false;
+    }
+  }
+  if(file==='20261114_008_outbox_uncertain_delivery.sql'&&index===0){
+    // schema.sql already includes the 'uncertain' enum value; this migration adds only the lease column and index.
+    return allSchemaChecks(connection,[
+      hasColumn(connection,'telegram_notification_outbox','lease_token'),
+      hasIndex(connection,'telegram_notification_outbox','idx_outbox_lease')
+    ],'Partial DDL detected in 20261114_008_outbox_uncertain_delivery.sql. Inspect telegram_notification_outbox before repair.');
+  }
+  if(file==='20261115_009_correlation_and_delivery_history.sql'){
+    if(index===0)return allSchemaChecks(connection,[
+      hasColumn(connection,'processed_updates','correlation_id'),
+      hasIndex(connection,'processed_updates','idx_processed_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 1. Inspect processed_updates before repair.');
+    if(index===1)return allSchemaChecks(connection,[
+      hasColumn(connection,'telegram_notification_outbox','correlation_id'),
+      hasColumn(connection,'telegram_notification_outbox','manual_retry_count'),
+      hasIndex(connection,'telegram_notification_outbox','idx_outbox_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 2. Inspect telegram_notification_outbox before repair.');
+    if(index===2){
+      const [[column]]=await connection.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telegram_rate_limits' AND COLUMN_NAME='request_count'");
+      const type=String(column?.COLUMN_TYPE||'').toLowerCase();
+      if(type==='int unsigned')return true;
+      if(type==='smallint unsigned')return false;
+      throw new Error('Unexpected telegram_rate_limits.request_count type during migration recovery.');
+    }
+    if(index===3)return allSchemaChecks(connection,[
+      hasColumn(connection,'payment_events','correlation_id'),
+      hasIndex(connection,'payment_events','idx_payment_event_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 4. Inspect payment_events before repair.');
+    if(index===4)return allSchemaChecks(connection,[
+      hasColumn(connection,'admin_audit_log','correlation_id'),
+      hasIndex(connection,'admin_audit_log','idx_audit_correlation')
+    ],'Partial DDL detected in 20261115_009_correlation_and_delivery_history.sql statement 5. Inspect admin_audit_log before repair.');
+  }
   if(file==='20261117_001_campaign_code_sequence.sql'){
     if(index===0){
       const [[legacyOverflow]]=await connection.execute(
@@ -256,10 +370,13 @@ export async function migrate(){
   assertMigrationAllowed({database:config.MYSQL_DATABASE,nodeEnv:config.NODE_ENV,host:config.MYSQL_HOST});
   const base=await readFile(path.join(here,'schema.sql'),'utf8');
   const c=await pool.getConnection();
-  let lockAcquired=false;
+  let lockAcquisitionResolved=false,lockAcquired=false;
   try{
     const [[lock]]=await c.query('SELECT GET_LOCK(?, 30) AS acquired',[LOCK_NAME]);
-    lockAcquired=Number(lock?.acquired)===1;
+    const lockResult=lock?.acquired;
+    if(lockResult===null||lockResult===undefined||![0,1].includes(Number(lockResult)))throw new Error('Database migration lock acquisition returned an indeterminate result; connection will be discarded.');
+    lockAcquisitionResolved=true;
+    lockAcquired=Number(lockResult)===1;
     if(!lockAcquired)throw new Error('Could not acquire the database migration lock within 30 seconds.');
 
     await c.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -292,9 +409,6 @@ export async function migrate(){
       await c.execute('INSERT INTO schema_migrations(version,checksum) VALUES(?,?)',[file,checksum]);
     }
   }finally{
-    if(lockAcquired){
-      try{await c.query('SELECT RELEASE_LOCK(?)',[LOCK_NAME]);}catch{}
-    }
-    c.release();
+    await releaseMigrationConnection(c,{lockAcquisitionResolved,lockAcquired,lockName:LOCK_NAME});
   }
 }

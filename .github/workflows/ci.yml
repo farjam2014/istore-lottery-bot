@@ -1,4 +1,11 @@
 name: CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 # UX refactor branch validation: run syntax and regression checks after each navigation fix; latest receipt-resume recovery and draw-cancellation navigation update.
 on:
   push:
@@ -11,6 +18,7 @@ on:
       - release/ustore-unified
       - audit/fix-release-blockers
       - audit/installer-preflight-stacked
+      - 'remediation/**'
       - ux/unified-navigation-six-phase
   pull_request:
     branches:
@@ -19,6 +27,7 @@ on:
       - audit/pr64-clean-rebuild
       - release/ustore-unified
       - ux/production-base-ed490
+      - 'remediation/**'
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -47,18 +56,20 @@ jobs:
       MYSQL_TEST_ADMIN_USER: root
       MYSQL_TEST_ADMIN_PASSWORD: root
       MYSQL_POOL_SIZE: 5
-      BOT_ADMIN_IDS: 237573106
+      BOT_ADMIN_IDS: 123456789
       RUN_MYSQL_TESTS: '1'
       ALLOW_DATABASE_MIGRATIONS: '1'
       ALLOW_TEST_DATABASE_MIGRATIONS: '1'
       DRAW_SEED_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      PRIVACY_NOTICE_URL: https://example.com/privacy
+      PRIVACY_NOTICE_VERSION: ci-v1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - run: npm test
       - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
       - run: node --check src/index.js

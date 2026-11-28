@@ -5,7 +5,11 @@ import {expirePendingOrders} from './modules/payments/payment.service.js';
 import {processNotificationOutbox} from './modules/notifications/outbox.worker.js';
 import {processUpdateInbox} from './bot/update-inbox.worker.js';
 import {processCampaignSchedule} from './modules/campaigns/campaign-scheduler.js';
+import {loadDrawKeyring} from './modules/draw/draw-keyring.js';
+import {config} from './config/env.js';
 async function main(){
+ const drawKeyringConfigured=Boolean(config.DRAW_SEED_ENCRYPTION_KEYS||config.DRAW_SEED_ENCRYPTION_KEY);
+ if(config.NODE_ENV==='production'||drawKeyringConfigured)loadDrawKeyring(config);
  await pingDatabase();
  logger.info('Database connection established');
  const bot=createBot();

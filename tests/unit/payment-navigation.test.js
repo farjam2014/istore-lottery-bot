@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard} from '../../src/bot/handlers/payment.handler.js';
+import {registerPaymentHandlers,userOrdersKeyboard,userOrderDetailKeyboard,isStalePaymentReceiptUpdate} from '../../src/bot/handlers/payment.handler.js';
 import {registerUserHandlers} from '../../src/bot/handlers/user.handler.js';
 import {registerAdminHandlers} from '../../src/bot/handlers/admin.handler.js';
 
@@ -80,4 +80,32 @@ test('handler callback regexes do not contain double-escaped digit tokens',()=>{
     const source=readFileSync(new URL('../../'+path,import.meta.url),'utf8');
     assert.doesNotMatch(source,/\\\\d\+/,{message:path+' contains a double-escaped digit regex'});
   }
+});
+
+test('payment receipt replay cursor rejects equal and older updates but allows newer uploads',()=>{
+  assert.equal(isStalePaymentReceiptUpdate(100,100),true);
+  assert.equal(isStalePaymentReceiptUpdate(99,100),true);
+  assert.equal(isStalePaymentReceiptUpdate(101,100),false);
+  assert.equal(isStalePaymentReceiptUpdate(101,null),false);
+  assert.equal(isStalePaymentReceiptUpdate('invalid',null),true);
+  assert.equal(isStalePaymentReceiptUpdate(101,'invalid'),true);
+});
+
+test('payment receipt sessions persist the callback update cursor and claim photo updates atomically',()=>{
+  const source=readFileSync(new URL('../../src/bot/handlers/payment.handler.js',import.meta.url),'utf8');
+  assert.ok((source.match(/last_update_id\) VALUES\(\?,'awaiting_payment_receipt'/g)||[]).length>=2);
+  assert.equal((source.match(/payload=IF\(VALUES\(last_update_id\)>COALESCE\(last_update_id,-1\),VALUES\(payload\),payload\)/g)||[]).length,2);
+  assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt'/);
+  assert.match(source,/UPDATE telegram_user_sessions SET last_update_id=\? WHERE telegram_user_id=\? AND step='awaiting_payment_receipt' AND JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
+  assert.match(source,/JSON_UNQUOTE\(JSON_EXTRACT\(payload,'\$\.orderId'\)\)=\?/);
+});
+
+test('payment cancellation is bound to the order shown on its button',()=>{
+  const actions=[];
+  const bot={action:(pattern,handler)=>actions.push(pattern),on:()=>{},command:()=>{}};
+  registerPaymentHandlers(bot);
+  const cancel=actions.find(pattern=>pattern instanceof RegExp&&pattern.source.includes('payment:cancel'));
+  assert.ok(cancel);
+  assert.ok(cancel.test('payment:cancel:123'));
+  assert.ok(!cancel.test('payment:cancel:456x'));
 });

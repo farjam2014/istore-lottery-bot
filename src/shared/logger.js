@@ -1,6 +1,7 @@
 import pino from 'pino';
 import {config} from '../config/env.js';
 import {getCorrelationId} from './request-context.js';
+import {logRedactPaths} from './log-redaction.js';
 
 export const logger=pino({
   level:config.LOG_LEVEL,
@@ -9,7 +10,7 @@ export const logger=pino({
     return correlationId?{correlationId}:{};
   },
   redact:{
-    paths:['*.token','*.password','*.phone','*.card_number','*.cardNumber','*.telegram_file_id','*.telegram_file_unique_id','*.file_id','BOT_TOKEN','MYSQL_PASSWORD'],
+    paths:logRedactPaths,
     censor:'[REDACTED]'
   }
 });

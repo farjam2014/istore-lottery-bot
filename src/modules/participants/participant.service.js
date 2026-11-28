@@ -1,8 +1,10 @@
 import * as repo from './participant.repository.js';
 
 export const findProfile=repo.findByTelegramId;
+export const updatePrivacyConsent=repo.updatePrivacyConsent;
 export const getSession=repo.getSession;
 export const saveSession=repo.saveSession;
+export const advanceSession=repo.advanceSession;
 export const clearSession=repo.clearSession;
 
 export function normalizePhone(value){
@@ -28,6 +30,8 @@ export async function completeRegistration(ctx,data){
     username:ctx.from.username,
     fullName:normalizeFullName(data.fullName),
     phone:normalizePhone(data.phone),
-    instagramHandle:normalizeInstagram(data.instagramHandle)
+    instagramHandle:normalizeInstagram(data.instagramHandle),
+    privacyConsentVersion:data.privacyConsentVersion,
+    privacyConsentAt:data.privacyConsentAt
   });
 }

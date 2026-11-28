@@ -67,9 +67,9 @@ else
   owner="$(stat -c '%U' "$APP_DIR")"
   [[ "$owner" == "$APP_USER" ]] || fail "$APP_DIR is owned by '$owner', expected '$APP_USER'; refusing automatic chown."
   remote="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" remote get-url origin)"
-  [[ "$remote" == "$REPO" ]] || fail "Existing checkout has an unexpected origin remote: $remote"
-  tracked_changes="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" status --porcelain --untracked-files=no)"
-  [[ -z "$tracked_changes" ]] || fail "Tracked source files have local modifications. Commit or inspect them before updating."
+  [[ "$remote" == "$REPO" ]] || fail "Existing checkout has an unexpected origin remote; refusing to update it."
+  tracked_changes="$(runuser -u "$APP_USER" -- git -C "$APP_DIR" status --porcelain --untracked-files=all)"
+  [[ -z "$tracked_changes" ]] || fail "Tracked or untracked files are present in the checkout. Inspect and preserve them before updating."
   UPDATE_EXISTING=1
   log "Existing checkout validated; source update is deferred until after service-stop authorization checks."
 fi
