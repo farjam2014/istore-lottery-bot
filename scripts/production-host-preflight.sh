@@ -429,7 +429,7 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
   stat -c 'draw_key_backup_directory owner=%U group=%G mode=%a' "$KEY_BACKUP_DIR"
   [[ "$(stat -c '%U:%G:%a' "$KEY_BACKUP_DIR")" == root:root:700 ]] || fail "Draw-key backup directory must be root:root mode 700."
   find "$KEY_BACKUP_DIR" -maxdepth 1 -type f -printf '%TY-%Tm-%TdT%TH:%TM %u:%g %m %s bytes %f\n' | sort
-  PLAINTEXT_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print)"
+  PLAINTEXT_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 \( -type f -o -type l \) \( -iname '*draw*key*.txt' -o -iname 'DRAW_SEED_ENCRYPTION_KEY.txt' \) -print)"
   if [[ -n "$PLAINTEXT_KEY_FILES" ]]; then
     DRAW_KEY_USAGE="UNKNOWN"
     if [[ "${MYSQL_READY:-0}" == 1 && "${DB:-}" =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
@@ -448,7 +448,7 @@ if [[ -d "$KEY_BACKUP_DIR" ]]; then
       fail "Plaintext draw-key backups remain while draw records exist or their usage could not be verified."
     fi
   fi
-  ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
+  ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 \( -type f -o -type l \) \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
   if [[ -z "$ENCRYPTED_KEY_FILES" ]]; then
     fail "No encrypted draw-key backup artifact was detected."
   else
@@ -494,85 +494,42 @@ printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACK
 if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
 
 section "NETWORK AND FIREWALL"
-if command -v ufw >/dev/null 2>&1; then
-  UFW_STATUS="$(ufw status verbose 2>&1 || true)"
-  if grep -q '^Status: active$' <<< "$UFW_STATUS"; then
-    info "ufw=active"
-  else
-    info "ufw=inactive; activation_deferred_until_post_release"
-  fi
-else
+if ! command -v ufw >/dev/null 2>&1; then
   info "ufw=not_installed; activation_deferred_until_post_release"
+else
+  UFW_STATUS="$(ufw status verbose 2>&1 || true)"
+  if ! grep -q '^Status: active$' <<< "$UFW_STATUS"; then
+    info "ufw=inactive; activation_deferred_until_post_release"
+  else
+    printf '%s\n' "$UFW_STATUS"
+    grep -Eq '^Default: deny \(incoming\), allow \(outgoing\)' <<< "$UFW_STATUS" || fail "Active UFW defaults must deny inbound traffic and allow outbound traffic."
+    SSH_PORTS="$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}' | sort -nu || true)"
+    if [[ -z "$SSH_PORTS" ]]; then
+      fail "Could not determine the effective SSH listening port for the active firewall."
+    else
+      UFW_RULES="$UFW_STATUS"
+      while IFS= read -r port; do
+        [[ -n "$port" ]] || continue
+        if ! awk -v p="$port" '$1==p"/tcp" && $2=="ALLOW" && $3=="IN" {found=1} END{exit !found}' <<< "$UFW_RULES"; then
+          fail "Active UFW does not explicitly allow the effective SSH port ${port}/tcp."
+        fi
+      done <<< "$SSH_PORTS"
+      EXTRA_INBOUND_ALLOWS="$(awk '$2=="ALLOW" && $3=="IN" {print $1}' <<< "$UFW_RULES" | while IFS= read -r rule; do
+        allowed=0
+        while IFS= read -r port; do [[ "$rule" == "$port/tcp" ]] && allowed=1; done <<< "$SSH_PORTS"
+        [[ "$allowed" == 1 ]] || printf '%s\n' "$rule"
+      done)"
+      if [[ -n "$EXTRA_INBOUND_ALLOWS" ]]; then
+        printf 'unexpected_inbound_allow_rules:\n%s\n' "$EXTRA_INBOUND_ALLOWS"
+        fail "Active UFW exposes inbound services beyond the approved SSH allow-list."
+      fi
+    fi
+  fi
 fi
 printf 'listening_tcp_ports:\n'
 ss -lntp 2>/dev/null | awk 'NR==1 || /LISTEN/'
 info "UFW activation is intentionally deferred until a separate post-release SSH-safe maintenance window."
 info "Verify provider-level firewall rules independently; this preflight does not claim that an external firewall is active."
-section "RESULT"
-if [[ "$FAILURES" -eq 0 ]]; then
-  info "HOST_CHECKS=PASS (does not replace staging, restore, privacy/legal, or load-test approval)"
-else
-  printf 'HOST_CHECKS=BLOCKED failures=%s\n' "$FAILURES"
-  exit 1
-fi
-\t' read -r DRAW_RECORDS DRAW_ENCRYPTED_SEEDS <<< "$DRAW_KEY_USAGE"
-    if [[ "$DRAW_RECORDS" =~ ^[0-9]+$ && "$DRAW_ENCRYPTED_SEEDS" =~ ^[0-9]+$ && "$DRAW_RECORDS" == 0 && "$DRAW_ENCRYPTED_SEEDS" == 0 ]]; then
-      while IFS= read -r key_file; do
-        [[ -n "$key_file" ]] || continue
-        [[ ! -L "$key_file" ]] || fail "A retained plaintext draw-key backup is a symlink."
-        [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "A retained plaintext draw-key backup must be root:root mode 600."
-      done <<< "$PLAINTEXT_KEY_FILES"
-      info "plaintext_draw_key_backups=retained_root_only_no_draw_records; cleanup_deferred"
-    else
-      printf 'draw_key_usage_records=%s encrypted_seeds=%s\n' "${DRAW_RECORDS:-UNKNOWN}" "${DRAW_ENCRYPTED_SEEDS:-UNKNOWN}"
-      fail "Plaintext draw-key backups remain while draw records exist or their usage could not be verified."
-    fi
-  fi
-  ENCRYPTED_KEY_FILES="$(find "$KEY_BACKUP_DIR" -maxdepth 1 -type f \( -name '*.gpg' -o -name '*.age' -o -name '*.enc' \) -print)"
-  if [[ -z "$ENCRYPTED_KEY_FILES" ]]; then
-    fail "No encrypted draw-key backup artifact was detected."
-  else
-    while IFS= read -r key_file; do
-      [[ -n "$key_file" ]] || continue
-      [[ ! -L "$key_file" ]] || fail "An encrypted draw-key backup is a symlink."
-      [[ "$(stat -c '%U:%G:%a' "$key_file")" == root:root:600 ]] || fail "Encrypted draw-key backups must be root:root mode 600."
-    done <<< "$ENCRYPTED_KEY_FILES"
-  fi
-else
-  fail "Protected draw-key backup directory is missing."
-fi
-BACKUP_SCAN_DIRS=(/root /var/backups /opt/ustore-backups /opt/ustore-release-backup-*)
-ENCRYPTED_DB_BACKUPS=0
-LATEST_ENCRYPTED_DB_BACKUP_EPOCH=0
-LATEST_ENCRYPTED_DB_BACKUP_PATH=
-for directory in "${BACKUP_SCAN_DIRS[@]}"; do
-  [[ -d "$directory" ]] || continue
-  while IFS= read -r -d '' artifact; do
-    ENCRYPTED_DB_BACKUPS=$((ENCRYPTED_DB_BACKUPS+1))
-    artifact_epoch="$(stat -c '%Y' "$artifact" 2>/dev/null || echo 0)"
-    if [[ "$artifact_epoch" =~ ^[0-9]+$ && "$artifact_epoch" -gt "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" ]]; then
-      LATEST_ENCRYPTED_DB_BACKUP_EPOCH="$artifact_epoch"
-      LATEST_ENCRYPTED_DB_BACKUP_PATH="$artifact"
-    fi
-  done < <(find "$directory" -maxdepth 5 -type f \( -iname '*.sql.gpg' -o -iname '*.sql.age' -o -iname '*.sql.enc' -o -iname '*.sql.gz.gpg' -o -iname '*.sql.gz.age' -o -iname '*.sql.gz.enc' -o -iname '*.sql.zst.gpg' -o -iname '*.sql.zst.age' -o -iname '*.sql.zst.enc' -o -iname '*backup*.tar.gpg' -o -iname '*backup*.tar.age' -o -iname '*backup*.tar.enc' -o -iname '*backup*.tar.gz.gpg' -o -iname '*backup*.tar.gz.age' -o -iname '*backup*.tar.gz.enc' -o -iname '*backup*.tar.zst.gpg' -o -iname '*backup*.tar.zst.age' -o -iname '*backup*.tar.zst.enc' -o -iname '*backup*.zip.gpg' -o -iname '*backup*.zip.age' -o -iname '*backup*.zip.enc' -o -iname '*.dump.gpg' -o -iname '*.dump.age' -o -iname '*.dump.enc' \) -print0)
-done
-printf 'encrypted_database_backup_artifacts=%s latest_artifact_epoch=%s latest_artifact_path=%s (inspected local paths; off-host evidence must be checked separately)\n' "$ENCRYPTED_DB_BACKUPS" "$LATEST_ENCRYPTED_DB_BACKUP_EPOCH" "${LATEST_ENCRYPTED_DB_BACKUP_PATH:-not_found}"
-if [[ "$ENCRYPTED_DB_BACKUPS" -eq 0 ]]; then fail "No encrypted database backup artifact was detected in the inspected local paths."; fi
-BACKUP_ARTIFACT_RUN_DELTA=$((LATEST_ENCRYPTED_DB_BACKUP_EPOCH-LATEST_VERIFIED_BACKUP_RUN_EPOCH))
-printf 'encrypted_backup_artifact_run_delta_seconds=%s allowed_range=-300..300\n' "$BACKUP_ARTIFACT_RUN_DELTA"
-if [[ "$LATEST_VERIFIED_BACKUP_RUN_EPOCH" -eq 0 || "$BACKUP_ARTIFACT_RUN_DELTA" -lt -300 || "$BACKUP_ARTIFACT_RUN_DELTA" -gt 300 ]]; then
-  fail "The latest encrypted database backup artifact timestamp does not match the latest verified successful backup timer run within five minutes."
-fi
-
-PLAINTEXT_DB_BACKUPS=0
-for directory in "${BACKUP_SCAN_DIRS[@]}"; do
-  [[ -d "$directory" ]] || continue
-  count="$(find "$directory" -maxdepth 5 -type f \( -iname '*backup*.sql' -o -iname '*backup*.sql.gz' -o -iname '*backup*.sql.zst' -o -iname '*backup*.sql.xz' -o -iname '*backup*.sql.bz2' -o -iname '*before-reset*.sql' -o -iname '*before-reset*.sql.gz' -o -iname '*dump*.sql' -o -iname '*dump*.sql.gz' -o -iname '*backup*.dump' -o -iname '*backup*.dump.gz' -o -iname '*backup*.tar' -o -iname '*backup*.tar.gz' -o -iname '*backup*.tar.zst' -o -iname '*backup*.zip' -o \( \( -path '*/ustore-*backup*/*' -o -path '*/var/backups/*' -o -path '*/ustore-backups/*' \) -a \( -iname '*.sql' -o -iname '*.sql.gz' -o -iname '*.sql.zst' -o -iname '*.sql.xz' -o -iname '*.sql.bz2' -o -iname '*.dump' -o -iname '*.dump.gz' -o -iname '*.dump.zst' -o -iname '*.dump.xz' -o -iname '*.dump.bz2' \) \) \) -printf '.' | wc -c)"
-  PLAINTEXT_DB_BACKUPS=$((PLAINTEXT_DB_BACKUPS+count))
-done
-printf 'plaintext_database_backup_artifacts=%s expected=0\n' "$PLAINTEXT_DB_BACKUPS"
-if [[ "$PLAINTEXT_DB_BACKUPS" -gt 0 ]]; then fail "Unencrypted database or full-backup archives were detected; compression alone is not encryption."; fi
-
 section "RESULT"
 if [[ "$FAILURES" -eq 0 ]]; then
   info "HOST_CHECKS=PASS (does not replace staging, restore, privacy/legal, or load-test approval)"
