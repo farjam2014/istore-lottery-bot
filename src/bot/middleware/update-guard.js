@@ -2,11 +2,22 @@ import {randomUUID} from 'node:crypto';
 import {pool} from '../../database/pool.js';
 import {logger} from '../../shared/logger.js';
 import {withCorrelation} from '../../shared/request-context.js';
+import {config} from '../../config/env.js';
+import {findProfile} from '../../modules/participants/participant.service.js';
+import {hasPermission} from '../../modules/admin/admin-role.service.js';
 
 const counters=new Map();
 const LEASE_MINUTES=5;
 const HEARTBEAT_INTERVAL_MS=30_000;
 const MAX_ATTEMPTS=8;
+
+async function requiresPrivacyConsent(ctx){
+  const userId=ctx.from?.id;
+  if(!userId||!config.PRIVACY_NOTICE_VERSION)return false;
+  if(config.adminIds.has(String(userId))||await hasPermission(userId,'dashboard.read'))return false;
+  const profile=await findProfile(userId);
+  return !profile||profile.status==='blocked'||profile.privacy_consent_version!==config.PRIVACY_NOTICE_VERSION;
+}
 
 function ratePolicy(ctx){
   if(ctx.callbackQuery)return {bucket:'callback',max:35};
@@ -20,7 +31,8 @@ export function createUpdateGuard({
   correlate=withCorrelation,
   uuid=randomUUID,
   heartbeatIntervalMs=HEARTBEAT_INTERVAL_MS,
-  leaseMinutes=LEASE_MINUTES
+  leaseMinutes=LEASE_MINUTES,
+  requiresConsent=async()=>false
 }={}){
   return async(ctx,next)=>{
     const updateId=ctx.update?.update_id;
@@ -37,9 +49,15 @@ export function createUpdateGuard({
       let heartbeatTimer=null;
       let heartbeatRunning=false;
       try{
+        // Before current privacy consent, keep no Telegram profile fields, message
+        // text, contacts, usernames, or callback payload in durable storage. The
+        // original update remains in memory for this request; a crash-replay becomes
+        // a harmless no-op and the user can resend after accepting the notice.
+        const minimizePayload=await requiresConsent(ctx);
+        const persistedPayload=minimizePayload?{update_id:updateId}:ctx.update;
         const [insertResult]=await database.execute(
           "INSERT IGNORE INTO telegram_update_inbox(update_id,payload,status,available_at) VALUES(?,?,'pending',UTC_TIMESTAMP())",
-          [updateId,JSON.stringify(ctx.update)]
+          [updateId,JSON.stringify(persistedPayload)]
         );
         const alreadyPersisted=Number(insertResult?.affectedRows)===0;
         const [claim]=await database.execute(
@@ -147,5 +165,5 @@ export function createUpdateGuard({
 }
 
 export function updateGuard(){
-  return createUpdateGuard();
+  return createUpdateGuard({requiresConsent:requiresPrivacyConsent});
 }
