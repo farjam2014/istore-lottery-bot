@@ -103,6 +103,12 @@ if [[ -n "$ACTIVE" && -d "$ACTIVE" ]]; then
     fail "Runtime .env is missing."
   fi
   if [[ -f "$ACTIVE/.env" && ! -L "$ACTIVE/.env" ]]; then
+    RETENTION_CLEANUP_ENABLED="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" RETENTION_CLEANUP_ENABLED)"
+    case "$RETENTION_CLEANUP_ENABLED" in
+      ""|false) info "retention_cleanup=disabled" ;;
+      true) fail "RETENTION_CLEANUP_ENABLED=true but no written business/legal retention approval is recorded." ;;
+      *) fail "RETENTION_CLEANUP_ENABLED must be absent or exactly false until written business/legal approval." ;;
+    esac
     NOTICE_URL="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" PRIVACY_NOTICE_URL)"
     NOTICE_VERSION="$(read_dotenv_value "$ACTIVE" "$ACTIVE/.env" PRIVACY_NOTICE_VERSION)"
     if [[ "$NOTICE_URL" =~ ^https://[^[:space:]]{1,2040}$ && "$NOTICE_VERSION" =~ ^[A-Za-z0-9._-]{1,40}$ ]]; then
