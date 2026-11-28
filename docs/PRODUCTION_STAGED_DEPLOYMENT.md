@@ -128,11 +128,9 @@ Only after separate approval:
    MIGRATION_ENV_DIR="/etc/ustore-telegram-bot"
    MIGRATION_ENV="$MIGRATION_ENV_DIR/ustore-telegram-bot-migration.env"
    test -d "$MIGRATION_ENV_DIR" && test ! -L "$MIGRATION_ENV_DIR"
-   test "$(stat -c '%U' "$MIGRATION_ENV_DIR")" = root
-   test "$(stat -c '%a' "$MIGRATION_ENV_DIR")" = 700
+   test "$(stat -c '%U:%G:%a' "$MIGRATION_ENV_DIR")" = root:root:700
    test -f "$MIGRATION_ENV" && test ! -L "$MIGRATION_ENV"
-   test "$(stat -c '%U' "$MIGRATION_ENV")" = root
-   test "$(stat -c '%a' "$MIGRATION_ENV")" = 600
+   test "$(stat -c '%U:%G:%a' "$MIGRATION_ENV")" = root:root:600
    set -a
    . "$MIGRATION_ENV"
    set +a
