@@ -23,3 +23,9 @@ test('unknown and malformed Telegram errors map to a fixed safe label',()=>{
   assert.equal(safeTelegramDeliveryErrorLabel(new Error('token=do-not-store')), 'network_or_unknown');
   assert.equal(safeTelegramDeliveryErrorLabel({response:{error_code:9999,description:'private data'}}), 'network_or_unknown');
 });
+
+
+test('admin outbox presentation preserves the safe HTTP 408 uncertainty label',()=>{
+  const admin=readFileSync(new URL('../../src/bot/handlers/admin.handler.js',import.meta.url),'utf8');
+  assert.match(admin,/telegram_http_408_timeout/);
+});
