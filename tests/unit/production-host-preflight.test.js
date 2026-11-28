@@ -203,7 +203,10 @@ test('production host preflight detects manually launched GitHub runner processe
 });
 
 test('root-only plaintext draw-key backups are non-blocking only when live draw and encrypted-seed counts are both zero',()=>{
-  assert.ok(source.includes('SELECT COUNT(*), COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>'));
+  assert.ok(source.includes('SELECT (SELECT COUNT(*) FROM'));
+  assert.ok(source.includes('campaign_draws), (SELECT COALESCE(SUM(seed_ciphertext IS NOT NULL AND seed_ciphertext<>'));
+  assert.ok(source.includes('draw_candidates'));
+  assert.ok(source.includes('draw_winners'));
   assert.ok(source.includes('plaintext_draw_key_backups=retained_root_only_no_draw_records; cleanup_deferred'));
   assert.ok(source.includes('root:root:600'));
   assert.ok(source.includes('Plaintext draw-key backups remain while draw records exist or their usage could not be verified.'));
