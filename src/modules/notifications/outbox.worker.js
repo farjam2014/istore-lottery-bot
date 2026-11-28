@@ -15,6 +15,7 @@ function telegramErrorCode(error){
 export function safeTelegramDeliveryErrorLabel(error){
   const code=telegramErrorCode(error);
   if(code===429)return 'telegram_http_429';
+  if(code===408)return 'telegram_http_408_timeout';
   if(code!==null&&code>=500)return 'telegram_http_5xx';
   if(code!==null&&code>=400)return 'telegram_http_4xx';
   return 'network_or_unknown';
@@ -24,6 +25,10 @@ export function classifyTelegramDeliveryError(error,attempts=1){
   const code=telegramErrorCode(error);
   const retryDelay=Math.min(3600,Math.max(1,Number(error?.response?.parameters?.retry_after??error?.parameters?.retry_after)||Math.min(3600,Math.pow(2,Math.min(attempts,10))*15)));
   if(code===429)return {status:'pending',delaySeconds:retryDelay,errorLabel:'telegram_http_429'};
+  // HTTP 408 is a timeout, not proof that Telegram rejected the message. The
+  // request may have been accepted before the timeout response was produced.
+  // Keep it uncertain and require an explicit, audited operator decision.
+  if(code===408)return {status:'uncertain',delaySeconds:0,errorLabel:'telegram_http_408_timeout'};
   if(code!==null&&code>=400&&code<500)return {status:'failed',delaySeconds:0,errorLabel:'telegram_http_4xx'};
   // Network failures and server errors are ambiguous: Telegram may have accepted
   // the message before the response was lost. Never automatically resend them.
