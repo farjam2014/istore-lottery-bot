@@ -52,9 +52,15 @@ async function main(){
   catch(error){logger.error({err:error},'Retention cleanup worker failed');}
   finally{retentionCleanupRunning=false;}
  };
- const retentionCleanupTimer=setInterval(runRetentionCleanup,15*60_000);
- expiryTimer.unref?.();outboxTimer.unref?.();campaignScheduleTimer.unref?.();updateInboxTimer.unref?.();retentionCleanupTimer.unref?.();
- void runRetentionCleanup();
+ let retentionCleanupTimer=null;
+ if(config.RETENTION_CLEANUP_ENABLED){
+  retentionCleanupTimer=setInterval(runRetentionCleanup,15*60_000);
+  retentionCleanupTimer.unref?.();
+  void runRetentionCleanup();
+ }else{
+  logger.warn({enabled:false},'Retention cleanup is disabled pending explicit business/legal approval');
+ }
+ expiryTimer.unref?.();outboxTimer.unref?.();campaignScheduleTimer.unref?.();updateInboxTimer.unref?.();
  const shutdown=async signal=>{
   logger.info({signal},'Shutting down');
   clearInterval(expiryTimer);clearInterval(outboxTimer);clearInterval(campaignScheduleTimer);clearInterval(updateInboxTimer);clearInterval(retentionCleanupTimer);
